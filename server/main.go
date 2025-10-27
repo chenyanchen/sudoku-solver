@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/chenyanchen/sudoku-solver/service/cvservice"
+	"github.com/chenyanchen/sudoku-solver/sudoku"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )
@@ -68,6 +69,12 @@ func (s *SudokuSolveHandler) Solve(c *gin.Context) {
 		return
 	}
 
-	log.Info().Any("recognize", resp)
-	c.JSON(http.StatusOK, gin.H{"message": "todo"})
+	board := make([][]int, 9)
+	for i := range board {
+		board[i] = make([]int, 9)
+		copy(board[i], resp.Puzzle[i])
+	}
+	sudoku.BacktrackingSolve(board)
+
+	c.JSON(http.StatusOK, gin.H{"board": resp.Puzzle, "solution": board})
 }
