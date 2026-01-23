@@ -71,9 +71,9 @@ The application will be available at http://localhost:8000
 
 - `GET /` - Web interface
 - `GET /health` - Health check
-- `POST /api/solve` - Solve a Sudoku from JSON
-- `POST /api/solve-image` - Solve a Sudoku from an image
-- `POST /api/detect-grid` - Detect grid from an image
+- `POST /api/v1/sudoku:solve` - Solve a Sudoku from JSON
+- `POST /api/v1/sudoku:solveImage` - Solve a Sudoku from an image
+- `POST /api/v1/sudoku:detectGrid` - Detect grid from an image
 - `GET /docs` - API documentation
 
 ## Project Structure

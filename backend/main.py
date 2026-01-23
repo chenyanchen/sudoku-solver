@@ -41,22 +41,6 @@ async def root():
     return {"message": "Sudoku Solver API", "docs": "/docs"}
 
 
-@app.get("/api")
-async def api_info():
-    """API information endpoint."""
-    return {
-        "name": app.title,
-        "version": app.version,
-        "endpoints": {
-            "health": "/health",
-            "solve_json": "/api/solve",
-            "solve_image": "/api/solve-image",
-            "detect_grid": "/api/detect-grid",
-            "docs": "/docs"
-        }
-    }
-
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)

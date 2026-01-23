@@ -51,7 +51,7 @@ async def health_check():
     )
 
 
-@router.post("/api/solve", response_model=SolveResponse)
+@router.post("/api/v1/sudoku:solve", response_model=SolveResponse)
 async def solve_sudoku(request: SolveRequest):
     """
     Solve a Sudoku puzzle from a JSON grid.
@@ -105,7 +105,7 @@ async def solve_sudoku(request: SolveRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/api/solve-image", response_model=ImageSolveResponse)
+@router.post("/api/v1/sudoku:solveImage", response_model=ImageSolveResponse)
 async def solve_sudoku_from_image(
         image: UploadFile = File(...),
         ocr_threshold: Optional[float] = 50.0
@@ -233,7 +233,7 @@ async def solve_sudoku_from_image(
         )
 
 
-@router.post("/api/detect-grid")
+@router.post("/api/v1/sudoku:detectGrid")
 async def detect_grid(image: UploadFile = File(...)):
     """
     Detect and extract the Sudoku grid from an image.
