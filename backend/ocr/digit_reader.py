@@ -5,6 +5,8 @@ import numpy as np
 import pytesseract
 from typing import Optional, List
 
+from ..cv.cell_extractor import clean_cell, extract_digit
+
 
 # Tesseract configuration for single digit recognition
 DIGIT_CONFIG = '--psm 10 --oem 3 -c tessedit_char_whitelist=123456789'
@@ -27,7 +29,7 @@ class DigitReader:
     def recognize_digit(self, cell_image: np.ndarray, threshold: float = 30.0) -> Optional[int]:
         """
         Recognize a single digit from a cell image.
-        Uses multiple preprocessing attempts for faint/light digits.
+        Uses staged preprocessing attempts for faint/light digits.
 
         Args:
             cell_image: Grayscale cell image
@@ -39,34 +41,29 @@ class DigitReader:
         if cell_image is None or cell_image.size == 0:
             return None
 
-        # Try multiple preprocessing approaches
-        for processed in self._prepare_image_variants(cell_image):
-            try:
-                # Get OCR data with confidence
-                data = pytesseract.image_to_data(
-                    processed,
-                    config=self.config,
-                    output_type=pytesseract.Output.DICT
-                )
+        # Fast blank check to avoid unnecessary OCR calls
+        if self._is_likely_blank(cell_image):
+            return None
 
-                # Extract text and confidence
-                text = data.get('text', [])
-                conf = data.get('conf', [])
+        # Normalize and extract digit to reduce background noise
+        normalized = clean_cell(cell_image, cell_size=48)
+        digit_image, has_digit = extract_digit(normalized)
+        candidate = digit_image if has_digit else normalized
 
-                if not text or not conf:
-                    continue
+        # Try fast preprocessing variants first
+        for processed in self._prepare_fast_variants(candidate):
+            result = self._run_ocr(processed, threshold)
+            if result is not None:
+                return result
 
-                # Iterate through all entries to find the first valid digit
-                # Tesseract may return multiple entries; actual digit is often not at index 0
-                for char, confidence in zip(text, conf):
-                    char = char.strip()
-                    # Check if we got a valid digit with sufficient confidence
-                    if char.isdigit() and 1 <= int(char) <= 9:
-                        if confidence >= threshold:
-                            return int(char)
+        # Fall back to more aggressive variants if needed (only if a digit was found)
+        if not has_digit:
+            return None
 
-            except Exception:
-                continue
+        for processed in self._prepare_fallback_variants(digit_image):
+            result = self._run_ocr(processed, threshold)
+            if result is not None:
+                return result
 
         return None
 
@@ -125,6 +122,130 @@ class DigitReader:
 
         return binary
 
+    def _is_likely_blank(self, cell_image: np.ndarray) -> bool:
+        """
+        Quick heuristic to skip OCR for empty cells.
+
+        Uses low-variance detection on a downscaled grayscale image to avoid
+        spending time on clearly blank cells.
+        """
+        if cell_image is None or cell_image.size == 0:
+            return True
+
+        if len(cell_image.shape) == 3:
+            gray = cv2.cvtColor(cell_image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = cell_image
+
+        # Downscale for speed
+        small = cv2.resize(gray, (24, 24)) if gray.shape[:2] != (24, 24) else gray
+        if float(np.std(small)) < 4.0:
+            return True
+
+        # Secondary check: very low ink ratio after Otsu thresholding
+        _, binary = cv2.threshold(small, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        ink_ratio = float(np.mean(binary > 0))
+        return ink_ratio < 0.015
+
+    def _run_ocr(self, processed: np.ndarray, threshold: float) -> Optional[int]:
+        """
+        Run Tesseract OCR on a processed image and return a digit if confident.
+        """
+        try:
+            data = pytesseract.image_to_data(
+                processed,
+                config=self.config,
+                output_type=pytesseract.Output.DICT
+            )
+
+            text = data.get('text', [])
+            conf = data.get('conf', [])
+
+            if not text or not conf:
+                return None
+
+            for char, confidence in zip(text, conf):
+                char = char.strip()
+                if char.isdigit() and 1 <= int(char) <= 9:
+                    try:
+                        conf_value = float(confidence)
+                    except (TypeError, ValueError):
+                        continue
+                    if conf_value >= threshold:
+                        return int(char)
+        except Exception:
+            return None
+
+        return None
+
+    def _prepare_fast_variants(self, cell_image: np.ndarray) -> List[np.ndarray]:
+        """
+        Generate fast preprocessing variants.
+
+        These are cheap and cover the common cases.
+        """
+        variants: List[np.ndarray] = []
+
+        if len(cell_image.shape) == 3:
+            gray = cv2.cvtColor(cell_image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = cell_image.copy()
+
+        target_size = 64
+        if gray.shape[:2] != (target_size, target_size):
+            gray = cv2.resize(gray, (target_size, target_size))
+
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        if np.mean(binary) < 127:
+            binary = cv2.bitwise_not(binary)
+        variants.append(binary)
+
+        kernel = np.ones((2, 2), np.uint8)
+        dilated = cv2.dilate(binary, kernel, iterations=1)
+        variants.append(dilated)
+
+        return variants
+
+    def _prepare_fallback_variants(self, cell_image: np.ndarray) -> List[np.ndarray]:
+        """
+        Generate more aggressive variants as a fallback.
+        """
+        variants: List[np.ndarray] = []
+
+        if len(cell_image.shape) == 3:
+            gray = cv2.cvtColor(cell_image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = cell_image.copy()
+
+        target_size = 64
+        if gray.shape[:2] != (target_size, target_size):
+            gray = cv2.resize(gray, (target_size, target_size))
+
+        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+        adaptive = cv2.adaptiveThreshold(
+            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY, 11, 5
+        )
+        if np.mean(adaptive) < 127:
+            adaptive = cv2.bitwise_not(adaptive)
+        variants.append(adaptive)
+
+        # High-contrast stretch
+        min_val = np.min(gray)
+        max_val = np.max(gray)
+        if max_val > min_val:
+            stretched = ((gray - min_val) * 255 / (max_val - min_val)).astype(np.uint8)
+        else:
+            stretched = gray
+        _, stretched_bin = cv2.threshold(
+            stretched, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )
+        if np.mean(stretched_bin) < 127:
+            stretched_bin = cv2.bitwise_not(stretched_bin)
+        variants.append(stretched_bin)
+
+        return variants
+
     def _prepare_image_variants(self, cell_image: np.ndarray) -> List[np.ndarray]:
         """
         Generate multiple preprocessed variants of the cell image.
@@ -136,62 +257,9 @@ class DigitReader:
         Returns:
             List of processed image variants
         """
-        variants = []
-
-        # Ensure grayscale
-        if len(cell_image.shape) == 3:
-            gray = cv2.cvtColor(cell_image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = cell_image.copy()
-
-        # Target size for OCR
-        target_size = 64
-
-        # Variant 1: Standard Otsu threshold
-        resized1 = cv2.resize(gray, (target_size, target_size))
-        _, binary1 = cv2.threshold(resized1, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        variants.append(binary1)
-
-        # Variant 2: Aggressive adaptive threshold for faint digits
-        resized2 = cv2.resize(gray, (target_size, target_size))
-        blurred2 = cv2.GaussianBlur(resized2, (3, 3), 0)
-        clahe2 = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
-        enhanced2 = clahe2.apply(blurred2)
-        adaptive2 = cv2.adaptiveThreshold(
-            enhanced2, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV, 11, 8
-        )
-        variants.append(adaptive2)
-
-        # Variant 3: Invert and try (for dark digits on light background)
-        _, binary3 = cv2.threshold(resized1, 127, 255, cv2.THRESH_BINARY)
-        variants.append(binary3)
-
-        # Variant 4: Dilated to make thin digits thicker
-        kernel = np.ones((2, 2), np.uint8)
-        dilated = cv2.dilate(adaptive2, kernel, iterations=1)
-        variants.append(dilated)
-
-        # Variant 5: High contrast stretch
-        resized5 = cv2.resize(gray, (target_size, target_size))
-        min_val = np.min(resized5)
-        max_val = np.max(resized5)
-        if max_val > min_val:
-            stretched = ((resized5 - min_val) * 255 / (max_val - min_val)).astype(np.uint8)
-        else:
-            stretched = resized5
-        _, binary5 = cv2.threshold(stretched, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        variants.append(binary5)
-
-        # Ensure all have white background (invert if needed)
-        final_variants = []
-        for v in variants:
-            mean_val = np.mean(v)
-            if mean_val < 127:
-                v = cv2.bitwise_not(v)
-            final_variants.append(v)
-
-        return final_variants
+        variants = self._prepare_fast_variants(cell_image)
+        variants.extend(self._prepare_fallback_variants(cell_image))
+        return variants
 
     def recognize_with_fallback(
         self,
