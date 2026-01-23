@@ -9,7 +9,7 @@ from ..cv.cell_extractor import clean_cell, extract_digit
 
 
 # Tesseract configuration for single digit recognition
-DIGIT_CONFIG = '--psm 10 --oem 3 -c tessedit_char_whitelist=123456789'
+DIGIT_CONFIG = "--psm 10 --oem 3 -c tessedit_char_whitelist=123456789"
 # psm 10: Treat image as a single character
 # oem 3: Use both LSTM and legacy engines
 
@@ -26,7 +26,9 @@ class DigitReader:
         """
         self.config = config
 
-    def recognize_digit(self, cell_image: np.ndarray, threshold: float = 30.0) -> Optional[int]:
+    def recognize_digit(
+        self, cell_image: np.ndarray, threshold: float = 30.0
+    ) -> Optional[int]:
         """
         Recognize a single digit from a cell image.
         Uses staged preprocessing attempts for faint/light digits.
@@ -68,9 +70,7 @@ class DigitReader:
         return None
 
     def recognize_grid(
-        self,
-        cells: List[np.ndarray],
-        threshold: float = 50.0
+        self, cells: List[np.ndarray], threshold: float = 50.0
     ) -> List[List[int]]:
         """
         Recognize digits from a list of 81 cell images.
@@ -143,7 +143,9 @@ class DigitReader:
             return True
 
         # Secondary check: very low ink ratio after Otsu thresholding
-        _, binary = cv2.threshold(small, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        _, binary = cv2.threshold(
+            small, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
         ink_ratio = float(np.mean(binary > 0))
         return ink_ratio < 0.015
 
@@ -153,13 +155,11 @@ class DigitReader:
         """
         try:
             data = pytesseract.image_to_data(
-                processed,
-                config=self.config,
-                output_type=pytesseract.Output.DICT
+                processed, config=self.config, output_type=pytesseract.Output.DICT
             )
 
-            text = data.get('text', [])
-            conf = data.get('conf', [])
+            text = data.get("text", [])
+            conf = data.get("conf", [])
 
             if not text or not conf:
                 return None
@@ -223,8 +223,7 @@ class DigitReader:
 
         blurred = cv2.GaussianBlur(gray, (3, 3), 0)
         adaptive = cv2.adaptiveThreshold(
-            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 11, 5
+            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 5
         )
         if np.mean(adaptive) < 127:
             adaptive = cv2.bitwise_not(adaptive)
@@ -246,25 +245,8 @@ class DigitReader:
 
         return variants
 
-    def _prepare_image_variants(self, cell_image: np.ndarray) -> List[np.ndarray]:
-        """
-        Generate multiple preprocessed variants of the cell image.
-        Tries different approaches to handle various digit styles.
-
-        Args:
-            cell_image: Input cell image
-
-        Returns:
-            List of processed image variants
-        """
-        variants = self._prepare_fast_variants(cell_image)
-        variants.extend(self._prepare_fallback_variants(cell_image))
-        return variants
-
     def recognize_with_fallback(
-        self,
-        cell_image: np.ndarray,
-        threshold: float = 50.0
+        self, cell_image: np.ndarray, threshold: float = 50.0
     ) -> Optional[int]:
         """
         Recognize a digit with multiple preprocessing attempts.

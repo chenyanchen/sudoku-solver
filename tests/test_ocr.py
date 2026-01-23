@@ -4,7 +4,12 @@ import pytest
 import numpy as np
 import cv2
 
-from backend.ocr.digit_reader import DigitReader, recognize_digit, recognize_grid, preprocess_for_ocr
+from backend.ocr.digit_reader import (
+    DigitReader,
+    recognize_digit,
+    recognize_grid,
+    preprocess_for_ocr,
+)
 
 
 class TestDigitReader:

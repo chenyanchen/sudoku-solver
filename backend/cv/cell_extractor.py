@@ -32,7 +32,7 @@ def extract_cells(grid_image: np.ndarray) -> List[np.ndarray]:
             y = row * cell_size
 
             # Extract cell (add 1px to skip grid line, subtract 2px for other border)
-            cell = grid_image[y + 1:y + cell_size - 1, x + 1:x + cell_size - 1]
+            cell = grid_image[y + 1 : y + cell_size - 1, x + 1 : x + cell_size - 1]
 
             cells.append(cell)
 
@@ -135,7 +135,7 @@ def extract_digit(cell_image: np.ndarray) -> Tuple[np.ndarray, bool]:
     h = min(gray.shape[0] - y, h + 2 * padding)
 
     # Extract the digit
-    digit = gray[y:y + h, x:x + w]
+    digit = gray[y : y + h, x : x + w]
 
     # Create a centered image
     output_size = 48
@@ -155,7 +155,9 @@ def extract_digit(cell_image: np.ndarray) -> Tuple[np.ndarray, bool]:
             start_x = (output_size - new_w) // 2
             start_y = (output_size - new_h) // 2
 
-            centered[start_y:start_y + new_h, start_x:start_x + new_w] = digit_resized
+            centered[start_y : start_y + new_h, start_x : start_x + new_w] = (
+                digit_resized
+            )
 
     return centered, True
 
@@ -181,35 +183,3 @@ def get_cell_grid_positions(grid_size: int = 9) -> List[Tuple[int, int, int, int
             positions.append((x, y, cell_width, cell_height))
 
     return positions
-
-
-def extract_cells_with_positions(
-    grid_image: np.ndarray,
-    grid_size: int = 9
-) -> List[Tuple[np.ndarray, int, int]]:
-    """
-    Extract cells along with their grid positions.
-
-    Args:
-        grid_image: Grid image
-        grid_size: Size of the grid
-
-    Returns:
-        List of (cell_image, row, col) tuples
-    """
-    if grid_image is None:
-        return []
-
-    cells_with_pos = []
-    cell_size = 450 // grid_size
-
-    for row in range(grid_size):
-        for col in range(grid_size):
-            x = col * cell_size
-            y = row * cell_size
-
-            # Extract cell with border removal
-            cell = grid_image[y + 1:y + cell_size - 1, x + 1:x + cell_size - 1]
-            cells_with_pos.append((cell, row, col))
-
-    return cells_with_pos

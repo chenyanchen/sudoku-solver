@@ -4,9 +4,25 @@ import pytest
 import numpy as np
 import cv2
 
-from backend.cv.preprocessor import preprocess, enhance_contrast, denoise, morphological_operations, invert_image
-from backend.cv.grid_detector import find_grid, order_corners, perspective_transform, validate_grid
-from backend.cv.cell_extractor import extract_cells, clean_cell, extract_digit, get_cell_grid_positions
+from backend.cv.preprocessor import (
+    preprocess,
+    enhance_contrast,
+    denoise,
+    morphological_operations,
+    invert_image,
+)
+from backend.cv.grid_detector import (
+    find_grid,
+    order_corners,
+    perspective_transform,
+    validate_grid,
+)
+from backend.cv.cell_extractor import (
+    extract_cells,
+    clean_cell,
+    extract_digit,
+    get_cell_grid_positions,
+)
 
 
 class TestPreprocessor:
@@ -19,14 +35,14 @@ class TestPreprocessor:
 
         result = preprocess(img)
 
-        assert 'gray' in result
-        assert 'blurred' in result
-        assert 'thresh' in result
-        assert 'original' in result
+        assert "gray" in result
+        assert "blurred" in result
+        assert "thresh" in result
+        assert "original" in result
 
-        assert result['gray'].shape == (100, 100)
-        assert result['blurred'].shape == (100, 100)
-        assert result['thresh'].shape == (100, 100)
+        assert result["gray"].shape == (100, 100)
+        assert result["blurred"].shape == (100, 100)
+        assert result["thresh"].shape == (100, 100)
 
     def test_preprocess_none_image(self):
         """Test preprocessing with None image raises error."""
@@ -76,12 +92,15 @@ class TestGridDetector:
 
     def test_order_corners(self):
         """Test corner ordering."""
-        corners = np.array([
-            [50, 50],   # Top-left (roughly)
-            [150, 40],  # Top-right
-            [160, 140], # Bottom-right
-            [30, 150]   # Bottom-left
-        ], dtype=np.float32)
+        corners = np.array(
+            [
+                [50, 50],  # Top-left (roughly)
+                [150, 40],  # Top-right
+                [160, 140],  # Bottom-right
+                [30, 150],  # Bottom-left
+            ],
+            dtype=np.float32,
+        )
 
         ordered = order_corners(corners)
 
@@ -96,12 +115,7 @@ class TestGridDetector:
     def test_perspective_transform(self):
         """Test perspective transformation."""
         img = np.ones((100, 100, 3), dtype=np.uint8) * 255
-        corners = np.array([
-            [10, 10],
-            [90, 10],
-            [90, 90],
-            [10, 90]
-        ], dtype=np.float32)
+        corners = np.array([[10, 10], [90, 10], [90, 90], [10, 90]], dtype=np.float32)
 
         result = perspective_transform(img, corners, (50, 50))
 

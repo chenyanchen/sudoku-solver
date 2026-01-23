@@ -86,7 +86,7 @@ class SudokuSolver {
             const formData = new FormData();
             formData.append('image', this.selectedFile);
 
-            const response = await fetch('/api/v1/sudoku:solveImage', {
+            const response = await fetch('/api/v1/sudoku:solveImage?ocr_threshold=33', {
                 method: 'POST',
                 body: formData
             });

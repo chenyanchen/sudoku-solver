@@ -35,14 +35,14 @@ def preprocess(image: np.ndarray) -> dict:
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY_INV,
         11,  # Block size (must be odd)
-        2    # Constant subtracted from mean
+        2,  # Constant subtracted from mean
     )
 
     return {
         "gray": gray,
         "blurred": blurred,
         "thresh": thresh,
-        "original": image.copy()
+        "original": image.copy(),
     }
 
 
@@ -70,7 +70,9 @@ def denoise(image: np.ndarray) -> np.ndarray:
     Returns:
         Denoised image
     """
-    return cv2.fastNlMeansDenoising(image, None, h=10, templateWindowSize=7, searchWindowSize=21)
+    return cv2.fastNlMeansDenoising(
+        image, None, h=10, templateWindowSize=7, searchWindowSize=21
+    )
 
 
 def morphological_operations(thresh: np.ndarray, kernel_size: int = 3) -> np.ndarray:

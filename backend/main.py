@@ -1,6 +1,6 @@
 """Main FastAPI application for Sudoku Solver."""
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,7 +12,7 @@ from .api.routes import router
 app = FastAPI(
     title="Sudoku Solver API",
     description="API for solving Sudoku puzzles from images or JSON grids",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 # Configure CORS
@@ -43,4 +43,5 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)

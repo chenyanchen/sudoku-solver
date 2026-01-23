@@ -1,8 +1,5 @@
 """API routes for the Sudoku solver application."""
 
-import io
-import os
-import time
 import base64
 import cv2
 import numpy as np
@@ -15,7 +12,6 @@ from ..models.schemas import (
     SolveResponse,
     ImageSolveResponse,
     HealthResponse,
-    ErrorResponse
 )
 from ..solver.backtracking import SudokuSolver, is_valid_grid
 from ..cv.grid_detector import find_grid
@@ -27,8 +23,8 @@ router = APIRouter()
 
 def image_to_base64(image: np.ndarray) -> str:
     """Convert OpenCV image to base64 string."""
-    _, buffer = cv2.imencode('.png', image)
-    return base64.b64encode(buffer).decode('utf-8')
+    _, buffer = cv2.imencode(".png", image)
+    return base64.b64encode(buffer).decode("utf-8")
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -36,6 +32,7 @@ async def health_check():
     """Health check endpoint."""
     try:
         import pytesseract
+
         tesseract_available = True
         # Try to get Tesseract version
         try:
@@ -45,13 +42,10 @@ async def health_check():
     except ImportError:
         tesseract_available = False
 
-    return HealthResponse(
-        status="healthy",
-        tesseract_available=tesseract_available
-    )
+    return HealthResponse(status="healthy", tesseract_available=tesseract_available)
 
 
-@router.post("/api/v1/sudoku:solve", response_model=SolveResponse)
+@router.post("/api/v1/sudoku:solve", response_model=SolveResponse, tags=["Sudoku"])
 async def solve_sudoku(request: SolveRequest):
     """
     Solve a Sudoku puzzle from a JSON grid.
@@ -73,7 +67,7 @@ async def solve_sudoku(request: SolveRequest):
                 success=False,
                 original=grid,
                 solved=None,
-                message="Invalid Sudoku grid format"
+                message="Invalid Sudoku grid format",
             )
 
         # Solve the puzzle
@@ -88,27 +82,27 @@ async def solve_sudoku(request: SolveRequest):
             else:
                 message = "Puzzle has multiple solutions"
             return SolveResponse(
-                success=False,
-                original=grid,
-                solved=None,
-                message=message
+                success=False, original=grid, solved=None, message=message
             )
 
         return SolveResponse(
             success=True,
             original=grid,
             solved=solved,
-            message="Puzzle solved successfully"
+            message="Puzzle solved successfully",
         )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/api/v1/sudoku:solveImage", response_model=ImageSolveResponse)
+@router.post(
+    "/api/v1/sudoku:solveImage",
+    response_model=ImageSolveResponse,
+    tags=["Sudoku"],
+)
 async def solve_sudoku_from_image(
-        image: UploadFile = File(...),
-        ocr_threshold: Optional[float] = 50.0
+    image: UploadFile = File(...), ocr_threshold: Optional[float] = 50.0
 ):
     """
     Solve a Sudoku puzzle from an uploaded image.
@@ -134,7 +128,7 @@ async def solve_sudoku_from_image(
                 original_grid=None,
                 solved_grid=None,
                 detected_image=None,
-                confidence=None
+                confidence=None,
             )
 
         # Detect and extract grid from original image first
@@ -155,11 +149,15 @@ async def solve_sudoku_from_image(
                 original_grid=None,
                 solved_grid=None,
                 detected_image=None,
-                confidence=None
+                confidence=None,
             )
 
         # Get grayscale version of grid
-        gray = cv2.cvtColor(grid_img, cv2.COLOR_BGR2GRAY) if len(grid_img.shape) == 3 else grid_img
+        gray = (
+            cv2.cvtColor(grid_img, cv2.COLOR_BGR2GRAY)
+            if len(grid_img.shape) == 3
+            else grid_img
+        )
 
         # Apply CLAHE enhancement to bring out faint digits
         clahe = cv2.createCLAHE(clipLimit=5.0, tileGridSize=(2, 2))
@@ -196,7 +194,7 @@ async def solve_sudoku_from_image(
                 original_grid=grid,
                 solved_grid=None,
                 detected_image=image_to_base64(grid_img),
-                confidence=None
+                confidence=None,
             )
 
         # Solve the puzzle
@@ -210,7 +208,7 @@ async def solve_sudoku_from_image(
                 original_grid=grid,
                 solved_grid=None,
                 detected_image=image_to_base64(grid_img),
-                confidence=None
+                confidence=None,
             )
 
         return ImageSolveResponse(
@@ -219,7 +217,7 @@ async def solve_sudoku_from_image(
             original_grid=grid,
             solved_grid=solved,
             detected_image=image_to_base64(grid_img),
-            confidence=None
+            confidence=None,
         )
 
     except Exception as e:
@@ -229,11 +227,11 @@ async def solve_sudoku_from_image(
             original_grid=None,
             solved_grid=None,
             detected_image=None,
-            confidence=None
+            confidence=None,
         )
 
 
-@router.post("/api/v1/sudoku:detectGrid")
+@router.post("/api/v1/sudoku:detectGrid", tags=["Sudoku"])
 async def detect_grid(image: UploadFile = File(...)):
     """
     Detect and extract the Sudoku grid from an image.
@@ -257,14 +255,14 @@ async def detect_grid(image: UploadFile = File(...)):
                 status_code=404,
                 content={
                     "success": False,
-                    "message": "Could not detect a Sudoku grid in the image"
-                }
+                    "message": "Could not detect a Sudoku grid in the image",
+                },
             )
 
         return {
             "success": True,
             "message": "Grid detected successfully",
-            "detected_image": image_to_base64(grid_img)
+            "detected_image": image_to_base64(grid_img),
         }
 
     except Exception as e:

@@ -6,6 +6,7 @@ from typing import List, Optional
 
 class SudokuCell(BaseModel):
     """A single Sudoku cell."""
+
     value: int = Field(ge=0, le=9, description="Cell value (0 for empty)")
     row: int = Field(ge=0, le=8, description="Row index (0-8)")
     col: int = Field(ge=0, le=8, description="Column index (0-8)")
@@ -13,6 +14,7 @@ class SudokuCell(BaseModel):
 
 class SudokuGrid(BaseModel):
     """A Sudoku grid."""
+
     cells: List[List[int]] = Field(description="9x9 grid (0 for empty cells)")
 
     class Config:
@@ -33,11 +35,13 @@ class SudokuGrid(BaseModel):
 
 class SolveRequest(BaseModel):
     """Request to solve a Sudoku grid."""
+
     grid: SudokuGrid = Field(description="The Sudoku puzzle to solve")
 
 
 class SolveResponse(BaseModel):
     """Response from solving a Sudoku."""
+
     success: bool = Field(description="Whether the puzzle was solved")
     original: List[List[int]] = Field(description="Original grid")
     solved: Optional[List[List[int]]] = Field(description="Solved grid (if successful)")
@@ -46,28 +50,34 @@ class SolveResponse(BaseModel):
 
 class ImageSolveResponse(BaseModel):
     """Response from solving a Sudoku from an image."""
+
     success: bool = Field(description="Whether the operation was successful")
     message: str = Field(description="Status message")
     original_grid: Optional[List[List[int]]] = Field(description="OCR-extracted grid")
     solved_grid: Optional[List[List[int]]] = Field(description="Solved grid")
-    detected_image: Optional[str] = Field(description="Base64 encoded detected grid image")
+    detected_image: Optional[str] = Field(
+        description="Base64 encoded detected grid image"
+    )
     confidence: Optional[float] = Field(description="Overall OCR confidence")
 
 
 class ErrorResponse(BaseModel):
     """Error response."""
+
     error: str = Field(description="Error message")
     detail: Optional[str] = Field(description="Detailed error information")
 
 
 class HealthResponse(BaseModel):
     """Health check response."""
+
     status: str = Field(description="Service status")
     tesseract_available: bool = Field(description="Whether Tesseract OCR is available")
 
 
 class GridDetectionInfo(BaseModel):
     """Information about grid detection."""
+
     found: bool = Field(description="Whether a grid was found")
     corners: Optional[List[List[int]]] = Field(description="Corner points of the grid")
     confidence: Optional[float] = Field(description="Detection confidence")
@@ -75,7 +85,10 @@ class GridDetectionInfo(BaseModel):
 
 class OCRInfo(BaseModel):
     """Information about OCR processing."""
+
     total_cells: int = Field(description="Total cells processed")
     recognized_cells: int = Field(description="Number of cells with recognized digits")
     empty_cells: int = Field(description="Number of empty cells")
-    average_confidence: Optional[float] = Field(description="Average recognition confidence")
+    average_confidence: Optional[float] = Field(
+        description="Average recognition confidence"
+    )

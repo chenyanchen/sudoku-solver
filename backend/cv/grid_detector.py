@@ -25,9 +25,7 @@ def find_grid(image: np.ndarray, debug: bool = False) -> Optional[np.ndarray]:
 
         # Find contours
         contours, _ = cv2.findContours(
-            thresh,
-            cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE
+            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
 
         if not contours:
@@ -139,9 +137,7 @@ def order_corners(corners: np.ndarray) -> np.ndarray:
 
 
 def perspective_transform(
-    image: np.ndarray,
-    corners: np.ndarray,
-    output_size: Tuple[int, int] = (450, 450)
+    image: np.ndarray, corners: np.ndarray, output_size: Tuple[int, int] = (450, 450)
 ) -> np.ndarray:
     """
     Apply perspective transform to get a top-down view of the grid.
@@ -157,12 +153,10 @@ def perspective_transform(
     width, height = output_size
 
     # Destination points (top-left, top-right, bottom-right, bottom-left)
-    dst_points = np.array([
-        [0, 0],
-        [width - 1, 0],
-        [width - 1, height - 1],
-        [0, height - 1]
-    ], dtype=np.float32)
+    dst_points = np.array(
+        [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
+        dtype=np.float32,
+    )
 
     # Calculate perspective transform matrix
     matrix = cv2.getPerspectiveTransform(corners, dst_points)
@@ -191,7 +185,9 @@ def validate_grid(image: np.ndarray) -> bool:
     edges = cv2.Canny(gray, 50, 150)
 
     # Count horizontal and vertical lines using Hough lines
-    lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=50, minLineLength=50, maxLineGap=10)
+    lines = cv2.HoughLinesP(
+        edges, 1, np.pi / 180, threshold=50, minLineLength=50, maxLineGap=10
+    )
 
     if lines is None:
         return False
@@ -217,9 +213,7 @@ def find_grids_multiple(image: np.ndarray, max_grids: int = 5) -> List[np.ndarra
         thresh = morphological_operations(processed["thresh"])
 
         contours, _ = cv2.findContours(
-            thresh,
-            cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE
+            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
 
         if not contours:
@@ -247,7 +241,9 @@ def find_grids_multiple(image: np.ndarray, max_grids: int = 5) -> List[np.ndarra
             corners = get_corner_points(contour)
             if corners is not None:
                 corners = order_corners(corners)
-                warped = perspective_transform(processed["original"], corners, (450, 450))
+                warped = perspective_transform(
+                    processed["original"], corners, (450, 450)
+                )
                 if validate_grid(warped):
                     grids.append(warped)
 

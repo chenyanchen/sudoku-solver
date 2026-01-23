@@ -49,19 +49,13 @@ uv sync
 uv sync --all-extras
 ```
 
-### Setup with pip
-
-```bash
-pip install -r requirements.txt
-```
-
 ## Running the Application
 
 ```bash
 # Using uv
 uv run uvicorn backend.main:app --reload
 
-# Using python directly
+# Using python
 python -m uvicorn backend.main:app --reload
 ```
 
