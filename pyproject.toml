@@ -1,0 +1,20 @@
+[project]
+name = "sudoku-solver"
+version = "0.1.0"
+description = "Universal Sudoku Solver - Web app that solves Sudoku from images"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "opencv-python>=4.10.0",
+    "pytesseract>=0.3.13",
+    "numpy>=2.0.0",
+    "python-multipart>=0.0.17",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
