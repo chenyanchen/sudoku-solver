@@ -69,6 +69,8 @@ class SudokuSolver {
             this.previewSection.style.display = 'block';
             this.resultsSection.style.display = 'none';
             this.detectedCard.style.display = 'none';
+            // Auto-solve after image selection to skip manual button click
+            this.solvePuzzle();
         };
         reader.readAsDataURL(file);
     }

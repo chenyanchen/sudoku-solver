@@ -27,6 +27,35 @@ def image_to_base64(image: np.ndarray) -> str:
     return base64.b64encode(buffer).decode("utf-8")
 
 
+def detect_grid_image(image: np.ndarray) -> Optional[np.ndarray]:
+    """Detect the Sudoku grid, retrying with a simple contrast enhancement."""
+    grid_img = find_grid(image)
+    if grid_img is not None:
+        return grid_img
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
+    enhanced = clahe.apply(gray)
+    enhanced_bgr = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+    return find_grid(enhanced_bgr)
+
+
+def prepare_grid_for_ocr(grid_img: np.ndarray) -> np.ndarray:
+    """Enhance grid image for OCR and return a BGR image for cell extraction."""
+    gray = (
+        cv2.cvtColor(grid_img, cv2.COLOR_BGR2GRAY)
+        if len(grid_img.shape) == 3
+        else grid_img
+    )
+    clahe = cv2.createCLAHE(clipLimit=5.0, tileGridSize=(2, 2))
+    enhanced = clahe.apply(gray)
+
+    if np.mean(enhanced) <= 128:
+        enhanced = cv2.bitwise_not(enhanced)
+
+    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
@@ -132,15 +161,7 @@ async def solve_sudoku_from_image(
             )
 
         # Detect and extract grid from original image first
-        grid_img = find_grid(img)
-
-        if grid_img is None:
-            # Try enhanced version
-            gray_orig = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            clahe_orig = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
-            enhanced_orig = clahe_orig.apply(gray_orig)
-            enhanced_bgr = cv2.cvtColor(enhanced_orig, cv2.COLOR_GRAY2BGR)
-            grid_img = find_grid(enhanced_bgr)
+        grid_img = detect_grid_image(img)
 
         if grid_img is None:
             return ImageSolveResponse(
@@ -152,31 +173,9 @@ async def solve_sudoku_from_image(
                 confidence=None,
             )
 
-        # Get grayscale version of grid
-        gray = (
-            cv2.cvtColor(grid_img, cv2.COLOR_BGR2GRAY)
-            if len(grid_img.shape) == 3
-            else grid_img
-        )
-
-        # Apply CLAHE enhancement to bring out faint digits
-        clahe = cv2.createCLAHE(clipLimit=5.0, tileGridSize=(2, 2))
-        enhanced = clahe.apply(gray)
-
-        # Invert if image is dark-on-light (Sudoku typically is)
-        mean_val = np.mean(enhanced)
-        if mean_val > 128:
-            # Light background with dark digits - normal case
-            pass
-        else:
-            # Dark background - invert
-            enhanced = cv2.bitwise_not(enhanced)
-
-        # Convert back to BGR for cell extractor
-        enhanced_grid = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
-
-        # Extract cells
-        cells = extract_cells(enhanced_grid)
+        # Enhance grid for OCR and extract cells
+        ocr_grid = prepare_grid_for_ocr(grid_img)
+        cells = extract_cells(ocr_grid)
 
         # Recognize digits using OCR
         reader = DigitReader()
@@ -248,7 +247,7 @@ async def detect_grid(image: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="Failed to decode image")
 
         # Detect grid
-        grid_img = find_grid(img)
+        grid_img = detect_grid_image(img)
 
         if grid_img is None:
             return JSONResponse(
