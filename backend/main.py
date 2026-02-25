@@ -16,9 +16,10 @@ _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 @asynccontextmanager
 async def _app_lifespan(_: FastAPI):
     """Eagerly validate CNN OCR model so misconfiguration fails at startup."""
-    _, error = _get_cnn_reader()
-    if error:
-        raise RuntimeError(f"Failed to load CNN model at startup: {error}")
+    reader, error = _get_cnn_reader()
+    if error or reader is None:
+        detail = error or "CNN reader initialization returned no instance"
+        raise RuntimeError(f"Failed to load CNN model at startup: {detail}")
     yield
 
 
