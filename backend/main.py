@@ -1,5 +1,6 @@
 """Main FastAPI application for Sudoku Solver."""
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -7,14 +8,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api.routes import router
+from .api.routes import _get_cnn_reader, router
 
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+
+
+@asynccontextmanager
+async def _app_lifespan(_: FastAPI):
+    """Eagerly validate CNN OCR model so misconfiguration fails at startup."""
+    _, error = _get_cnn_reader()
+    if error:
+        raise RuntimeError(f"Failed to load CNN model at startup: {error}")
+    yield
+
 
 app = FastAPI(
     title="Sudoku Solver API",
     description="API for solving Sudoku puzzles from images or JSON grids",
     version="1.0.0",
+    lifespan=_app_lifespan,
 )
 
 app.add_middleware(
