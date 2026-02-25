@@ -21,7 +21,6 @@ from ..models.schemas import (
     SolveResponse,
 )
 from ..ocr.cnn_digit_reader import CnnDigitReader
-from ..ocr.digit_reader import DigitReader
 from ..ocr.grid_repair import try_repair_grid_with_candidates
 from ..solver.backtracking import SudokuSolver, is_valid_grid
 
@@ -103,34 +102,21 @@ def _get_cnn_reader() -> tuple[CnnDigitReader | None, str | None]:
     return None, reader.load_error or "CNN OCR reader initialization failed"
 
 
-def _resolve_ocr_reader() -> tuple[object | None, str, str | None]:
+def _resolve_ocr_reader() -> tuple[CnnDigitReader | None, str, str | None]:
     engine = _ocr_engine()
-    if engine == "cnn":
-        reader, err = _get_cnn_reader()
-        return reader, engine, err
-
-    if engine == "tesseract":
-        return DigitReader(), engine, None
-
-    return None, engine, f"Unsupported OCR_ENGINE value: {engine}"
+    if engine != "cnn":
+        return None, engine, "Only 'cnn' is supported"
+    reader, err = _get_cnn_reader()
+    return reader, engine, err
 
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
-    try:
-        import pytesseract
-
-        pytesseract.get_tesseract_version()
-        tesseract_available = True
-    except Exception:
-        tesseract_available = False
-
     cnn_reader, _ = _get_cnn_reader()
 
     return HealthResponse(
         status="healthy",
-        tesseract_available=tesseract_available,
         cnn_model_loaded=cnn_reader is not None,
         cnn_model_version=cnn_reader.model_version if cnn_reader else None,
     )
@@ -219,7 +205,7 @@ def _image_response(
     tags=["Sudoku"],
 )
 async def solve_sudoku_from_image(
-    image: UploadFile = File(...), ocr_threshold: float | None = 50.0
+    image: UploadFile = File(...)
 ):
     """
     Solve a Sudoku puzzle from an uploaded image.
@@ -266,16 +252,12 @@ async def solve_sudoku_from_image(
         ocr_model_version: str | None = None
         cell_predictions: list[dict] | None = None
 
-        if isinstance(reader, CnnDigitReader):
-            grid, metadata = reader.recognize_grid_with_metadata(cells, threshold=None)
-            ocr_confidence = metadata.get("average_confidence")
-            ocr_model_version = metadata.get("model_version")
-            raw_predictions = metadata.get("cell_predictions")
-            if isinstance(raw_predictions, list):
-                cell_predictions = raw_predictions
-        else:
-            threshold = ocr_threshold if ocr_threshold is not None else 25.0
-            grid = reader.recognize_grid(cells, threshold=threshold)
+        grid, metadata = reader.recognize_grid_with_metadata(cells, threshold=None)
+        ocr_confidence = metadata.get("average_confidence")
+        ocr_model_version = metadata.get("model_version")
+        raw_predictions = metadata.get("cell_predictions")
+        if isinstance(raw_predictions, list):
+            cell_predictions = raw_predictions
 
         ocr_latency_ms = (time.perf_counter() - ocr_start) * 1000.0
 
@@ -301,7 +283,7 @@ async def solve_sudoku_from_image(
         solved = solver.solve(grid)
         repaired_cells = 0
 
-        if solved is None and isinstance(reader, CnnDigitReader):
+        if solved is None:
             repaired_grid, repaired_solution, repair_info = (
                 try_repair_grid_with_candidates(
                     grid=grid,

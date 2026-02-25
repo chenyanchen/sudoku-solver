@@ -18,7 +18,6 @@ from scripts._paths import resolve_image_path
 from backend.api.routes import detect_grid_image, prepare_grid_for_ocr
 from backend.cv.cell_extractor import extract_cells
 from backend.ocr.cnn_digit_reader import CnnDigitReader
-from backend.ocr.digit_reader import DigitReader
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,9 +35,10 @@ def parse_args() -> argparse.Namespace:
         help="ONNX model path",
     )
     parser.add_argument(
-        "--with-tesseract-baseline",
-        action="store_true",
-        help="Evaluate Tesseract baseline in the same report",
+        "--output-json",
+        type=Path,
+        default=None,
+        help="Optional output JSON path for aggregate metrics",
     )
     return parser.parse_args()
 
@@ -122,10 +122,7 @@ def main() -> int:
     if not cnn_reader.is_ready:
         raise RuntimeError(cnn_reader.load_error or "CNN model not ready")
 
-    tess_reader = DigitReader() if args.with_tesseract_baseline else None
-
     cnn_metrics = []
-    tess_metrics = []
 
     for image_name, truth in labels.items():
         image_path = resolve_image_path(image_name, args.labels)
@@ -136,16 +133,15 @@ def main() -> int:
         cnn_metrics.append(cnn_m)
         print(f"[CNN] {image_name}: {cnn_m}")
 
-        if tess_reader is not None:
-            tess_grid = tess_reader.recognize_grid(cells, threshold=50.0)
-            tess_m = evaluate_single_grid(tess_grid, truth)
-            tess_metrics.append(tess_m)
-            print(f"[TESS] {image_name}: {tess_m}")
-
     print("\n=== Aggregate ===")
-    print("CNN:", merge_metrics(cnn_metrics))
-    if tess_metrics:
-        print("Tesseract:", merge_metrics(tess_metrics))
+    aggregate = merge_metrics(cnn_metrics)
+    print("CNN:", aggregate)
+
+    if args.output_json is not None:
+        args.output_json.parent.mkdir(parents=True, exist_ok=True)
+        with args.output_json.open("w", encoding="utf-8") as f:
+            json.dump({"cnn": aggregate}, f, ensure_ascii=False, indent=2)
+        print(f"Saved metrics JSON: {args.output_json}")
 
     return 0
 

@@ -23,22 +23,6 @@ A web application that solves Sudoku puzzles from images. Upload a photo or scre
 ### Prerequisites
 
 1. Python 3.11+
-2. (Optional) [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) for baseline comparison
-
-#### Installing Tesseract
-
-**macOS**:
-```bash
-brew install tesseract
-```
-
-**Ubuntu/Debian**:
-```bash
-sudo apt-get install tesseract-ocr
-```
-
-**Windows**:
-Download installer from [GitHub](https://github.com/UB-Mannheim/tesseract/wiki)
 
 ### Setup with uv
 
@@ -94,8 +78,7 @@ uv run python scripts/export_cnn_onnx.py \
 ```bash
 uv run python scripts/eval_cnn_ocr.py \
   --labels data/labels/sudoku_labels.json \
-  --cnn-model models/releases/sudoku_digit_cnn_v1.0.onnx \
-  --with-tesseract-baseline
+  --cnn-model models/releases/sudoku_digit_cnn_v1.0.onnx
 ```
 
 ## Running the Application
@@ -109,7 +92,7 @@ The application will be available at http://localhost:8000
 ### Runtime configuration
 
 ```bash
-# OCR engine: cnn (default) or tesseract
+# OCR engine: only cnn is supported
 export OCR_ENGINE=cnn
 
 # CNN model and thresholds
@@ -150,7 +133,7 @@ sudoku-solver/
 │   │   └── cell_extractor.py  # Cell extraction
 │   ├── ocr/
 │   │   ├── cnn_digit_reader.py # CNN OCR inference
-│   │   └── digit_reader.py     # Tesseract baseline OCR
+│   │   └── grid_repair.py      # OCR candidate-based auto-repair
 │   ├── solver/
 │   │   └── backtracking.py    # Sudoku solving algorithm
 │   ├── models/
@@ -168,8 +151,7 @@ sudoku-solver/
 ├── scripts/
 │   ├── train_cnn_ocr.py       # CNN training
 │   ├── export_cnn_onnx.py     # ONNX export
-│   ├── eval_cnn_ocr.py        # Offline evaluation
-│   └── benchmark_ocr.py       # Runtime benchmark
+│   └── eval_cnn_ocr.py        # Offline evaluation
 ├── frontend/
 │   ├── index.html             # Web UI
 │   ├── style.css              # Styles
@@ -177,7 +159,8 @@ sudoku-solver/
 ├── tests/
 │   ├── test_solver.py
 │   ├── test_cv.py
-│   └── test_ocr.py
+│   ├── test_cnn_ocr.py
+│   └── test_grid_repair.py
 ├── pyproject.toml
 └── README.md
 ```
