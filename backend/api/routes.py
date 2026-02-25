@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import time
 from typing import TypeVar
@@ -26,6 +27,7 @@ from ..solver.backtracking import SudokuSolver, is_valid_grid
 
 router = APIRouter()
 _CNN_READER: CnnDigitReader | None = None
+_LOGGER = logging.getLogger(__name__)
 
 _T = TypeVar("_T", int, float)
 
@@ -105,9 +107,9 @@ def _get_cnn_reader() -> tuple[CnnDigitReader | None, str | None]:
 def _resolve_ocr_reader() -> tuple[CnnDigitReader | None, str, str | None]:
     engine = _ocr_engine()
     if engine != "cnn":
-        return None, engine, "Only 'cnn' is supported"
+        _LOGGER.warning("Unsupported OCR_ENGINE=%s, fallback to cnn", engine)
     reader, err = _get_cnn_reader()
-    return reader, engine, err
+    return reader, "cnn", err
 
 
 @router.get("/health", response_model=HealthResponse)

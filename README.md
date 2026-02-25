@@ -92,7 +92,7 @@ The application will be available at http://localhost:8000
 ### Runtime configuration
 
 ```bash
-# OCR engine: only cnn is supported
+# OCR engine is fixed to CNN (non-cnn values fallback to cnn)
 export OCR_ENGINE=cnn
 
 # CNN model and thresholds
@@ -104,6 +104,11 @@ export CNN_TOPK_CANDIDATES=4
 export CNN_REPAIR_MAX_CHANGES=2
 export CNN_REPAIR_MAX_CELLS=14
 ```
+
+### API Compatibility Notes
+
+- `/api/v1/sudoku:solveImage` no longer uses `ocr_threshold` query parameter.
+- `GET /health` no longer returns `tesseract_available`.
 
 ## API Endpoints
 
