@@ -118,11 +118,37 @@ class CnnDigitReader:
         )
 
         latency_ms = (time.perf_counter() - start) * 1000.0
+        flat_grid = [grid[i // 9][i % 9] for i in range(81)]
+        cell_predictions = []
+        for idx in range(81):
+            value = int(flat_grid[idx])
+            confidence = float(cell_confidences[idx])
+            # If rerank changed value, use candidate prob when available.
+            if value != int(cell_digits[idx]):
+                for digit, prob in cell_candidates[idx]:
+                    if int(digit) == value:
+                        confidence = float(prob)
+                        break
+
+            cell_predictions.append(
+                {
+                    "index": idx,
+                    "row": idx // 9,
+                    "col": idx % 9,
+                    "value": value,
+                    "confidence": confidence,
+                    "candidates": [
+                        [int(digit), float(prob)] for digit, prob in cell_candidates[idx]
+                    ],
+                }
+            )
+
         metadata = {
             "average_confidence": avg_confidence,
             "latency_ms": latency_ms,
             "engine": "cnn",
             "model_version": self.model_version,
+            "cell_predictions": cell_predictions,
         }
         return grid, metadata
 

@@ -20,6 +20,7 @@ from ..cv.grid_detector import find_grid
 from ..cv.cell_extractor import extract_cells
 from ..ocr.digit_reader import DigitReader
 from ..ocr.cnn_digit_reader import CnnDigitReader
+from ..ocr.grid_repair import try_repair_grid_with_candidates
 
 router = APIRouter()
 _CNN_READER: Optional[CnnDigitReader] = None
@@ -272,11 +273,15 @@ async def solve_sudoku_from_image(
         ocr_start = time.perf_counter()
         ocr_confidence = None
         ocr_model_version = None
+        cell_predictions = None
 
         if isinstance(reader, CnnDigitReader):
             grid, metadata = reader.recognize_grid_with_metadata(cells, threshold=None)
             ocr_confidence = metadata.get("average_confidence")
             ocr_model_version = metadata.get("model_version")
+            raw_predictions = metadata.get("cell_predictions")
+            if isinstance(raw_predictions, list):
+                cell_predictions = raw_predictions
         else:
             # Use lower threshold for faint digits when using Tesseract
             threshold = ocr_threshold if ocr_threshold is not None else 25.0
@@ -303,6 +308,19 @@ async def solve_sudoku_from_image(
         # Solve the puzzle
         solver = SudokuSolver()
         solved = solver.solve(grid)
+        repaired_cells = 0
+
+        if solved is None and isinstance(reader, CnnDigitReader):
+            repaired_grid, repaired_solution, repair_info = try_repair_grid_with_candidates(
+                grid=grid,
+                cell_predictions=cell_predictions,
+                max_changes=_env_int("CNN_REPAIR_MAX_CHANGES", 2),
+                max_cells=_env_int("CNN_REPAIR_MAX_CELLS", 14),
+            )
+            if repaired_solution is not None:
+                grid = repaired_grid
+                solved = repaired_solution
+                repaired_cells = int(repair_info.get("changes", 0))
 
         if solved is None:
             return ImageSolveResponse(
@@ -319,7 +337,11 @@ async def solve_sudoku_from_image(
 
         return ImageSolveResponse(
             success=True,
-            message="Puzzle solved successfully",
+            message=(
+                "Puzzle solved successfully"
+                if repaired_cells == 0
+                else f"Puzzle solved successfully (OCR auto-repaired {repaired_cells} cell(s))"
+            ),
             original_grid=grid,
             solved_grid=solved,
             detected_image=image_to_base64(grid_img),

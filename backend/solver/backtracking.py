@@ -25,6 +25,8 @@ class SudokuSolver:
         """
         self.solutions_count = 0
         grid_copy = copy.deepcopy(grid)
+        if not self._is_consistent_grid(grid_copy):
+            return None
         if self._solve_recursive(grid_copy):
             return grid_copy
         return None
@@ -110,6 +112,8 @@ class SudokuSolver:
         """
         self.solutions_count = 0
         grid_copy = copy.deepcopy(grid)
+        if not self._is_consistent_grid(grid_copy):
+            return 0
         self._count_solutions_recursive(grid_copy, max_count)
         return self.solutions_count
 
@@ -130,6 +134,20 @@ class SudokuSolver:
                 grid[row][col] = num
                 self._count_solutions_recursive(grid, max_count)
                 grid[row][col] = 0
+
+    def _is_consistent_grid(self, grid: Grid) -> bool:
+        """Check existing non-zero givens are mutually consistent."""
+        for r in range(9):
+            for c in range(9):
+                num = grid[r][c]
+                if num == 0:
+                    continue
+                grid[r][c] = 0
+                valid = self._is_valid(grid, r, c, num)
+                grid[r][c] = num
+                if not valid:
+                    return False
+        return True
 
 
 def solve(grid: Grid) -> Optional[Grid]:
@@ -160,15 +178,4 @@ def is_valid_grid(grid: Grid) -> bool:
 
     # Check no duplicate values in rows, cols, boxes
     solver = SudokuSolver()
-
-    for r in range(9):
-        for c in range(9):
-            num = grid[r][c]
-            if num != 0:
-                grid[r][c] = 0
-                if not solver._is_valid(grid, r, c, num):
-                    grid[r][c] = num
-                    return False
-                grid[r][c] = num
-
-    return True
+    return solver._is_consistent_grid(grid)
