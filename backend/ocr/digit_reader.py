@@ -53,7 +53,8 @@ class DigitReader:
         candidate = digit_image if has_digit else normalized
 
         # Try fast preprocessing variants first
-        for processed in self._prepare_fast_variants(candidate):
+        fast_variants = self._prepare_fast_variants(candidate)
+        for processed in fast_variants:
             result = self._run_ocr(processed, threshold)
             if result is not None:
                 return result
@@ -63,6 +64,12 @@ class DigitReader:
             return None
 
         for processed in self._prepare_fallback_variants(digit_image):
+            result = self._run_ocr(processed, threshold)
+            if result is not None:
+                return result
+
+        # Rescue stage for stubborn anti-aliased digits (e.g. some "9" shapes).
+        for processed in self._prepare_rescue_variants(digit_image, fast_variants):
             result = self._run_ocr(processed, threshold)
             if result is not None:
                 return result
@@ -196,8 +203,7 @@ class DigitReader:
             gray = cv2.resize(gray, (target_size, target_size))
 
         _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        if np.mean(binary) < 127:
-            binary = cv2.bitwise_not(binary)
+        binary = self._ensure_white_background(binary)
         variants.append(binary)
 
         kernel = np.ones((2, 2), np.uint8)
@@ -225,8 +231,7 @@ class DigitReader:
         adaptive = cv2.adaptiveThreshold(
             blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 5
         )
-        if np.mean(adaptive) < 127:
-            adaptive = cv2.bitwise_not(adaptive)
+        adaptive = self._ensure_white_background(adaptive)
         variants.append(adaptive)
 
         # High-contrast stretch
@@ -239,11 +244,49 @@ class DigitReader:
         _, stretched_bin = cv2.threshold(
             stretched, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
         )
-        if np.mean(stretched_bin) < 127:
-            stretched_bin = cv2.bitwise_not(stretched_bin)
+        stretched_bin = self._ensure_white_background(stretched_bin)
         variants.append(stretched_bin)
 
         return variants
+
+    def _prepare_rescue_variants(
+        self, digit_image: np.ndarray, fast_variants: List[np.ndarray]
+    ) -> List[np.ndarray]:
+        """
+        Generate targeted rescue variants for hard-to-read digits.
+
+        These variants are intentionally limited and only used after the
+        normal fast+fallback stages fail.
+        """
+        variants: List[np.ndarray] = []
+
+        # Slight erosion can recover over-thickened loops in some "9" glyphs.
+        if fast_variants:
+            kernel = np.ones((2, 2), np.uint8)
+            eroded = cv2.erode(fast_variants[0], kernel, iterations=1)
+            variants.append(eroded)
+
+        if len(digit_image.shape) == 3:
+            gray = cv2.cvtColor(digit_image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = digit_image.copy()
+
+        target_size = 64
+        if gray.shape[:2] != (target_size, target_size):
+            gray = cv2.resize(gray, (target_size, target_size))
+
+        adaptive = cv2.adaptiveThreshold(
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 7, 1
+        )
+        variants.append(self._ensure_white_background(adaptive))
+
+        return variants
+
+    def _ensure_white_background(self, binary: np.ndarray) -> np.ndarray:
+        """Normalize binary image polarity to white background and black foreground."""
+        if np.mean(binary) < 127:
+            return cv2.bitwise_not(binary)
+        return binary
 
     def recognize_with_fallback(
         self, cell_image: np.ndarray, threshold: float = 50.0

@@ -1,6 +1,8 @@
 """API routes for the Sudoku solver application."""
 
 import base64
+import os
+import time
 import cv2
 import numpy as np
 from fastapi import APIRouter, UploadFile, File, HTTPException
@@ -17,8 +19,10 @@ from ..solver.backtracking import SudokuSolver, is_valid_grid
 from ..cv.grid_detector import find_grid
 from ..cv.cell_extractor import extract_cells
 from ..ocr.digit_reader import DigitReader
+from ..ocr.cnn_digit_reader import CnnDigitReader
 
 router = APIRouter()
+_CNN_READER: Optional[CnnDigitReader] = None
 
 
 def image_to_base64(image: np.ndarray) -> str:
@@ -56,6 +60,64 @@ def prepare_grid_for_ocr(grid_img: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _ocr_engine() -> str:
+    return os.getenv("OCR_ENGINE", "cnn").strip().lower()
+
+
+def _get_cnn_reader() -> tuple[Optional[CnnDigitReader], Optional[str]]:
+    global _CNN_READER
+
+    if _CNN_READER is not None:
+        return _CNN_READER, None
+
+    reader = CnnDigitReader(
+        model_path=os.getenv("CNN_MODEL_PATH"),
+        blank_threshold=_env_float("CNN_BLANK_THRESHOLD", 0.65),
+        digit_threshold=_env_float("CNN_DIGIT_THRESHOLD", 0.55),
+        rerank_confidence=_env_float("CNN_RERANK_CONFIDENCE", 0.80),
+        top_k_candidates=_env_int("CNN_TOPK_CANDIDATES", 4),
+        strict=False,
+    )
+
+    if reader.is_ready:
+        _CNN_READER = reader
+        return _CNN_READER, None
+
+    return None, reader.load_error or "CNN OCR reader initialization failed"
+
+
+def _resolve_ocr_reader() -> tuple[Optional[object], str, Optional[str]]:
+    engine = _ocr_engine()
+    if engine == "cnn":
+        reader, err = _get_cnn_reader()
+        return reader, engine, err
+
+    if engine == "tesseract":
+        return DigitReader(), engine, None
+
+    return None, engine, f"Unsupported OCR_ENGINE value: {engine}"
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
@@ -71,7 +133,16 @@ async def health_check():
     except ImportError:
         tesseract_available = False
 
-    return HealthResponse(status="healthy", tesseract_available=tesseract_available)
+    cnn_reader, _ = _get_cnn_reader()
+    cnn_loaded = cnn_reader is not None
+    cnn_version = cnn_reader.model_version if cnn_reader else None
+
+    return HealthResponse(
+        status="healthy",
+        tesseract_available=tesseract_available,
+        cnn_model_loaded=cnn_loaded,
+        cnn_model_version=cnn_version if cnn_loaded else None,
+    )
 
 
 @router.post("/api/v1/sudoku:solve", response_model=SolveResponse, tags=["Sudoku"])
@@ -158,6 +229,9 @@ async def solve_sudoku_from_image(
                 solved_grid=None,
                 detected_image=None,
                 confidence=None,
+                ocr_engine=None,
+                ocr_model_version=None,
+                ocr_latency_ms=None,
             )
 
         # Detect and extract grid from original image first
@@ -171,17 +245,44 @@ async def solve_sudoku_from_image(
                 solved_grid=None,
                 detected_image=None,
                 confidence=None,
+                ocr_engine=None,
+                ocr_model_version=None,
+                ocr_latency_ms=None,
             )
 
         # Enhance grid for OCR and extract cells
         ocr_grid = prepare_grid_for_ocr(grid_img)
         cells = extract_cells(ocr_grid)
 
-        # Recognize digits using OCR
-        reader = DigitReader()
-        # Use lower threshold for faint digits
-        threshold = ocr_threshold if ocr_threshold is not None else 25.0
-        grid = reader.recognize_grid(cells, threshold=threshold)
+        # Recognize digits using configured OCR engine
+        reader, engine, reader_error = _resolve_ocr_reader()
+        if reader is None:
+            return ImageSolveResponse(
+                success=False,
+                message=f"OCR engine '{engine}' is not ready: {reader_error}",
+                original_grid=None,
+                solved_grid=None,
+                detected_image=image_to_base64(grid_img),
+                confidence=None,
+                ocr_engine=engine,
+                ocr_model_version=None,
+                ocr_latency_ms=None,
+            )
+
+        ocr_start = time.perf_counter()
+        ocr_confidence = None
+        ocr_model_version = None
+
+        if isinstance(reader, CnnDigitReader):
+            grid, metadata = reader.recognize_grid_with_metadata(cells, threshold=None)
+            ocr_confidence = metadata.get("average_confidence")
+            ocr_model_version = metadata.get("model_version")
+        else:
+            # Use lower threshold for faint digits when using Tesseract
+            threshold = ocr_threshold if ocr_threshold is not None else 25.0
+            grid = reader.recognize_grid(cells, threshold=threshold)
+
+        ocr_latency_ms = (time.perf_counter() - ocr_start) * 1000.0
 
         # Count recognized cells
         given_cells = sum(1 for row in grid for cell in row if cell != 0)
@@ -193,7 +294,10 @@ async def solve_sudoku_from_image(
                 original_grid=grid,
                 solved_grid=None,
                 detected_image=image_to_base64(grid_img),
-                confidence=None,
+                confidence=ocr_confidence,
+                ocr_engine=engine,
+                ocr_model_version=ocr_model_version,
+                ocr_latency_ms=ocr_latency_ms,
             )
 
         # Solve the puzzle
@@ -207,7 +311,10 @@ async def solve_sudoku_from_image(
                 original_grid=grid,
                 solved_grid=None,
                 detected_image=image_to_base64(grid_img),
-                confidence=None,
+                confidence=ocr_confidence,
+                ocr_engine=engine,
+                ocr_model_version=ocr_model_version,
+                ocr_latency_ms=ocr_latency_ms,
             )
 
         return ImageSolveResponse(
@@ -216,7 +323,10 @@ async def solve_sudoku_from_image(
             original_grid=grid,
             solved_grid=solved,
             detected_image=image_to_base64(grid_img),
-            confidence=None,
+            confidence=ocr_confidence,
+            ocr_engine=engine,
+            ocr_model_version=ocr_model_version,
+            ocr_latency_ms=ocr_latency_ms,
         )
 
     except Exception as e:
@@ -227,6 +337,9 @@ async def solve_sudoku_from_image(
             solved_grid=None,
             detected_image=None,
             confidence=None,
+            ocr_engine=_ocr_engine(),
+            ocr_model_version=None,
+            ocr_latency_ms=None,
         )
 
 

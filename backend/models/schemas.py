@@ -59,6 +59,15 @@ class ImageSolveResponse(BaseModel):
         description="Base64 encoded detected grid image"
     )
     confidence: Optional[float] = Field(description="Overall OCR confidence")
+    ocr_engine: Optional[str] = Field(
+        default=None, description="OCR engine used for recognition"
+    )
+    ocr_model_version: Optional[str] = Field(
+        default=None, description="OCR model version (for model-based engines)"
+    )
+    ocr_latency_ms: Optional[float] = Field(
+        default=None, description="OCR stage latency in milliseconds"
+    )
 
 
 class ErrorResponse(BaseModel):
@@ -73,6 +82,12 @@ class HealthResponse(BaseModel):
 
     status: str = Field(description="Service status")
     tesseract_available: bool = Field(description="Whether Tesseract OCR is available")
+    cnn_model_loaded: Optional[bool] = Field(
+        default=None, description="Whether CNN OCR model is loaded and ready"
+    )
+    cnn_model_version: Optional[str] = Field(
+        default=None, description="Loaded CNN OCR model version"
+    )
 
 
 class GridDetectionInfo(BaseModel):
