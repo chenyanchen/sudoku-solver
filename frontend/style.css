@@ -11,6 +11,7 @@
     --border-color: #e2e8f0;
     --grid-border: #334155;
     --cell-border: #94a3b8;
+    --panel-size: clamp(260px, 40vw, 380px);
 }
 
 * {
@@ -105,13 +106,16 @@ header h1 {
 
 .preview-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1.5rem;
     margin-bottom: 1.5rem;
 }
 
 .preview-card {
     text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
 .preview-card h3 {
@@ -123,9 +127,16 @@ header h1 {
 }
 
 .preview-card img {
-    max-width: 100%;
+    width: 100%;
+    max-width: var(--panel-size);
+    aspect-ratio: 1 / 1;
+    object-fit: contain;
+    background-color: #f8fafc;
     border-radius: 0.5rem;
     border: 1px solid var(--border-color);
+    display: block;
+    margin: 0 auto;
+    padding: 0.25rem;
 }
 
 .btn {
@@ -188,7 +199,7 @@ header h1 {
 
 .grids-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 2rem;
 }
 
@@ -199,10 +210,18 @@ header h1 {
     color: var(--text-secondary);
 }
 
+.grid-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
 .sudoku-grid {
     display: grid;
     grid-template-columns: repeat(9, 1fr);
     gap: 1px;
+    width: 100%;
+    max-width: var(--panel-size);
     background-color: var(--grid-border);
     border: 3px solid var(--grid-border);
     border-radius: 0.25rem;
@@ -283,6 +302,7 @@ footer {
         font-size: 2rem;
     }
 
+    .preview-grid,
     .grids-container {
         grid-template-columns: 1fr;
     }
