@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.api import routes
 from backend.ocr.cnn_digit_reader import CnnDigitReader
 from backend.solver.backtracking import is_valid_placement
 
@@ -54,3 +55,15 @@ def test_is_valid_placement_checks_row_col_box():
     assert is_valid_placement(grid, 2, 0, 7) is False  # col conflict
     assert is_valid_placement(grid, 2, 2, 7) is False  # box conflict
     assert is_valid_placement(grid, 4, 4, 7) is True
+
+
+def test_resolve_ocr_reader_fallback_to_cnn(monkeypatch):
+    dummy_reader = object()
+    monkeypatch.setenv("OCR_ENGINE", "tesseract")
+    monkeypatch.setattr(routes, "_get_cnn_reader", lambda: (dummy_reader, None))
+
+    reader, engine, err = routes._resolve_ocr_reader()
+
+    assert reader is dummy_reader
+    assert engine == "cnn"
+    assert err is None

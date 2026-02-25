@@ -82,7 +82,6 @@ class HealthResponse(BaseModel):
     """Health check response."""
 
     status: str = Field(description="Service status")
-    tesseract_available: bool = Field(description="Whether Tesseract OCR is available")
     cnn_model_loaded: bool | None = Field(
         default=None, description="Whether CNN OCR model is loaded and ready"
     )
