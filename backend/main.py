@@ -1,21 +1,22 @@
 """Main FastAPI application for Sudoku Solver."""
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-import os
 
 from .api.routes import router
 
-# Create FastAPI app
+_FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+
 app = FastAPI(
     title="Sudoku Solver API",
     description="API for solving Sudoku puzzles from images or JSON grids",
     version="1.0.0",
 )
 
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,20 +25,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API routes
 app.include_router(router)
-
-# Serve frontend static assets
-frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
-app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
+app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIR)), name="static")
 
 
 @app.get("/")
 async def root():
-    """Root endpoint - serve the frontend."""
-    frontend_path = os.path.join(frontend_dir, "index.html")
-    if os.path.exists(frontend_path):
-        return FileResponse(frontend_path)
+    """Root endpoint -- serve the frontend."""
+    index_html = _FRONTEND_DIR / "index.html"
+    if index_html.exists():
+        return FileResponse(str(index_html))
     return {"message": "Sudoku Solver API", "docs": "/docs"}
 
 

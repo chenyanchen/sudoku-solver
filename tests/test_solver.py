@@ -101,6 +101,23 @@ class TestSudokuSolver:
         count = solver.count_solutions(grid)
         assert count == 1
 
+    def test_count_solutions_returns_zero_for_invalid_givens(self):
+        """Invalid givens should not report any solution."""
+        grid = [
+            [5, 5, 0, 0, 7, 0, 0, 0, 0],  # Duplicate 5 in row
+            [6, 0, 0, 1, 9, 5, 0, 0, 0],
+            [0, 9, 8, 0, 0, 0, 0, 6, 0],
+            [8, 0, 0, 0, 6, 0, 0, 0, 3],
+            [4, 0, 0, 8, 0, 3, 0, 0, 1],
+            [7, 0, 0, 0, 2, 0, 0, 0, 6],
+            [0, 6, 0, 0, 0, 0, 2, 8, 0],
+            [0, 0, 0, 4, 1, 9, 0, 0, 5],
+            [0, 0, 0, 0, 8, 0, 0, 7, 9],
+        ]
+
+        solver = SudokuSolver()
+        assert solver.count_solutions(grid) == 0
+
     def test_is_valid_grid_valid(self):
         """Test validation of valid grid."""
         grid = [

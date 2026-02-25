@@ -1,10 +1,10 @@
 """Sudoku solver using backtracking algorithm."""
 
-from typing import Optional, List, Tuple
+from __future__ import annotations
+
 import copy
 
-
-Grid = List[List[int]]
+Grid = list[list[int]]
 
 
 class SudokuSolver:
@@ -13,7 +13,7 @@ class SudokuSolver:
     def __init__(self):
         self.solutions_count = 0
 
-    def solve(self, grid: Grid) -> Optional[Grid]:
+    def solve(self, grid: Grid) -> Grid | None:
         """
         Solve a Sudoku puzzle.
 
@@ -25,6 +25,8 @@ class SudokuSolver:
         """
         self.solutions_count = 0
         grid_copy = copy.deepcopy(grid)
+        if not self._is_consistent_grid(grid_copy):
+            return None
         if self._solve_recursive(grid_copy):
             return grid_copy
         return None
@@ -81,7 +83,7 @@ class SudokuSolver:
 
         return True
 
-    def _find_empty_cell(self, grid: Grid) -> Optional[Tuple[int, int]]:
+    def _find_empty_cell(self, grid: Grid) -> tuple[int, int] | None:
         """
         Find the next empty cell (contains 0).
 
@@ -110,6 +112,8 @@ class SudokuSolver:
         """
         self.solutions_count = 0
         grid_copy = copy.deepcopy(grid)
+        if not self._is_consistent_grid(grid_copy):
+            return 0
         self._count_solutions_recursive(grid_copy, max_count)
         return self.solutions_count
 
@@ -131,8 +135,22 @@ class SudokuSolver:
                 self._count_solutions_recursive(grid, max_count)
                 grid[row][col] = 0
 
+    def _is_consistent_grid(self, grid: Grid) -> bool:
+        """Check existing non-zero givens are mutually consistent."""
+        for r in range(9):
+            for c in range(9):
+                num = grid[r][c]
+                if num == 0:
+                    continue
+                grid[r][c] = 0
+                valid = self._is_valid(grid, r, c, num)
+                grid[r][c] = num
+                if not valid:
+                    return False
+        return True
 
-def solve(grid: Grid) -> Optional[Grid]:
+
+def solve(grid: Grid) -> Grid | None:
     """Convenience function to solve a Sudoku grid."""
     solver = SudokuSolver()
     return solver.solve(grid)
@@ -160,15 +178,30 @@ def is_valid_grid(grid: Grid) -> bool:
 
     # Check no duplicate values in rows, cols, boxes
     solver = SudokuSolver()
+    return solver._is_consistent_grid(grid)
+
+
+def is_valid_placement(grid: Grid, row: int, col: int, val: int) -> bool:
+    """Check whether placing *val* at (row, col) conflicts with existing values.
+
+    Returns True for val == 0 (empty cell).
+    """
+    if val == 0:
+        return True
+
+    for c in range(9):
+        if c != col and grid[row][c] == val:
+            return False
 
     for r in range(9):
-        for c in range(9):
-            num = grid[r][c]
-            if num != 0:
-                grid[r][c] = 0
-                if not solver._is_valid(grid, r, c, num):
-                    grid[r][c] = num
-                    return False
-                grid[r][c] = num
+        if r != row and grid[r][col] == val:
+            return False
+
+    box_row = (row // 3) * 3
+    box_col = (col // 3) * 3
+    for r in range(box_row, box_row + 3):
+        for c in range(box_col, box_col + 3):
+            if (r != row or c != col) and grid[r][c] == val:
+                return False
 
     return True
