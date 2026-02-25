@@ -20,7 +20,10 @@ except Exception:  # pragma: no cover - environment dependent
 
 
 DEFAULT_MODEL_PATH = (
-    Path(__file__).resolve().parents[2] / "models" / "sudoku_digit_cnn_latest.onnx"
+    Path(__file__).resolve().parents[2]
+    / "models"
+    / "releases"
+    / "sudoku_digit_cnn_v1.1.onnx"
 )
 
 

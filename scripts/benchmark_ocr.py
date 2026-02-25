@@ -10,6 +10,7 @@ import sys
 import cv2
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+DATA_IMAGE_DIR = REPO_ROOT / "data" / "raw" / "images"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -53,7 +54,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--images",
         nargs="+",
-        default=["sudoku_2.png", "sudoku_3.png"],
+        default=[
+            "data/raw/images/sudoku_2.png",
+            "data/raw/images/sudoku_3.png",
+        ],
         help="Image paths to benchmark",
     )
     parser.add_argument(
@@ -79,6 +83,10 @@ def resolve_image_path(image_arg: str) -> Path:
     from_repo = REPO_ROOT / image_arg
     if from_repo.is_file():
         return from_repo
+
+    from_data_dir = DATA_IMAGE_DIR / candidate.name
+    if from_data_dir.is_file():
+        return from_data_dir
 
     raise FileNotFoundError(f"Image not found: {image_arg}")
 

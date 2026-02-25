@@ -59,7 +59,7 @@ uv sync --extra ml
 
 Default labels file:
 
-`data/sudoku_labels.json`
+`data/labels/sudoku_labels.json`
 
 Format:
 
@@ -70,11 +70,13 @@ Format:
 }
 ```
 
+Training screenshots are stored under `data/raw/images/`.
+
 ### 2. Train model
 
 ```bash
 uv run python scripts/train_cnn_ocr.py \
-  --labels data/sudoku_labels.json \
+  --labels data/labels/sudoku_labels.json \
   --output models/checkpoints/sudoku_digit_cnn.pt \
   --version 1.0.0
 ```
@@ -84,15 +86,15 @@ uv run python scripts/train_cnn_ocr.py \
 ```bash
 uv run python scripts/export_cnn_onnx.py \
   --checkpoint models/checkpoints/sudoku_digit_cnn.pt \
-  --output models/sudoku_digit_cnn_v1.0.onnx
+  --output models/releases/sudoku_digit_cnn_v1.0.onnx
 ```
 
 ### 4. Evaluate model
 
 ```bash
 uv run python scripts/eval_cnn_ocr.py \
-  --labels data/sudoku_labels.json \
-  --cnn-model models/sudoku_digit_cnn_v1.0.onnx \
+  --labels data/labels/sudoku_labels.json \
+  --cnn-model models/releases/sudoku_digit_cnn_v1.0.onnx \
   --with-tesseract-baseline
 ```
 
@@ -111,7 +113,7 @@ The application will be available at http://localhost:8000
 export OCR_ENGINE=cnn
 
 # CNN model and thresholds
-export CNN_MODEL_PATH=models/sudoku_digit_cnn_latest.onnx
+export CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_v1.1.onnx
 export CNN_BLANK_THRESHOLD=0.65
 export CNN_DIGIT_THRESHOLD=0.55
 export CNN_RERANK_CONFIDENCE=0.80
@@ -153,7 +155,14 @@ sudoku-solver/
 │   │   └── schemas.py         # Pydantic models
 │   └── main.py                # FastAPI app
 ├── data/
-│   └── sudoku_labels.json     # Training/evaluation labels
+│   ├── labels/
+│   │   ├── sudoku_labels.json         # Training/evaluation labels
+│   │   └── sudoku_label_sources.json  # Label provenance
+│   └── raw/
+│       └── images/                    # Raw Sudoku screenshots
+├── models/
+│   ├── checkpoints/           # Training checkpoints (.pt)
+│   └── releases/              # Deployable ONNX artifacts
 ├── scripts/
 │   ├── train_cnn_ocr.py       # CNN training
 │   ├── export_cnn_onnx.py     # ONNX export

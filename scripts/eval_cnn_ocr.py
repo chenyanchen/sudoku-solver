@@ -10,6 +10,7 @@ from pathlib import Path
 import cv2
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+DATA_IMAGE_DIR = REPO_ROOT / "data" / "raw" / "images"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -24,13 +25,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--labels",
         type=Path,
-        default=REPO_ROOT / "data" / "sudoku_labels.json",
+        default=REPO_ROOT / "data" / "labels" / "sudoku_labels.json",
         help="JSON path: image -> 9x9 grid labels",
     )
     parser.add_argument(
         "--cnn-model",
         type=Path,
-        default=REPO_ROOT / "models" / "sudoku_digit_cnn_v1.0.onnx",
+        default=REPO_ROOT / "models" / "releases" / "sudoku_digit_cnn_v1.1.onnx",
         help="ONNX model path",
     )
     parser.add_argument(
@@ -52,6 +53,25 @@ def load_cells_for_image(image_path: Path):
 
     ocr_grid = prepare_grid_for_ocr(grid_image)
     return extract_cells(ocr_grid)
+
+
+def resolve_image_path(image_ref: str, labels_path: Path) -> Path:
+    ref = Path(image_ref)
+    candidates: list[Path] = []
+
+    if ref.is_absolute():
+        candidates.append(ref)
+    else:
+        candidates.append(labels_path.parent / ref)
+        candidates.append(REPO_ROOT / ref)
+        candidates.append(DATA_IMAGE_DIR / ref.name)
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+
+    searched = ", ".join(str(path) for path in candidates)
+    raise FileNotFoundError(f"Image not found. ref={image_ref} searched=[{searched}]")
 
 
 def evaluate_single_grid(pred, truth):
@@ -126,7 +146,7 @@ def main() -> int:
     tess_metrics = []
 
     for image_name, truth in labels.items():
-        image_path = (REPO_ROOT / image_name).resolve()
+        image_path = resolve_image_path(image_name, args.labels)
         cells = load_cells_for_image(image_path)
 
         cnn_grid = cnn_reader.recognize_grid(cells)

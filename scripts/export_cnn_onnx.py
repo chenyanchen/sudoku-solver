@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
 
@@ -75,7 +74,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=REPO_ROOT / "models" / "sudoku_digit_cnn_v1.0.onnx",
+        default=REPO_ROOT / "models" / "releases" / "sudoku_digit_cnn_v1.0.onnx",
         help="Output ONNX path",
     )
     parser.add_argument("--opset", type=int, default=17)
@@ -121,11 +120,6 @@ def main() -> int:
     sidecar_path = args.output.with_suffix(".meta.json")
     with sidecar_path.open("w", encoding="utf-8") as f:
         json.dump(sidecar, f, ensure_ascii=False, indent=2)
-
-    # Keep a stable alias path for runtime default loading.
-    stable_path = args.output.parent / "sudoku_digit_cnn_latest.onnx"
-    shutil.copy2(args.output, stable_path)
-    shutil.copy2(sidecar_path, stable_path.with_suffix(".meta.json"))
 
     print(f"Exported ONNX: {args.output}")
     print(f"Exported metadata: {sidecar_path}")

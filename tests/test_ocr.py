@@ -17,6 +17,7 @@ from backend.ocr.digit_reader import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_IMAGE_ROOT = PROJECT_ROOT / "data" / "raw" / "images"
 
 EXPECTED_SAMPLE_GRIDS = {
     "sudoku_2.png": [
@@ -45,7 +46,7 @@ EXPECTED_SAMPLE_GRIDS = {
 
 
 def _recognize_sample_grid(image_name: str) -> list[list[int]]:
-    image_path = PROJECT_ROOT / image_name
+    image_path = DATA_IMAGE_ROOT / image_name
     image = cv2.imread(str(image_path))
     if image is None:
         raise FileNotFoundError(f"Failed to read sample image: {image_path}")
