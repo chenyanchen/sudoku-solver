@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from backend.ocr.cnn_digit_reader import CnnDigitReader
+from backend.solver.backtracking import is_valid_placement
 
 
 def test_cnn_reader_not_ready_for_missing_model(tmp_path: Path):
@@ -45,13 +46,11 @@ def test_constraint_rerank_resolves_low_conflict():
 
 
 def test_is_valid_placement_checks_row_col_box():
-    reader = CnnDigitReader.__new__(CnnDigitReader)
-
     grid = [[0] * 9 for _ in range(9)]
     grid[0][0] = 7
     grid[1][1] = 7
 
-    assert reader._is_valid_placement(grid, 0, 2, 7) is False  # row conflict
-    assert reader._is_valid_placement(grid, 2, 0, 7) is False  # col conflict
-    assert reader._is_valid_placement(grid, 2, 2, 7) is False  # box conflict
-    assert reader._is_valid_placement(grid, 4, 4, 7) is True
+    assert is_valid_placement(grid, 0, 2, 7) is False  # row conflict
+    assert is_valid_placement(grid, 2, 0, 7) is False  # col conflict
+    assert is_valid_placement(grid, 2, 2, 7) is False  # box conflict
+    assert is_valid_placement(grid, 4, 4, 7) is True

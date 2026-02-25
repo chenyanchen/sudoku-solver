@@ -10,9 +10,10 @@ from pathlib import Path
 import cv2
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DATA_IMAGE_DIR = REPO_ROOT / "data" / "raw" / "images"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+from scripts._paths import resolve_image_path
 
 from backend.api.routes import detect_grid_image, prepare_grid_for_ocr
 from backend.cv.cell_extractor import extract_cells
@@ -53,25 +54,6 @@ def load_cells_for_image(image_path: Path):
 
     ocr_grid = prepare_grid_for_ocr(grid_image)
     return extract_cells(ocr_grid)
-
-
-def resolve_image_path(image_ref: str, labels_path: Path) -> Path:
-    ref = Path(image_ref)
-    candidates: list[Path] = []
-
-    if ref.is_absolute():
-        candidates.append(ref)
-    else:
-        candidates.append(labels_path.parent / ref)
-        candidates.append(REPO_ROOT / ref)
-        candidates.append(DATA_IMAGE_DIR / ref.name)
-
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate.resolve()
-
-    searched = ", ".join(str(path) for path in candidates)
-    raise FileNotFoundError(f"Image not found. ref={image_ref} searched=[{searched}]")
 
 
 def evaluate_single_grid(pred, truth):

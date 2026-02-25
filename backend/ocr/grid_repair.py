@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import copy
-from typing import Any, Optional
+from typing import Any
 
-from ..solver.backtracking import SudokuSolver, is_valid_grid
+from ..solver.backtracking import SudokuSolver, is_valid_grid, is_valid_placement
 
 
 def try_repair_grid_with_candidates(
@@ -14,7 +14,7 @@ def try_repair_grid_with_candidates(
     max_changes: int = 2,
     max_cells: int = 14,
     min_candidate_prob: float = 0.15,
-) -> tuple[list[list[int]], Optional[list[list[int]]], dict[str, Any]]:
+) -> tuple[list[list[int]], list[list[int]] | None, dict[str, Any]]:
     """Try a bounded search over low-confidence cells and solve the repaired grid."""
     base_grid = copy.deepcopy(grid)
     solver = SudokuSolver()
@@ -85,7 +85,7 @@ def _search_repair(
     budget: int,
     pos: int,
     changes: dict[int, tuple[int, int]],
-) -> Optional[tuple[list[list[int]], list[list[int]], dict[int, tuple[int, int]]]]:
+) -> tuple[list[list[int]], list[list[int]], dict[int, tuple[int, int]]] | None:
     if len(changes) > budget:
         return None
 
@@ -116,7 +116,7 @@ def _search_repair(
         if changed and len(changes) >= budget:
             continue
 
-        if option != 0 and not _is_valid_placement(grid, row, col, option):
+        if option != 0 and not is_valid_placement(grid, row, col, option):
             continue
 
         prev_value = grid[row][col]
@@ -238,28 +238,6 @@ def _find_conflict_cells(grid: list[list[int]]) -> set[int]:
             val = int(grid[row][col])
             if val == 0:
                 continue
-            if not _is_valid_placement(grid, row, col, val):
+            if not is_valid_placement(grid, row, col, val):
                 conflicts.add(row * 9 + col)
     return conflicts
-
-
-def _is_valid_placement(grid: list[list[int]], row: int, col: int, val: int) -> bool:
-    if val == 0:
-        return True
-
-    for c in range(9):
-        if c != col and grid[row][c] == val:
-            return False
-
-    for r in range(9):
-        if r != row and grid[r][col] == val:
-            return False
-
-    box_row = (row // 3) * 3
-    box_col = (col // 3) * 3
-    for r in range(box_row, box_row + 3):
-        for c in range(box_col, box_col + 3):
-            if (r != row or c != col) and grid[r][c] == val:
-                return False
-
-    return True

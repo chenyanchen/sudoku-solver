@@ -1,7 +1,8 @@
 """Pydantic models for API requests and responses."""
 
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
-from typing import List, Optional
 
 
 class SudokuCell(BaseModel):
@@ -15,7 +16,7 @@ class SudokuCell(BaseModel):
 class SudokuGrid(BaseModel):
     """A Sudoku grid."""
 
-    cells: List[List[int]] = Field(description="9x9 grid (0 for empty cells)")
+    cells: list[list[int]] = Field(description="9x9 grid (0 for empty cells)")
 
     class Config:
         json_schema_extra = {
@@ -43,8 +44,8 @@ class SolveResponse(BaseModel):
     """Response from solving a Sudoku."""
 
     success: bool = Field(description="Whether the puzzle was solved")
-    original: List[List[int]] = Field(description="Original grid")
-    solved: Optional[List[List[int]]] = Field(description="Solved grid (if successful)")
+    original: list[list[int]] = Field(description="Original grid")
+    solved: list[list[int]] | None = Field(description="Solved grid (if successful)")
     message: str = Field(description="Status message")
 
 
@@ -53,19 +54,19 @@ class ImageSolveResponse(BaseModel):
 
     success: bool = Field(description="Whether the operation was successful")
     message: str = Field(description="Status message")
-    original_grid: Optional[List[List[int]]] = Field(description="OCR-extracted grid")
-    solved_grid: Optional[List[List[int]]] = Field(description="Solved grid")
-    detected_image: Optional[str] = Field(
+    original_grid: list[list[int]] | None = Field(description="OCR-extracted grid")
+    solved_grid: list[list[int]] | None = Field(description="Solved grid")
+    detected_image: str | None = Field(
         description="Base64 encoded detected grid image"
     )
-    confidence: Optional[float] = Field(description="Overall OCR confidence")
-    ocr_engine: Optional[str] = Field(
+    confidence: float | None = Field(description="Overall OCR confidence")
+    ocr_engine: str | None = Field(
         default=None, description="OCR engine used for recognition"
     )
-    ocr_model_version: Optional[str] = Field(
+    ocr_model_version: str | None = Field(
         default=None, description="OCR model version (for model-based engines)"
     )
-    ocr_latency_ms: Optional[float] = Field(
+    ocr_latency_ms: float | None = Field(
         default=None, description="OCR stage latency in milliseconds"
     )
 
@@ -74,7 +75,7 @@ class ErrorResponse(BaseModel):
     """Error response."""
 
     error: str = Field(description="Error message")
-    detail: Optional[str] = Field(description="Detailed error information")
+    detail: str | None = Field(description="Detailed error information")
 
 
 class HealthResponse(BaseModel):
@@ -82,10 +83,10 @@ class HealthResponse(BaseModel):
 
     status: str = Field(description="Service status")
     tesseract_available: bool = Field(description="Whether Tesseract OCR is available")
-    cnn_model_loaded: Optional[bool] = Field(
+    cnn_model_loaded: bool | None = Field(
         default=None, description="Whether CNN OCR model is loaded and ready"
     )
-    cnn_model_version: Optional[str] = Field(
+    cnn_model_version: str | None = Field(
         default=None, description="Loaded CNN OCR model version"
     )
 
@@ -94,8 +95,8 @@ class GridDetectionInfo(BaseModel):
     """Information about grid detection."""
 
     found: bool = Field(description="Whether a grid was found")
-    corners: Optional[List[List[int]]] = Field(description="Corner points of the grid")
-    confidence: Optional[float] = Field(description="Detection confidence")
+    corners: list[list[int]] | None = Field(description="Corner points of the grid")
+    confidence: float | None = Field(description="Detection confidence")
 
 
 class OCRInfo(BaseModel):
@@ -104,6 +105,6 @@ class OCRInfo(BaseModel):
     total_cells: int = Field(description="Total cells processed")
     recognized_cells: int = Field(description="Number of cells with recognized digits")
     empty_cells: int = Field(description="Number of empty cells")
-    average_confidence: Optional[float] = Field(
+    average_confidence: float | None = Field(
         description="Average recognition confidence"
     )

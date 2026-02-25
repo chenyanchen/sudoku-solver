@@ -1,10 +1,10 @@
 """Sudoku solver using backtracking algorithm."""
 
-from typing import Optional, List, Tuple
+from __future__ import annotations
+
 import copy
 
-
-Grid = List[List[int]]
+Grid = list[list[int]]
 
 
 class SudokuSolver:
@@ -13,7 +13,7 @@ class SudokuSolver:
     def __init__(self):
         self.solutions_count = 0
 
-    def solve(self, grid: Grid) -> Optional[Grid]:
+    def solve(self, grid: Grid) -> Grid | None:
         """
         Solve a Sudoku puzzle.
 
@@ -83,7 +83,7 @@ class SudokuSolver:
 
         return True
 
-    def _find_empty_cell(self, grid: Grid) -> Optional[Tuple[int, int]]:
+    def _find_empty_cell(self, grid: Grid) -> tuple[int, int] | None:
         """
         Find the next empty cell (contains 0).
 
@@ -150,7 +150,7 @@ class SudokuSolver:
         return True
 
 
-def solve(grid: Grid) -> Optional[Grid]:
+def solve(grid: Grid) -> Grid | None:
     """Convenience function to solve a Sudoku grid."""
     solver = SudokuSolver()
     return solver.solve(grid)
@@ -179,3 +179,29 @@ def is_valid_grid(grid: Grid) -> bool:
     # Check no duplicate values in rows, cols, boxes
     solver = SudokuSolver()
     return solver._is_consistent_grid(grid)
+
+
+def is_valid_placement(grid: Grid, row: int, col: int, val: int) -> bool:
+    """Check whether placing *val* at (row, col) conflicts with existing values.
+
+    Returns True for val == 0 (empty cell).
+    """
+    if val == 0:
+        return True
+
+    for c in range(9):
+        if c != col and grid[row][c] == val:
+            return False
+
+    for r in range(9):
+        if r != row and grid[r][col] == val:
+            return False
+
+    box_row = (row // 3) * 3
+    box_col = (col // 3) * 3
+    for r in range(box_row, box_row + 3):
+        for c in range(box_col, box_col + 3):
+            if (r != row or c != col) and grid[r][c] == val:
+                return False
+
+    return True

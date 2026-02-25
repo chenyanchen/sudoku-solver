@@ -6,12 +6,13 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import cv2
 import numpy as np
 
 from ..cv.cell_extractor import clean_cell
+from ..solver.backtracking import is_valid_placement
 
 try:
     import onnxruntime as ort
@@ -53,7 +54,7 @@ class CnnDigitReader:
         self._nhwc_input = False
         self._class_values: list[int] = []
         self._model_version = self.model_path.stem
-        self._load_error: Optional[str] = None
+        self._load_error: str | None = None
 
         self._load_model()
 
@@ -66,7 +67,7 @@ class CnnDigitReader:
         return self._session is not None
 
     @property
-    def load_error(self) -> Optional[str]:
+    def load_error(self) -> str | None:
         """Reason if model failed to load."""
         return self._load_error
 
@@ -152,7 +153,7 @@ class CnnDigitReader:
         }
         return grid, metadata
 
-    def predict_cell(self, cell_image: np.ndarray) -> tuple[Optional[int], float]:
+    def predict_cell(self, cell_image: np.ndarray) -> tuple[int | None, float]:
         """Predict a single cell: return (digit or None, confidence)."""
         digit, confidence, _ = self._predict_cell_with_candidates(
             cell_image, self.digit_threshold
@@ -360,7 +361,7 @@ class CnnDigitReader:
                     continue
                 if confidences[idx] >= self.rerank_confidence:
                     continue
-                if not self._is_valid_placement(reranked, row, col, val):
+                if not is_valid_placement(reranked, row, col, val):
                     reranked[row][col] = 0
 
         unresolved = []
@@ -377,13 +378,13 @@ class CnnDigitReader:
             for row, col, idx in unresolved:
                 current = reranked[row][col]
 
-                if current != 0 and self._is_valid_placement(reranked, row, col, current):
+                if current != 0 and is_valid_placement(reranked, row, col, current):
                     continue
 
                 for digit, prob in candidates[idx]:
                     if prob < 0.15:
                         continue
-                    if self._is_valid_placement(reranked, row, col, digit):
+                    if is_valid_placement(reranked, row, col, digit):
                         if current != digit:
                             reranked[row][col] = digit
                             changed = True
@@ -392,32 +393,6 @@ class CnnDigitReader:
                 break
 
         return reranked
-
-    def _is_valid_placement(
-        self, grid: list[list[int]], row: int, col: int, val: int
-    ) -> bool:
-        if val == 0:
-            return True
-
-        # Row check
-        for c in range(9):
-            if c != col and grid[row][c] == val:
-                return False
-
-        # Col check
-        for r in range(9):
-            if r != row and grid[r][col] == val:
-                return False
-
-        # 3x3 check
-        box_row = (row // 3) * 3
-        box_col = (col // 3) * 3
-        for r in range(box_row, box_row + 3):
-            for c in range(box_col, box_col + 3):
-                if (r != row or c != col) and grid[r][c] == val:
-                    return False
-
-        return True
 
     def _make_blank_recheck_variant(self, image: np.ndarray) -> np.ndarray:
         blurred = cv2.GaussianBlur(image, (3, 3), 0)
