@@ -28,3 +28,7 @@ ml = [
     "onnxscript>=0.3.0",
     "onnxruntime>=1.20.0",
 ]
+screen = [
+    "mss>=9.0.0",
+    "PyQt6>=6.7.0",
+]

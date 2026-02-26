@@ -35,6 +35,9 @@ uv sync --extra dev
 
 # Install ML stack for CNN train/export/inference
 uv sync --extra ml
+
+# Install desktop screen-monitor stack (macOS overlay)
+uv sync --extra screen
 ```
 
 ## CNN OCR Workflow
@@ -88,6 +91,33 @@ uv run uvicorn backend.main:app --reload
 ```
 
 The application will be available at http://localhost:8000
+
+## Realtime Overlay Agent (macOS)
+
+Run a local screen-monitor daemon that detects Sudoku puzzles and overlays
+transparent hints on blank cells:
+
+```bash
+CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_v1.1.onnx \
+uv run python scripts/screen_monitor.py --debug
+```
+
+Optional args:
+
+```bash
+uv run python scripts/screen_monitor.py \
+  --idle-fps 2 \
+  --active-fps 6 \
+  --active-seconds 2.0 \
+  --stable-frames 2 \
+  --lost-frames 3
+```
+
+Notes:
+
+- macOS Screen Recording permission is required.
+- Overlay is click-through (`WindowTransparentForInput`) and does not block input.
+- Only the largest Sudoku grid on screen is processed.
 
 ### Runtime configuration
 
@@ -156,7 +186,8 @@ sudoku-solver/
 ├── scripts/
 │   ├── train_cnn_ocr.py       # CNN training
 │   ├── export_cnn_onnx.py     # ONNX export
-│   └── eval_cnn_ocr.py        # Offline evaluation
+│   ├── eval_cnn_ocr.py        # Offline evaluation
+│   └── screen_monitor.py      # macOS realtime overlay monitor
 ├── frontend/
 │   ├── index.html             # Web UI
 │   ├── style.css              # Styles
@@ -165,7 +196,8 @@ sudoku-solver/
 │   ├── test_solver.py
 │   ├── test_cv.py
 │   ├── test_cnn_ocr.py
-│   └── test_grid_repair.py
+│   ├── test_grid_repair.py
+│   └── test_screen_monitor_logic.py
 ├── pyproject.toml
 └── README.md
 ```
