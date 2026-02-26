@@ -1,9 +1,11 @@
 """Sudoku grid detection and perspective transformation."""
 
+from typing import List, Optional, Tuple
+
 import cv2
 import numpy as np
-from typing import Optional, Tuple, List
-from .preprocessor import preprocess, morphological_operations
+
+from .preprocessor import morphological_operations, preprocess
 
 
 def find_grid(image: np.ndarray, debug: bool = False) -> Optional[np.ndarray]:
@@ -17,13 +19,33 @@ def find_grid(image: np.ndarray, debug: bool = False) -> Optional[np.ndarray]:
     Returns:
         Warped 450x450px grid image, or None if not found
     """
+    result = find_grid_with_corners(image)
+    if result is None:
+        return None
+    warped, _ = result
+    return warped
+
+
+def find_grid_with_corners(
+    image: np.ndarray,
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """
+    Find and extract the Sudoku grid and return screen-space corners.
+
+    Args:
+        image: Input image (BGR format)
+
+    Returns:
+        Tuple of (warped_450x450_grid, ordered_corners_4x2_float32),
+        or None if no valid grid is found.
+    """
     try:
         processed = preprocess(image)
 
-        # Apply morphological operations to strengthen grid lines
+        # Apply morphological operations to strengthen grid lines.
         thresh = morphological_operations(processed["thresh"])
 
-        # Find contours
+        # Find contours.
         contours, _ = cv2.findContours(
             thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
@@ -31,28 +53,91 @@ def find_grid(image: np.ndarray, debug: bool = False) -> Optional[np.ndarray]:
         if not contours:
             return None
 
-        # Find the largest contour that could be the grid
+        # Find the largest contour that could be the grid.
         grid_contour = find_largest_quadrilateral(contours)
-
         if grid_contour is None:
             return None
 
-        # Get corner points
         corners = get_corner_points(grid_contour)
-
         if corners is None:
             return None
 
-        # Order corners: top-left, top-right, bottom-right, bottom-left
-        corners = order_corners(corners)
+        ordered = order_corners(corners)
 
-        # Perspective transform to 450x450 (50px per cell)
-        warped = perspective_transform(processed["original"], corners, (450, 450))
+        # Perspective transform to 450x450 (50px per cell).
+        warped = perspective_transform(processed["original"], ordered, (450, 450))
 
-        return warped
+        if not validate_grid(warped):
+            return None
 
+        return warped, ordered
     except Exception:
         return None
+
+
+def find_grids_with_corners(
+    image: np.ndarray,
+    max_grids: int = 8,
+    min_area_ratio: float = 0.02,
+) -> List[Tuple[np.ndarray, np.ndarray]]:
+    """
+    Find multiple potential Sudoku grids with corners.
+
+    Args:
+        image: Input image
+        max_grids: Maximum number of grids to return
+        min_area_ratio: Minimum candidate area relative to input image area
+
+    Returns:
+        List of (warped_grid, ordered_corners)
+    """
+    try:
+        processed = preprocess(image)
+        thresh = morphological_operations(processed["thresh"])
+
+        contours, _ = cv2.findContours(
+            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if not contours:
+            return []
+
+        image_h, image_w = processed["original"].shape[:2]
+        image_area = float(image_h * image_w)
+        min_area = max(10000.0, image_area * float(min_area_ratio))
+
+        # Find all quadrilateral contours and sort by area.
+        quads = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < min_area:
+                continue
+
+            perimeter = cv2.arcLength(contour, True)
+            approximation = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
+            if len(approximation) == 4:
+                quads.append((area, approximation))
+
+        quads.sort(key=lambda x: x[0], reverse=True)
+
+        grids: List[Tuple[np.ndarray, np.ndarray]] = []
+        for _, contour in quads[: max_grids * 2]:
+            corners = get_corner_points(contour)
+            if corners is None:
+                continue
+
+            ordered = order_corners(corners)
+            warped = perspective_transform(processed["original"], ordered, (450, 450))
+            if not validate_grid(warped):
+                continue
+
+            grids.append((warped, ordered))
+            if len(grids) >= max_grids:
+                break
+
+        return grids
+    except Exception:
+        return []
 
 
 def find_largest_quadrilateral(contours: List[np.ndarray]) -> Optional[np.ndarray]:
@@ -71,19 +156,18 @@ def find_largest_quadrilateral(contours: List[np.ndarray]) -> Optional[np.ndarra
     for contour in contours:
         area = cv2.contourArea(contour)
 
-        # Skip contours that are too small or too large
-        if area < 10000:  # Minimum size threshold
+        # Skip contours that are too small.
+        if area < 10000:
             continue
 
-        # Approximate contour to a polygon
+        # Approximate contour to a polygon.
         perimeter = cv2.arcLength(contour, True)
         approximation = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
 
-        # We want a quadrilateral (4 vertices)
-        if len(approximation) == 4:
-            if area > best_area:
-                best_area = area
-                best_contour = approximation
+        # We want a quadrilateral (4 vertices).
+        if len(approximation) == 4 and area > best_area:
+            best_area = area
+            best_contour = approximation
 
     return best_contour
 
@@ -101,7 +185,7 @@ def get_corner_points(contour: np.ndarray) -> Optional[np.ndarray]:
     if contour is None or len(contour) != 4:
         return None
 
-    # Reshape to (4, 2)
+    # Reshape to (4, 2).
     corners = contour.reshape(4, 2).astype(np.float32)
     return corners
 
@@ -116,19 +200,19 @@ def order_corners(corners: np.ndarray) -> np.ndarray:
     Returns:
         Ordered array of corners
     """
-    # Sort by x coordinate
+    # Sort by x coordinate.
     sorted_by_x = corners[np.argsort(corners[:, 0])]
 
-    # Left points and right points
+    # Left points and right points.
     left_points = sorted_by_x[:2]
     right_points = sorted_by_x[2:]
 
-    # Sort left by y (top-left first)
+    # Sort left by y (top-left first).
     left_points = left_points[np.argsort(left_points[:, 1])]
     top_left = left_points[0]
     bottom_left = left_points[1]
 
-    # Sort right by y (top-right first)
+    # Sort right by y (top-right first).
     right_points = right_points[np.argsort(right_points[:, 1])]
     top_right = right_points[0]
     bottom_right = right_points[1]
@@ -152,16 +236,16 @@ def perspective_transform(
     """
     width, height = output_size
 
-    # Destination points (top-left, top-right, bottom-right, bottom-left)
+    # Destination points (top-left, top-right, bottom-right, bottom-left).
     dst_points = np.array(
         [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]],
         dtype=np.float32,
     )
 
-    # Calculate perspective transform matrix
+    # Calculate perspective transform matrix.
     matrix = cv2.getPerspectiveTransform(corners, dst_points)
 
-    # Apply transformation
+    # Apply transformation.
     warped = cv2.warpPerspective(image, matrix, output_size)
 
     return warped
@@ -180,11 +264,11 @@ def validate_grid(image: np.ndarray) -> bool:
     if image is None or image.shape[0] < 100 or image.shape[1] < 100:
         return False
 
-    # Check for grid lines by looking for horizontal and vertical edges
+    # Check for grid lines by looking for horizontal and vertical edges.
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, 50, 150)
 
-    # Count horizontal and vertical lines using Hough lines
+    # Count horizontal and vertical lines using Hough lines.
     lines = cv2.HoughLinesP(
         edges, 1, np.pi / 180, threshold=50, minLineLength=50, maxLineGap=10
     )
@@ -192,8 +276,7 @@ def validate_grid(image: np.ndarray) -> bool:
     if lines is None:
         return False
 
-    # Check if we have a reasonable number of lines
-    # A Sudoku grid should have at least 10 horizontal and 10 vertical lines
+    # A Sudoku grid should have enough visible lines.
     return len(lines) >= 15
 
 
@@ -219,7 +302,7 @@ def find_grids_multiple(image: np.ndarray, max_grids: int = 5) -> List[np.ndarra
         if not contours:
             return []
 
-        # Find all quadrilateral contours and sort by area
+        # Find all quadrilateral contours and sort by area.
         quads = []
         for contour in contours:
             area = cv2.contourArea(contour)
@@ -232,12 +315,12 @@ def find_grids_multiple(image: np.ndarray, max_grids: int = 5) -> List[np.ndarra
             if len(approximation) == 4:
                 quads.append((area, approximation))
 
-        # Sort by area (largest first) and take top candidates
+        # Sort by area (largest first) and take top candidates.
         quads.sort(key=lambda x: x[0], reverse=True)
         quads = quads[:max_grids]
 
         grids = []
-        for area, contour in quads:
+        for _, contour in quads:
             corners = get_corner_points(contour)
             if corners is not None:
                 corners = order_corners(corners)
