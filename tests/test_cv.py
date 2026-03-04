@@ -13,6 +13,7 @@ from backend.cv.preprocessor import (
 )
 from backend.cv.grid_detector import (
     find_grid,
+    find_grid_with_corners,
     order_corners,
     perspective_transform,
     validate_grid,
@@ -197,3 +198,19 @@ def test_find_grid_with_synthetic_image():
 
     # Result may be None (no valid grid) or an image
     assert result is None or isinstance(result, np.ndarray)
+
+
+def test_find_grid_with_corners_with_synthetic_image():
+    """Test grid detection with corners does not crash and returns valid shape."""
+    img = np.ones((500, 500, 3), dtype=np.uint8) * 255
+    cv2.rectangle(img, (50, 50), (450, 450), (0, 0, 0), 3)
+
+    result = find_grid_with_corners(img)
+    if result is None:
+        assert result is None
+        return
+
+    warped, corners = result
+    assert isinstance(warped, np.ndarray)
+    assert warped.shape[:2] == (450, 450)
+    assert corners.shape == (4, 2)

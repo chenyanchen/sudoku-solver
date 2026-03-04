@@ -30,5 +30,9 @@
   "sudoku_8.png": {
     "source": "reviewed_with_v1_model_and_manual_check",
     "note": "calibrated after training feedback"
+  },
+  "suduku_phone_1.png": {
+    "source": "manual",
+    "note": "phone screenshot from sudoku app, verified by user and CNN v1.1"
   }
 }
