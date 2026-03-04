@@ -196,10 +196,12 @@ def _capture_loop(
             # --- FIX #1: skip when no change regardless of overlay state ---
             if any_changed:
                 active_until = max(active_until, now + config.active_seconds)
-            else:
-                target_fps = (
-                    config.active_fps if now < active_until else config.idle_fps
-                )
+
+            target_fps = (
+                config.active_fps if now < active_until else config.idle_fps
+            )
+
+            if not any_changed:
                 _sleep_until_next(loop_start, target_fps, stop_event)
                 continue
 
@@ -221,11 +223,7 @@ def _capture_loop(
                     )
                     overlay_visible = False
                     last_render_key = None
-                _sleep_until_next(
-                    loop_start,
-                    config.active_fps if now < active_until else config.idle_fps,
-                    stop_event,
-                )
+                _sleep_until_next(loop_start, target_fps, stop_event)
                 continue
 
             (sel_corners, sel_sig, sel_bbox, sel_payload,
@@ -233,11 +231,7 @@ def _capture_loop(
 
             stable = tracker.on_grid(sel_sig, sel_bbox, config)
             if stable < config.stable_frames:
-                _sleep_until_next(
-                    loop_start,
-                    config.active_fps if now < active_until else config.idle_fps,
-                    stop_event,
-                )
+                _sleep_until_next(loop_start, target_fps, stop_event)
                 continue
 
             hint_cells = compute_hint_positions(
@@ -248,11 +242,7 @@ def _capture_loop(
                     signals.clear_signal.emit()
                     overlay_visible = False
                     last_render_key = None
-                _sleep_until_next(
-                    loop_start,
-                    config.active_fps if now < active_until else config.idle_fps,
-                    stop_event,
-                )
+                _sleep_until_next(loop_start, target_fps, stop_event)
                 continue
 
             last_valid_solution_at = now
@@ -269,11 +259,7 @@ def _capture_loop(
                 last_render_key = render_key
                 overlay_visible = True
 
-            _sleep_until_next(
-                loop_start,
-                config.active_fps if now < active_until else config.idle_fps,
-                stop_event,
-            )
+            _sleep_until_next(loop_start, target_fps, stop_event)
 
 
 def _select_best_candidate(
