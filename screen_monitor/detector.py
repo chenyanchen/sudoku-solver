@@ -18,6 +18,9 @@ _MIN_AREA_RATIO = 0.005
 # content region to this width restores enough detail for detection.
 _UPSCALE_TARGET_W = 1200
 
+# Reusable CLAHE instance (avoid per-frame allocation).
+_CLAHE = cv2.createCLAHE(clipLimit=5.0, tileGridSize=(8, 8))
+
 
 def detect_candidates_with_corners(
     frame_bgr: np.ndarray,
@@ -70,13 +73,16 @@ def detect_candidates_with_corners(
             corners[:, 1] += ry
             all_candidates.append((warped, corners))
 
+        # Early exit: stop after the first region that yields candidates.
+        if all_candidates:
+            break
+
     if all_candidates:
         return _dedupe_candidates(all_candidates, max_candidates=max_grids)
 
     # --- Stage 3: CLAHE enhanced retry on full frame ---
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=5.0, tileGridSize=(8, 8))
-    enhanced = cv2.cvtColor(clahe.apply(gray), cv2.COLOR_GRAY2BGR)
+    enhanced = cv2.cvtColor(_CLAHE.apply(gray), cv2.COLOR_GRAY2BGR)
     candidates = find_grids_with_corners(
         enhanced, max_grids=max_grids, min_area_ratio=_MIN_AREA_RATIO,
     )
