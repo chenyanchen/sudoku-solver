@@ -39,6 +39,8 @@ def _parse_args() -> argparse.Namespace:
         default=int(os.getenv("SCREEN_MONITOR_INDEX", "0")),
         help="MSS monitor index: 0=all, 1/2/...=specific monitor",
     )
+    parser.add_argument("--rescan-interval", type=float, default=1.0,
+                        help="Seconds between forced rescans when frame is unchanged")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument(
         "--debug-hud", action="store_true",
@@ -82,6 +84,7 @@ def main() -> int:
         lost_frames=args.lost_frames,
         min_bbox_area_ratio=args.min_bbox_area_ratio,
         overlay_hold_seconds=args.overlay_hold_seconds,
+        rescan_interval=args.rescan_interval,
         debug=args.debug,
         debug_hud=args.debug_hud,
     )

@@ -94,17 +94,72 @@ class CnnDigitReader:
         digit_threshold = threshold if threshold is not None else self.digit_threshold
 
         start = time.perf_counter()
+
+        # Phase 0: clean all cells and check blank likelihood (pure OpenCV).
+        cleaned: list[np.ndarray] = []
+        likely_blanks: list[bool] = []
+        for cell in cells:
+            if cell is None or cell.size == 0:
+                cleaned.append(np.zeros((self._input_size, self._input_size), dtype=np.uint8))
+                likely_blanks.append(True)
+            else:
+                norm = clean_cell(cell, cell_size=self._input_size)
+                cleaned.append(norm)
+                likely_blanks.append(self._is_likely_blank(norm))
+
+        # Phase 1: batch inference on all 81 cells.
+        all_probs = self._predict_probs_batch(cleaned)
+
         cell_digits: list[int] = []
         cell_confidences: list[float] = []
         cell_candidates: list[list[tuple[int, float]]] = []
+        recheck_indices: list[int] = []
 
-        for cell in cells:
-            digit, confidence, candidates = self._predict_cell_with_candidates(
-                cell, digit_threshold
-            )
-            cell_digits.append(digit)
-            cell_confidences.append(confidence)
-            cell_candidates.append(candidates)
+        for idx in range(81):
+            probs = all_probs[idx]
+            candidates = self._top_digit_candidates(probs)
+            value, conf = self._select_value(probs)
+
+            if 1 <= value <= 9 and conf >= digit_threshold:
+                cell_digits.append(value)
+                cell_confidences.append(conf)
+                cell_candidates.append(candidates)
+            elif value == 0 and conf >= self.blank_threshold and likely_blanks[idx]:
+                cell_digits.append(0)
+                cell_confidences.append(conf)
+                cell_candidates.append(candidates)
+            else:
+                # Needs recheck — store primary result as placeholder.
+                cell_digits.append(value)
+                cell_confidences.append(conf)
+                cell_candidates.append(candidates)
+                recheck_indices.append(idx)
+
+        # Phase 2: batch recheck for uncertain cells.
+        if recheck_indices:
+            recheck_images = [
+                self._make_blank_recheck_variant(cleaned[i]) for i in recheck_indices
+            ]
+            recheck_probs = self._predict_probs_batch(recheck_images)
+
+            for j, idx in enumerate(recheck_indices):
+                probs_r = recheck_probs[j]
+                cands_r = self._top_digit_candidates(probs_r)
+                val_r, conf_r = self._select_value(probs_r)
+
+                primary_value = cell_digits[idx]
+                primary_conf = cell_confidences[idx]
+
+                if 1 <= val_r <= 9 and conf_r >= digit_threshold:
+                    cell_digits[idx] = val_r
+                    cell_confidences[idx] = conf_r
+                    cell_candidates[idx] = cands_r
+                elif 1 <= primary_value <= 9:
+                    pass  # keep primary
+                elif val_r == 0 and conf_r >= primary_conf:
+                    cell_digits[idx] = 0
+                    cell_confidences[idx] = conf_r
+                    cell_candidates[idx] = cands_r
 
         grid = [cell_digits[i * 9 : (i + 1) * 9] for i in range(9)]
         grid = self._rerank_with_constraints(grid, cell_confidences, cell_candidates)
@@ -299,6 +354,23 @@ class CnnDigitReader:
             logits = logits.reshape(logits.shape[0], -1)
 
         return self._softmax(logits[0])
+
+    def _predict_probs_batch(self, images: list[np.ndarray]) -> np.ndarray:
+        """Batch inference: return (N, num_classes) probability matrix."""
+        tensors = [self._to_tensor(img) for img in images]
+        batch = np.concatenate(tensors, axis=0)  # (N, 1, H, W) or (N, H, W, 1)
+        outputs = self._session.run([self._output_name], {self._input_name: batch})
+        logits = np.asarray(outputs[0], dtype=np.float32)
+
+        if logits.ndim == 1:
+            logits = logits[None, :]
+        elif logits.ndim > 2:
+            logits = logits.reshape(logits.shape[0], -1)
+
+        # Vectorized softmax over rows.
+        shifted = logits - logits.max(axis=1, keepdims=True)
+        exp = np.exp(shifted)
+        return exp / exp.sum(axis=1, keepdims=True)
 
     def _to_tensor(self, image: np.ndarray) -> np.ndarray:
         if len(image.shape) == 3:
