@@ -93,20 +93,22 @@ class SudokuSolver:
         return True
 
     def _find_empty_cell(self, grid: Grid) -> tuple[int, int] | None:
-        """
-        Find the next empty cell (contains 0).
-
-        Args:
-            grid: Current grid state
-
-        Returns:
-            Tuple of (row, col) if empty cell found, None otherwise
-        """
+        """Find the empty cell with the fewest legal candidates (MRV heuristic)."""
+        best: tuple[int, int] | None = None
+        best_count = 10  # more than max possible (9)
         for r in range(9):
             for c in range(9):
-                if grid[r][c] == 0:
-                    return (r, c)
-        return None
+                if grid[r][c] != 0:
+                    continue
+                count = sum(1 for n in range(1, 10) if self._is_valid(grid, r, c, n))
+                if count == 0:
+                    return (r, c)  # dead end — will fail immediately, no point searching further
+                if count < best_count:
+                    best_count = count
+                    best = (r, c)
+                    if count == 1:
+                        return best  # only one option — pick it immediately
+        return best
 
     def count_solutions(self, grid: Grid, max_count: int = 2) -> int:
         """
