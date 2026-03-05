@@ -12,7 +12,7 @@ from backend.ocr.cnn_digit_reader import CnnDigitReader
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_IMAGE_ROOT = PROJECT_ROOT / "data" / "raw" / "images"
-MODEL_PATH = PROJECT_ROOT / "models" / "releases" / "sudoku_digit_cnn_v1.2.onnx"
+MODEL_PATH = PROJECT_ROOT / "models" / "releases" / "sudoku_digit_cnn_v2.0.onnx"
 
 EXPECTED_SAMPLE_GRIDS = {
     "sudoku_2.png": [
