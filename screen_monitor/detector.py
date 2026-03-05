@@ -21,6 +21,9 @@ _UPSCALE_TARGET_W = 1200
 # Reusable CLAHE instance (avoid per-frame allocation).
 _CLAHE = cv2.createCLAHE(clipLimit=5.0, tileGridSize=(8, 8))
 
+# Pre-allocated structuring element for _find_content_regions().
+_MORPH_KERNEL_15x15 = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+
 
 def detect_candidates_with_corners(
     frame_bgr: np.ndarray,
@@ -176,8 +179,7 @@ def _find_content_regions(
 
     diff = cv2.absdiff(gray, np.full_like(gray, bg_val))
     _, mask = cv2.threshold(diff, 15, 255, cv2.THRESH_BINARY)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
-    mask = cv2.dilate(mask, kernel)
+    mask = cv2.dilate(mask, _MORPH_KERNEL_15x15)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:

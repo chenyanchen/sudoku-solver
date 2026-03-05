@@ -34,7 +34,7 @@ class CnnDigitReader:
     def __init__(
         self,
         model_path: str | os.PathLike[str] | None = None,
-        blank_threshold: float = 0.65,
+        blank_threshold: float = 0.75,
         digit_threshold: float = 0.55,
         rerank_confidence: float = 0.80,
         top_k_candidates: int = 4,
@@ -503,7 +503,7 @@ class CnnDigitReader:
             small, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
         )
         ink_ratio = float(np.mean(binary > 0))
-        return ink_ratio < 0.015
+        return ink_ratio < 0.025
 
     @staticmethod
     def _softmax(values: np.ndarray) -> np.ndarray:

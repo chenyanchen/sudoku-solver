@@ -12,18 +12,23 @@ class SudokuSolver:
 
     def __init__(self):
         self.solutions_count = 0
+        self._iterations = 0
+        self._max_iterations = 0
 
-    def solve(self, grid: Grid) -> Grid | None:
+    def solve(self, grid: Grid, max_iterations: int = 1_000_000) -> Grid | None:
         """
         Solve a Sudoku puzzle.
 
         Args:
             grid: 9x9 list of lists with 0 for empty cells
+            max_iterations: Maximum recursive calls before aborting
 
         Returns:
             Solved 9x9 grid if solution exists, None otherwise
         """
         self.solutions_count = 0
+        self._iterations = 0
+        self._max_iterations = max_iterations
         grid_copy = copy.deepcopy(grid)
         if not self._is_consistent_grid(grid_copy):
             return None
@@ -33,6 +38,10 @@ class SudokuSolver:
 
     def _solve_recursive(self, grid: Grid) -> bool:
         """Recursively solve the puzzle using backtracking."""
+        self._iterations += 1
+        if self._iterations > self._max_iterations:
+            return False
+
         empty = self._find_empty_cell(grid)
         if not empty:
             return True

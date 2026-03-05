@@ -9,9 +9,13 @@ import threading
 import time
 from typing import Any, Optional
 
+import cv2
 import numpy as np
 
 from backend.ocr.cnn_digit_reader import CnnDigitReader
+
+# Downscale frames wider than this before detection (Retina optimisation).
+_MAX_DETECT_WIDTH = 1280
 
 from .detector import detect_candidates_in_regions, detect_candidates_with_corners
 from .frame_hasher import (
@@ -255,7 +259,17 @@ def _capture_loop(
                 )
                 prev_thumbs[mid] = thumb
                 any_changed = any_changed or changed
-                frames.append((mid, frame_bgr, thumb, changed))
+                # Downscale wide frames (e.g. Retina 2560+) for faster detection.
+                if frame_bgr.shape[1] > _MAX_DETECT_WIDTH:
+                    ds = _MAX_DETECT_WIDTH / frame_bgr.shape[1]
+                    detect_frame = cv2.resize(
+                        frame_bgr, None, fx=ds, fy=ds,
+                        interpolation=cv2.INTER_AREA,
+                    )
+                else:
+                    ds = 1.0
+                    detect_frame = frame_bgr
+                frames.append((mid, detect_frame, thumb, changed, ds))
             capture_ms = (time.perf_counter() - t_capture_start) * 1000.0
 
             # --- FIX #1: skip when no change regardless of overlay state ---
@@ -311,7 +325,11 @@ def _capture_loop(
              sel_mid, sel_offset, sel_scale) = selected
 
             # Store grid bbox as fractional ROI for future ROI detection.
-            fh, fw = frames[0][1].shape[:2]  # frame dimensions
+            # sel_bbox is in original (pre-downscale) coordinates.
+            ds = frames[0][4]  # downscale factor
+            dfh, dfw = frames[0][1].shape[:2]
+            fw = int(dfw / ds) if ds != 1.0 else dfw
+            fh = int(dfh / ds) if ds != 1.0 else dfh
             last_known_grid_bbox[sel_mid] = (
                 sel_bbox[0] / fw, sel_bbox[1] / fh,
                 (sel_bbox[2] - sel_bbox[0]) / fw, (sel_bbox[3] - sel_bbox[1]) / fh,
@@ -383,7 +401,7 @@ def _capture_loop(
 
 
 def _select_best_candidate(
-    frames: list[tuple[int, np.ndarray, np.ndarray, bool]],
+    frames: list[tuple[int, np.ndarray, np.ndarray, bool, float]],
     config: MonitorConfig,
     reader: CnnDigitReader,
     detect_cache: LruCache,
@@ -400,9 +418,10 @@ def _select_best_candidate(
     best_givens = -1
     best: Optional[tuple] = None
 
-    for mid, frame_bgr, thumb, changed in frames:
+    for mid, frame_bgr, thumb, changed, downscale in frames:
         frame_key = f"m{mid}:{thumbnail_hash(thumb)}"
         candidates = detect_cache.get(frame_key)
+        detect_hit = candidates is not None
         if candidates is None:
             # Try ROI detection first when we have previous thumbnails.
             roi_candidates = None
@@ -432,8 +451,14 @@ def _select_best_candidate(
             if bbox_area / float(frame_area) < config.min_bbox_area_ratio:
                 continue
 
+            # Scale corners back to original frame coordinates.
+            if downscale != 1.0:
+                corners = corners / downscale
+                bbox = bbox_from_corners(corners)
+
             raw_sig = grid_signature(warped)
             cached_result = solve_cache.get(raw_sig)
+            solve_hit = cached_result is not None
             if cached_result is None:
                 payload, reason, givens = solve_hints_from_warped(
                     warped, reader, config.min_givens,
@@ -451,6 +476,9 @@ def _select_best_candidate(
             givens = int(payload.get("givens") or givens or 0)
             if givens <= best_givens:
                 continue
+
+            payload["_detect_cache_hit"] = detect_hit
+            payload["_solve_cache_hit"] = solve_hit
 
             meta = monitor_meta[mid]
             puz_sig = puzzle_signature(payload["original_grid"])
