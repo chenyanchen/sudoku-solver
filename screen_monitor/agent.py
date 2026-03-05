@@ -169,6 +169,8 @@ def _capture_loop(
 
     overlay_visible = False
     last_render_key: Any = None
+    last_hint_count: int = -1
+    hint_count_streak: int = 0
     last_valid_solution_at = 0.0
     prev_thumbs: dict[int, np.ndarray] = {}
     active_until = 0.0
@@ -364,8 +366,22 @@ def _capture_loop(
                     signals.clear_signal.emit()
                     overlay_visible = False
                     last_render_key = None
+                    last_hint_count = -1
                 _sleep_until_next(loop_start, target_fps, stop_event)
                 continue
+
+            # Debounce hint count changes to suppress OCR flicker.
+            cur_hint_count = len(hint_cells)
+            if cur_hint_count != last_hint_count:
+                hint_count_streak += 1
+                if hint_count_streak < 2 and overlay_visible:
+                    # Keep previous overlay until new count stabilises.
+                    _sleep_until_next(loop_start, target_fps, stop_event)
+                    continue
+                last_hint_count = cur_hint_count
+                hint_count_streak = 0
+            else:
+                hint_count_streak = 0
 
             last_valid_solution_at = now
             render_scale = float((sel_scale[0] + sel_scale[1]) / 2.0)
