@@ -24,10 +24,10 @@ def paint_debug_hud(painter: QPainter, ring: TelemetryRing) -> None:
     avg_fps = sum(e.fps for e in recent) / max(1, len(recent))
 
     lines = [
-        f"FPS: {avg_fps:5.1f}  (cur {entry.fps:5.1f})",
-        f"Detect: {entry.detect_ms:6.1f} ms  {'HIT' if entry.detect_cache_hit else 'MISS'}",
-        f"Solve:  {entry.solve_ms:6.1f} ms  {'HIT' if entry.solve_cache_hit else 'MISS'}",
-        f"Stable: {entry.stable_count}  State: {entry.state}",
+        f"FPS: {avg_fps:5.1f}  (cur {entry.fps:5.1f})  State: {entry.state}",
+        f"Capture: {entry.capture_ms:5.1f} ms  Detect: {entry.detect_ms:5.1f} ms  {'HIT' if entry.detect_cache_hit else ''}",
+        f"OCR: {entry.ocr_ms:5.1f} ms  Solve: {entry.solve_ms:5.1f} ms  {'HIT' if entry.solve_cache_hit else ''}",
+        f"Stable: {entry.stable_count}  Givens: {entry.givens}",
     ]
 
     font = QFont("Menlo", 10)
@@ -35,7 +35,7 @@ def paint_debug_hud(painter: QPainter, ring: TelemetryRing) -> None:
 
     line_height = 16
     padding = 6
-    width = 300
+    width = 380
     height = len(lines) * line_height + padding * 2
 
     # Background.

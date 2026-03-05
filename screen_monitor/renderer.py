@@ -77,7 +77,7 @@ def compute_all_cell_positions(
     # Estimate cell size from grid extent.
     all_x = transformed[:, 0] * sx
     all_y = transformed[:, 1] * sy
-    cell_size = max(8, int(min(all_x.ptp(), all_y.ptp()) / 9.0 * 0.85)) if len(transformed) > 1 else 20
+    cell_size = max(8, int(min(all_x.max() - all_x.min(), all_y.max() - all_y.min()) / 9.0 * 0.85)) if len(transformed) > 1 else 20
 
     output = []
     for i, pred in enumerate(cell_predictions):

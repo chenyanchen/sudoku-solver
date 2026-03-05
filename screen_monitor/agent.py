@@ -65,11 +65,12 @@ def run_monitor(config: MonitorConfig) -> int:
     overlay.show()
     overlay.raise_()
 
-    telemetry_ring: Optional[TelemetryRing] = None
+    telemetry_ring = TelemetryRing(capacity=120)
     if config.debug_hud:
-        telemetry_ring = TelemetryRing(capacity=120)
         overlay.set_debug_hud(True)
         overlay.set_telemetry_ring(telemetry_ring)
+        from .otel import setup_metrics
+        setup_metrics(telemetry_ring)
 
     signals = OverlaySignals()
     signals.update_signal.connect(overlay.set_cells)
@@ -155,7 +156,7 @@ def _capture_loop(
     mss: Any,
     screens: list,
     primary_screen: Any,
-    telemetry_ring: Optional[TelemetryRing] = None,
+    telemetry_ring: TelemetryRing,
 ) -> None:
     """Main capture → detect → solve → render loop (runs in daemon thread)."""
     tracker = StabilityTracker()
@@ -241,6 +242,7 @@ def _capture_loop(
             now = time.monotonic()
 
             # --- Grab all monitors ---
+            t_capture_start = time.perf_counter()
             frames: list[tuple[int, np.ndarray, np.ndarray, bool]] = []
             any_changed = False
             for mid in monitor_ids:
@@ -254,6 +256,7 @@ def _capture_loop(
                 prev_thumbs[mid] = thumb
                 any_changed = any_changed or changed
                 frames.append((mid, frame_bgr, thumb, changed))
+            capture_ms = (time.perf_counter() - t_capture_start) * 1000.0
 
             # --- FIX #1: skip when no change regardless of overlay state ---
             if any_changed:
@@ -266,10 +269,9 @@ def _capture_loop(
             if not any_changed:
                 rescan_due = (now - last_scan_at) >= config.rescan_interval
                 if not rescan_due:
-                    if telemetry_ring is not None:
-                        telemetry_ring.push(FrameTelemetry(
-                            fps=target_fps, state="idle",
-                        ))
+                    telemetry_ring.push(FrameTelemetry(
+                        fps=target_fps, capture_ms=capture_ms, state="idle",
+                    ))
                     _sleep_until_next(loop_start, target_fps, stop_event)
                     continue
 
@@ -280,18 +282,17 @@ def _capture_loop(
                 prev_thumbs=prev_thumbs,
                 last_known_grid_bbox=last_known_grid_bbox,
             )
-            t_detect_end = time.perf_counter()
+            detect_ms = (time.perf_counter() - t_detect_start) * 1000.0
             last_scan_at = now
 
             if selected is None:
                 lost = tracker.on_no_grid()
-                if telemetry_ring is not None:
-                    telemetry_ring.push(FrameTelemetry(
-                        fps=target_fps,
-                        detect_ms=(t_detect_end - t_detect_start) * 1000.0,
-                        stable_count=0,
-                        state="lost" if overlay_visible else "active",
-                    ))
+                state = "lost" if overlay_visible else "active"
+                telemetry_ring.push(FrameTelemetry(
+                    fps=target_fps, capture_ms=capture_ms,
+                    detect_ms=detect_ms,
+                    stable_count=0, state=state,
+                ))
                 if (
                     overlay_visible
                     and lost >= config.lost_frames
@@ -317,16 +318,21 @@ def _capture_loop(
             )
 
             stable = tracker.on_grid(sel_sig, sel_bbox, config)
+            state = "stable" if stable >= config.stable_frames else "active"
+            timing = sel_payload.get("_timing", {})
 
-            if telemetry_ring is not None:
-                telemetry_ring.push(FrameTelemetry(
-                    fps=target_fps,
-                    detect_ms=(t_detect_end - t_detect_start) * 1000.0,
-                    detect_cache_hit=sel_payload.get("_detect_cache_hit", False),
-                    solve_cache_hit=sel_payload.get("_solve_cache_hit", False),
-                    stable_count=stable,
-                    state="stable" if stable >= config.stable_frames else "active",
-                ))
+            telemetry_ring.push(FrameTelemetry(
+                fps=target_fps,
+                capture_ms=capture_ms,
+                detect_ms=detect_ms,
+                ocr_ms=timing.get("ocr_ms", 0.0),
+                solve_ms=timing.get("solve_ms", 0.0),
+                detect_cache_hit=sel_payload.get("_detect_cache_hit", False),
+                solve_cache_hit=sel_payload.get("_solve_cache_hit", False),
+                stable_count=stable,
+                givens=int(sel_payload.get("givens") or 0),
+                state=state,
+            ))
 
             if stable < config.stable_frames:
                 _sleep_until_next(loop_start, target_fps, stop_event)
