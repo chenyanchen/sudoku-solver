@@ -22,6 +22,7 @@ class OverlaySignals(QObject):
     clear_signal = pyqtSignal()
     error_signal = pyqtSignal()  # FIX #2: worker crash → quit app
     confidence_signal = pyqtSignal(list)
+    geometry_signal = pyqtSignal(int, int, int, int)
 
 
 class OverlayWindow(QWidget):
@@ -91,6 +92,13 @@ class OverlayWindow(QWidget):
             LOGGER.debug("overlay window excluded from screen capture")
         except Exception:
             LOGGER.debug("failed to exclude overlay from capture", exc_info=True)
+
+    def move_to_screen(self, x: int, y: int, w: int, h: int) -> None:
+        """Move overlay to cover the screen at (x, y, w, h)."""
+        geo = self.geometry()
+        if geo.x() != x or geo.y() != y or geo.width() != w or geo.height() != h:
+            self.setGeometry(x, y, w, h)
+            LOGGER.debug("overlay moved to screen at (%d,%d) %dx%d", x, y, w, h)
 
     def set_debug_hud(self, enabled: bool) -> None:
         self._debug_hud = enabled

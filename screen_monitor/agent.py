@@ -75,6 +75,7 @@ def run_monitor(config: MonitorConfig) -> int:
     signals.update_signal.connect(overlay.set_cells)
     signals.clear_signal.connect(overlay.clear_cells)
     signals.confidence_signal.connect(overlay.set_confidence_cells)
+    signals.geometry_signal.connect(overlay.move_to_screen)
     # FIX #2: worker crash triggers app exit instead of zombie overlay.
     signals.error_signal.connect(app.quit)
 
@@ -208,10 +209,16 @@ def _capture_loop(
                 scale_x, scale_y,
             )
 
+            screen_geo = (
+                (geometry.x(), geometry.y(), geometry.width(), geometry.height())
+                if screen is not None else (0, 0, 1920, 1080)
+            )
+
             monitor_meta[mid] = {
                 "monitor": monitor,
                 "logical_offset": logical_offset,
                 "capture_to_logical_scale": (scale_x, scale_y),
+                "screen_geometry": screen_geo,
             }
 
         # FIX #4: permission probe — check for all-black frames.
@@ -342,6 +349,9 @@ def _capture_loop(
                 sel_sig, sel_bbox, render_scale, config.quantize_step,
             )
             if should_render(last_render_key, render_key):
+                # Move overlay to the detected grid's screen first.
+                screen_geo = monitor_meta[sel_mid]["screen_geometry"]
+                signals.geometry_signal.emit(*screen_geo)
                 signals.update_signal.emit(hint_cells)
                 LOGGER.debug(
                     "overlay updated: monitor=%s hints=%d stable=%d",
