@@ -394,11 +394,11 @@ def main() -> int:
         else:
             epochs_no_improve += 1
 
+        scheduler.step()
+
         if epochs_no_improve >= args.patience:
             print(f"Early stop triggered at epoch={epoch}")
             break
-
-        scheduler.step()
 
     if best_state is None:
         raise RuntimeError("No valid checkpoint produced")

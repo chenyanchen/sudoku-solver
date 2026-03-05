@@ -72,7 +72,7 @@ def main() -> int:
     if args.quantize:
         from onnxruntime.quantization import QuantType, quantize_dynamic
 
-        quantized_path = args.output.with_stem(args.output.stem + "_int8")
+        quantized_path = args.output.with_name(args.output.stem + "_int8" + args.output.suffix)
         quantize_dynamic(
             str(args.output),
             str(quantized_path),

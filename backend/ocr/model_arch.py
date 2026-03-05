@@ -21,8 +21,10 @@ def create_model(arch: str, num_classes: int):
                 in_chans=1,
                 num_classes=num_classes,
             )
-        except Exception:
-            print("[WARN] timm unavailable, fallback to custom_small_cnn")
+        except Exception as exc:
+            raise RuntimeError(
+                "timm backbone requested but timm is not available"
+            ) from exc
 
     class SudokuDigitCNN(nn.Module):
         def __init__(self):
@@ -32,12 +34,12 @@ def create_model(arch: str, num_classes: int):
                 nn.BatchNorm2d(32),
                 nn.ReLU(inplace=True),
                 nn.MaxPool2d(2),
-                nn.Dropout2d(0.1),
+                nn.Dropout(0.1),
                 nn.Conv2d(32, 64, kernel_size=3, padding=1),
                 nn.BatchNorm2d(64),
                 nn.ReLU(inplace=True),
                 nn.MaxPool2d(2),
-                nn.Dropout2d(0.1),
+                nn.Dropout(0.1),
                 nn.Conv2d(64, 128, kernel_size=3, padding=1),
                 nn.BatchNorm2d(128),
                 nn.ReLU(inplace=True),
