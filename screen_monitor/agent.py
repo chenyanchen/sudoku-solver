@@ -14,7 +14,8 @@ import numpy as np
 
 from backend.ocr.cnn_digit_reader import CnnDigitReader
 
-# Downscale frames wider than this before detection (Retina optimisation).
+# Downscale frames wider than this before detection.  Detection only needs
+# to find grid corners; OCR always re-warps from the original full-res frame.
 _MAX_DETECT_WIDTH = 1280
 
 from .detector import detect_candidates_in_regions, detect_candidates_with_corners
@@ -249,7 +250,7 @@ def _capture_loop(
 
             # --- Grab all monitors ---
             t_capture_start = time.perf_counter()
-            frames: list[tuple[int, np.ndarray, np.ndarray, bool]] = []
+            frames: list[tuple[int, np.ndarray, np.ndarray, np.ndarray, bool, float]] = []
             any_changed = False
             for mid in monitor_ids:
                 monitor = monitor_meta[mid]["monitor"]
@@ -261,7 +262,8 @@ def _capture_loop(
                 )
                 prev_thumbs[mid] = thumb
                 any_changed = any_changed or changed
-                # Downscale wide frames (e.g. Retina 2560+) for faster detection.
+                # Downscale wide frames for faster detection.
+                # OCR always re-warps from the original frame_bgr.
                 if frame_bgr.shape[1] > _MAX_DETECT_WIDTH:
                     ds = _MAX_DETECT_WIDTH / frame_bgr.shape[1]
                     detect_frame = cv2.resize(
@@ -271,7 +273,7 @@ def _capture_loop(
                 else:
                     ds = 1.0
                     detect_frame = frame_bgr
-                frames.append((mid, detect_frame, thumb, changed, ds))
+                frames.append((mid, frame_bgr, detect_frame, thumb, changed, ds))
             capture_ms = (time.perf_counter() - t_capture_start) * 1000.0
 
             # --- FIX #1: skip when no change regardless of overlay state ---
@@ -328,10 +330,7 @@ def _capture_loop(
 
             # Store grid bbox as fractional ROI for future ROI detection.
             # sel_bbox is in original (pre-downscale) coordinates.
-            ds = frames[0][4]  # downscale factor
-            dfh, dfw = frames[0][1].shape[:2]
-            fw = int(dfw / ds) if ds != 1.0 else dfw
-            fh = int(dfh / ds) if ds != 1.0 else dfh
+            fh, fw = frames[0][1].shape[:2]  # original frame dimensions
             last_known_grid_bbox[sel_mid] = (
                 sel_bbox[0] / fw, sel_bbox[1] / fh,
                 (sel_bbox[2] - sel_bbox[0]) / fw, (sel_bbox[3] - sel_bbox[1]) / fh,
@@ -416,8 +415,18 @@ def _capture_loop(
             _sleep_until_next(loop_start, target_fps, stop_event)
 
 
+def _rewarp_from_original(
+    original_bgr: np.ndarray,
+    corners: np.ndarray,
+) -> np.ndarray:
+    """Warp a 450x450 grid from the original full-res frame."""
+    dst = np.float32([[0, 0], [449, 0], [449, 449], [0, 449]])
+    matrix = cv2.getPerspectiveTransform(corners.astype(np.float32), dst)
+    return cv2.warpPerspective(original_bgr, matrix, (450, 450))
+
+
 def _select_best_candidate(
-    frames: list[tuple[int, np.ndarray, np.ndarray, bool, float]],
+    frames: list[tuple[int, np.ndarray, np.ndarray, np.ndarray, bool, float]],
     config: MonitorConfig,
     reader: CnnDigitReader,
     detect_cache: LruCache,
@@ -428,13 +437,16 @@ def _select_best_candidate(
 ) -> Optional[tuple]:
     """Find the best solvable grid across all monitors/frames.
 
+    Detection runs on the (potentially downscaled) detect_frame for speed.
+    OCR always re-warps from the original full-res frame for quality.
+
     Returns a tuple of (corners, signature, bbox, payload,
     monitor_id, logical_offset, capture_to_logical_scale) or None.
     """
     best_givens = -1
     best: Optional[tuple] = None
 
-    for mid, frame_bgr, thumb, changed, downscale in frames:
+    for mid, original_bgr, detect_frame, thumb, changed, downscale in frames:
         frame_key = f"m{mid}:{thumbnail_hash(thumb)}"
         candidates = detect_cache.get(frame_key)
         detect_hit = candidates is not None
@@ -449,21 +461,21 @@ def _select_best_candidate(
                     if grid_roi not in regions:
                         regions.append(grid_roi)
                 if regions:
-                    roi_candidates = detect_candidates_in_regions(frame_bgr, regions)
+                    roi_candidates = detect_candidates_in_regions(detect_frame, regions)
 
             if roi_candidates:
                 candidates = roi_candidates
             else:
-                candidates = detect_candidates_with_corners(frame_bgr)
+                candidates = detect_candidates_with_corners(detect_frame)
             detect_cache.put(frame_key, candidates)
 
         if not candidates:
             continue
 
-        for warped, corners in candidates:
+        for _warped_detect, corners in candidates:
             bbox = bbox_from_corners(corners)
             bbox_area = max(1, (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]))
-            frame_area = max(1, frame_bgr.shape[0] * frame_bgr.shape[1])
+            frame_area = max(1, detect_frame.shape[0] * detect_frame.shape[1])
             if bbox_area / float(frame_area) < config.min_bbox_area_ratio:
                 continue
 
@@ -471,6 +483,9 @@ def _select_best_candidate(
             if downscale != 1.0:
                 corners = corners / downscale
                 bbox = bbox_from_corners(corners)
+
+            # Re-warp from the original full-res frame for OCR quality.
+            warped = _rewarp_from_original(original_bgr, corners)
 
             raw_sig = grid_signature(warped)
             cached_result = solve_cache.get(raw_sig)
