@@ -24,7 +24,7 @@ DEFAULT_MODEL_PATH = (
     Path(__file__).resolve().parents[2]
     / "models"
     / "releases"
-    / "sudoku_digit_cnn_v1.2.onnx"
+    / "sudoku_digit_cnn_v2.0.onnx"
 )
 
 
@@ -231,7 +231,13 @@ class CnnDigitReader:
 
         try:
             providers = ["CPUExecutionProvider"]
-            session = ort.InferenceSession(str(self.model_path), providers=providers)
+            sess_options = ort.SessionOptions()
+            sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            session = ort.InferenceSession(
+                str(self.model_path),
+                sess_options=sess_options,
+                providers=providers,
+            )
 
             inputs = session.get_inputs()
             outputs = session.get_outputs()

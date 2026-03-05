@@ -21,6 +21,7 @@ from scripts._paths import resolve_image_path
 
 from backend.api.routes import detect_grid_image, prepare_grid_for_ocr
 from backend.cv.cell_extractor import clean_cell, extract_cells
+from backend.ocr.model_arch import create_model
 
 
 def _import_torch():
@@ -151,55 +152,6 @@ def stratified_split(
     random.shuffle(train)
     random.shuffle(val)
     return train, val
-
-
-def create_model(arch: str, num_classes: int):
-    torch, nn, _, _ = _import_torch()
-
-    if arch == "timm_mobilenetv3":
-        try:
-            import timm
-
-            model = timm.create_model(
-                "mobilenetv3_small_100",
-                pretrained=False,
-                in_chans=1,
-                num_classes=num_classes,
-            )
-            return model
-        except Exception:
-            print("[WARN] timm unavailable, fallback to custom_small_cnn")
-
-    class SudokuDigitCNN(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.features = nn.Sequential(
-                nn.Conv2d(1, 32, kernel_size=3, padding=1),
-                nn.BatchNorm2d(32),
-                nn.ReLU(inplace=True),
-                nn.MaxPool2d(2),
-                nn.Conv2d(32, 64, kernel_size=3, padding=1),
-                nn.BatchNorm2d(64),
-                nn.ReLU(inplace=True),
-                nn.MaxPool2d(2),
-                nn.Conv2d(64, 128, kernel_size=3, padding=1),
-                nn.BatchNorm2d(128),
-                nn.ReLU(inplace=True),
-                nn.MaxPool2d(2),
-            )
-            self.classifier = nn.Sequential(
-                nn.Flatten(),
-                nn.Linear(128 * 6 * 6, 256),
-                nn.ReLU(inplace=True),
-                nn.Dropout(0.25),
-                nn.Linear(256, num_classes),
-            )
-
-        def forward(self, x):
-            x = self.features(x)
-            return self.classifier(x)
-
-    return SudokuDigitCNN()
 
 
 def compute_metrics(logits, labels):
@@ -357,10 +309,14 @@ def main() -> int:
 
     class_weights = class_weights_from_samples(train_samples)
     criterion = torch.nn.CrossEntropyLoss(
-        weight=torch.from_numpy(class_weights).to(device)
+        weight=torch.from_numpy(class_weights).to(device),
+        label_smoothing=0.1,
     )
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay
+    )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs
     )
 
     best_score = -1.0
@@ -437,6 +393,8 @@ def main() -> int:
             epochs_no_improve = 0
         else:
             epochs_no_improve += 1
+
+        scheduler.step()
 
         if epochs_no_improve >= args.patience:
             print(f"Early stop triggered at epoch={epoch}")
