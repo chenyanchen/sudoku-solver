@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 
@@ -11,11 +11,15 @@ class FrameTelemetry:
     """Telemetry snapshot for a single capture-loop iteration."""
 
     fps: float = 0.0
+    capture_ms: float = 0.0
     detect_ms: float = 0.0
+    ocr_ms: float = 0.0
     solve_ms: float = 0.0
+    render_ms: float = 0.0
     detect_cache_hit: bool = False
     solve_cache_hit: bool = False
     stable_count: int = 0
+    givens: int = 0
     state: str = "idle"  # idle | active | stable | lost
 
 
@@ -24,16 +28,26 @@ class TelemetryRing:
 
     Single-thread write (worker) + Qt-thread read (paint); GIL provides
     sufficient synchronisation for this use-case.
+
+    When an OTel forwarding function is installed via ``set_otel_forwarder``,
+    every ``push()`` also emits metrics to Prometheus — making this ring the
+    sole data-collection point for both the HUD overlay and external
+    observability.
     """
 
     def __init__(self, capacity: int = 120) -> None:
         self._capacity = max(1, int(capacity))
         self._buf: list[FrameTelemetry] = []
         self._head: int = 0  # next write position (when full)
+        self._otel_forward: Optional[callable] = None
 
     @property
     def capacity(self) -> int:
         return self._capacity
+
+    def set_otel_forwarder(self, fn: callable) -> None:
+        """Register a callback ``fn(FrameTelemetry)`` for OTel forwarding."""
+        self._otel_forward = fn
 
     def push(self, entry: FrameTelemetry) -> None:
         if len(self._buf) < self._capacity:
@@ -41,6 +55,9 @@ class TelemetryRing:
         else:
             self._buf[self._head] = entry
             self._head = (self._head + 1) % self._capacity
+
+        if self._otel_forward is not None:
+            self._otel_forward(entry)
 
     def latest(self) -> Optional[FrameTelemetry]:
         if not self._buf:

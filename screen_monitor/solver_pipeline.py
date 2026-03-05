@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, Optional
 
 from backend.api.routes import prepare_grid_for_ocr
@@ -20,14 +21,17 @@ def solve_hints_from_warped(
 
     Returns (payload_dict_or_None, reason_string, given_count).
     """
+    t0 = time.perf_counter()
     ocr_grid = prepare_grid_for_ocr(warped_bgr)
     cells = extract_cells(ocr_grid)
     if len(cells) != 81:
         return None, "bad-cells", 0
 
+    t1 = time.perf_counter()
     original_grid, metadata = reader.recognize_grid_with_metadata(
         cells, threshold=None,
     )
+    t2 = time.perf_counter()
     given_cells = sum(1 for row in original_grid for cell in row if cell != 0)
     if given_cells < min_givens:
         return None, f"low-givens:{given_cells}", given_cells
@@ -46,6 +50,7 @@ def solve_hints_from_warped(
         if repaired_solution is not None:
             original_grid = repaired_grid
             solved_grid = repaired_solution
+    t3 = time.perf_counter()
 
     if solved_grid is None:
         return None, f"unsolved:{given_cells}", given_cells
@@ -68,4 +73,9 @@ def solve_hints_from_warped(
         "hints": hints,
         "givens": given_cells,
         "metadata": metadata,
+        "_timing": {
+            "extract_cells_ms": (t1 - t0) * 1000.0,
+            "ocr_ms": (t2 - t1) * 1000.0,
+            "solve_ms": (t3 - t2) * 1000.0,
+        },
     }, "ok", given_cells

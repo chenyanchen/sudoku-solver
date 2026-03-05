@@ -9,9 +9,13 @@ import threading
 import time
 from typing import Any, Optional
 
+import cv2
 import numpy as np
 
 from backend.ocr.cnn_digit_reader import CnnDigitReader
+
+# Downscale frames wider than this before detection (Retina optimisation).
+_MAX_DETECT_WIDTH = 1280
 
 from .detector import detect_candidates_in_regions, detect_candidates_with_corners
 from .frame_hasher import (
@@ -65,11 +69,12 @@ def run_monitor(config: MonitorConfig) -> int:
     overlay.show()
     overlay.raise_()
 
-    telemetry_ring: Optional[TelemetryRing] = None
+    telemetry_ring = TelemetryRing(capacity=120)
     if config.debug_hud:
-        telemetry_ring = TelemetryRing(capacity=120)
         overlay.set_debug_hud(True)
         overlay.set_telemetry_ring(telemetry_ring)
+        from .otel import setup_metrics
+        setup_metrics(telemetry_ring)
 
     signals = OverlaySignals()
     signals.update_signal.connect(overlay.set_cells)
@@ -155,7 +160,7 @@ def _capture_loop(
     mss: Any,
     screens: list,
     primary_screen: Any,
-    telemetry_ring: Optional[TelemetryRing] = None,
+    telemetry_ring: TelemetryRing,
 ) -> None:
     """Main capture → detect → solve → render loop (runs in daemon thread)."""
     tracker = StabilityTracker()
@@ -241,6 +246,7 @@ def _capture_loop(
             now = time.monotonic()
 
             # --- Grab all monitors ---
+            t_capture_start = time.perf_counter()
             frames: list[tuple[int, np.ndarray, np.ndarray, bool]] = []
             any_changed = False
             for mid in monitor_ids:
@@ -253,7 +259,18 @@ def _capture_loop(
                 )
                 prev_thumbs[mid] = thumb
                 any_changed = any_changed or changed
-                frames.append((mid, frame_bgr, thumb, changed))
+                # Downscale wide frames (e.g. Retina 2560+) for faster detection.
+                if frame_bgr.shape[1] > _MAX_DETECT_WIDTH:
+                    ds = _MAX_DETECT_WIDTH / frame_bgr.shape[1]
+                    detect_frame = cv2.resize(
+                        frame_bgr, None, fx=ds, fy=ds,
+                        interpolation=cv2.INTER_AREA,
+                    )
+                else:
+                    ds = 1.0
+                    detect_frame = frame_bgr
+                frames.append((mid, detect_frame, thumb, changed, ds))
+            capture_ms = (time.perf_counter() - t_capture_start) * 1000.0
 
             # --- FIX #1: skip when no change regardless of overlay state ---
             if any_changed:
@@ -266,10 +283,9 @@ def _capture_loop(
             if not any_changed:
                 rescan_due = (now - last_scan_at) >= config.rescan_interval
                 if not rescan_due:
-                    if telemetry_ring is not None:
-                        telemetry_ring.push(FrameTelemetry(
-                            fps=target_fps, state="idle",
-                        ))
+                    telemetry_ring.push(FrameTelemetry(
+                        fps=target_fps, capture_ms=capture_ms, state="idle",
+                    ))
                     _sleep_until_next(loop_start, target_fps, stop_event)
                     continue
 
@@ -280,18 +296,17 @@ def _capture_loop(
                 prev_thumbs=prev_thumbs,
                 last_known_grid_bbox=last_known_grid_bbox,
             )
-            t_detect_end = time.perf_counter()
+            detect_ms = (time.perf_counter() - t_detect_start) * 1000.0
             last_scan_at = now
 
             if selected is None:
                 lost = tracker.on_no_grid()
-                if telemetry_ring is not None:
-                    telemetry_ring.push(FrameTelemetry(
-                        fps=target_fps,
-                        detect_ms=(t_detect_end - t_detect_start) * 1000.0,
-                        stable_count=0,
-                        state="lost" if overlay_visible else "active",
-                    ))
+                state = "lost" if overlay_visible else "active"
+                telemetry_ring.push(FrameTelemetry(
+                    fps=target_fps, capture_ms=capture_ms,
+                    detect_ms=detect_ms,
+                    stable_count=0, state=state,
+                ))
                 if (
                     overlay_visible
                     and lost >= config.lost_frames
@@ -310,23 +325,32 @@ def _capture_loop(
              sel_mid, sel_offset, sel_scale) = selected
 
             # Store grid bbox as fractional ROI for future ROI detection.
-            fh, fw = frames[0][1].shape[:2]  # frame dimensions
+            # sel_bbox is in original (pre-downscale) coordinates.
+            ds = frames[0][4]  # downscale factor
+            dfh, dfw = frames[0][1].shape[:2]
+            fw = int(dfw / ds) if ds != 1.0 else dfw
+            fh = int(dfh / ds) if ds != 1.0 else dfh
             last_known_grid_bbox[sel_mid] = (
                 sel_bbox[0] / fw, sel_bbox[1] / fh,
                 (sel_bbox[2] - sel_bbox[0]) / fw, (sel_bbox[3] - sel_bbox[1]) / fh,
             )
 
             stable = tracker.on_grid(sel_sig, sel_bbox, config)
+            state = "stable" if stable >= config.stable_frames else "active"
+            timing = sel_payload.get("_timing", {})
 
-            if telemetry_ring is not None:
-                telemetry_ring.push(FrameTelemetry(
-                    fps=target_fps,
-                    detect_ms=(t_detect_end - t_detect_start) * 1000.0,
-                    detect_cache_hit=sel_payload.get("_detect_cache_hit", False),
-                    solve_cache_hit=sel_payload.get("_solve_cache_hit", False),
-                    stable_count=stable,
-                    state="stable" if stable >= config.stable_frames else "active",
-                ))
+            telemetry_ring.push(FrameTelemetry(
+                fps=target_fps,
+                capture_ms=capture_ms,
+                detect_ms=detect_ms,
+                ocr_ms=timing.get("ocr_ms", 0.0),
+                solve_ms=timing.get("solve_ms", 0.0),
+                detect_cache_hit=sel_payload.get("_detect_cache_hit", False),
+                solve_cache_hit=sel_payload.get("_solve_cache_hit", False),
+                stable_count=stable,
+                givens=int(sel_payload.get("givens") or 0),
+                state=state,
+            ))
 
             if stable < config.stable_frames:
                 _sleep_until_next(loop_start, target_fps, stop_event)
@@ -377,7 +401,7 @@ def _capture_loop(
 
 
 def _select_best_candidate(
-    frames: list[tuple[int, np.ndarray, np.ndarray, bool]],
+    frames: list[tuple[int, np.ndarray, np.ndarray, bool, float]],
     config: MonitorConfig,
     reader: CnnDigitReader,
     detect_cache: LruCache,
@@ -394,9 +418,10 @@ def _select_best_candidate(
     best_givens = -1
     best: Optional[tuple] = None
 
-    for mid, frame_bgr, thumb, changed in frames:
+    for mid, frame_bgr, thumb, changed, downscale in frames:
         frame_key = f"m{mid}:{thumbnail_hash(thumb)}"
         candidates = detect_cache.get(frame_key)
+        detect_hit = candidates is not None
         if candidates is None:
             # Try ROI detection first when we have previous thumbnails.
             roi_candidates = None
@@ -426,8 +451,14 @@ def _select_best_candidate(
             if bbox_area / float(frame_area) < config.min_bbox_area_ratio:
                 continue
 
+            # Scale corners back to original frame coordinates.
+            if downscale != 1.0:
+                corners = corners / downscale
+                bbox = bbox_from_corners(corners)
+
             raw_sig = grid_signature(warped)
             cached_result = solve_cache.get(raw_sig)
+            solve_hit = cached_result is not None
             if cached_result is None:
                 payload, reason, givens = solve_hints_from_warped(
                     warped, reader, config.min_givens,
@@ -445,6 +476,9 @@ def _select_best_candidate(
             givens = int(payload.get("givens") or givens or 0)
             if givens <= best_givens:
                 continue
+
+            payload["_detect_cache_hit"] = detect_hit
+            payload["_solve_cache_hit"] = solve_hit
 
             meta = monitor_meta[mid]
             puz_sig = puzzle_signature(payload["original_grid"])

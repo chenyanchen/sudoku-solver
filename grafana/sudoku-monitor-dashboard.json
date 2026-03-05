@@ -1,0 +1,279 @@
+{
+  "panels": [
+    {
+      "datasource": {
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "rate(sudoku_frame_total[30s])",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "title": "Frame Rate (frames/sec)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "increase(sudoku_frame_total[5m])",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "title": "Frame State Distribution (5m)",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "green",
+                "value": 0.8
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "sum(rate(sudoku_cache_total{cache=\"detect\",result=\"hit\"}[2m])) / sum(rate(sudoku_cache_total{cache=\"detect\"}[2m]))",
+          "legendFormat": "detect"
+        },
+        {
+          "expr": "sum(rate(sudoku_cache_total{cache=\"solve\",result=\"hit\"}[2m])) / sum(rate(sudoku_cache_total{cache=\"solve\"}[2m]))",
+          "legendFormat": "solve"
+        }
+      ],
+      "title": "Cache Hit Rate",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, step) (rate(sudoku_step_duration_ms_milliseconds_bucket[2m])))",
+          "legendFormat": "{{step}}"
+        }
+      ],
+      "title": "Pipeline Step Latency (p50)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, step) (rate(sudoku_step_duration_ms_milliseconds_bucket[2m])))",
+          "legendFormat": "{{step}}"
+        }
+      ],
+      "title": "Pipeline Step Latency (p95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "rate(sudoku_step_duration_ms_milliseconds_count[30s])",
+          "legendFormat": "{{step}}"
+        }
+      ],
+      "title": "Step Execution Count (rate/sec)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "rate(sudoku_cache_total{result=\"hit\"}[30s])",
+          "legendFormat": "hit:{{cache}}"
+        },
+        {
+          "expr": "rate(sudoku_cache_total{result=\"miss\"}[30s])",
+          "legendFormat": "miss:{{cache}}"
+        }
+      ],
+      "title": "Cache Operations (rate/sec)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 8,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(sudoku_givens_bucket[5m])))",
+          "legendFormat": "p50 givens"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(sudoku_givens_bucket[5m])))",
+          "legendFormat": "p95 givens"
+        }
+      ],
+      "title": "Givens Distribution (5m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "id": 9,
+      "targets": [
+        {
+          "expr": "sudoku_frame_total",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "title": "Total Frames by State",
+      "type": "stat"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": [
+    "sudoku"
+  ],
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Sudoku Screen Monitor",
+  "uid": "90630b24-7854-4223-929a-302810f33ea8"
+}

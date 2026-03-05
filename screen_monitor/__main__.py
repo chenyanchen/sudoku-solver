@@ -44,7 +44,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--debug", action="store_true")
     parser.add_argument(
         "--debug-hud", action="store_true",
-        help="Show real-time debug HUD overlay (FPS, latency, cache stats)",
+        help="Enable debug HUD overlay + Prometheus metrics on :9092",
     )
     parser.add_argument(
         "--visualize",

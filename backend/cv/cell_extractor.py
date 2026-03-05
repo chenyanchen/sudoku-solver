@@ -5,6 +5,10 @@ import numpy as np
 from typing import List, Tuple
 
 
+# Reusable CLAHE instance (avoid 81 allocations per grid).
+_CLAHE = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
+
+
 def extract_cells(grid_image: np.ndarray) -> List[np.ndarray]:
     """
     Split a Sudoku grid image into 81 individual cell images.
@@ -68,9 +72,8 @@ def clean_cell(cell_image: np.ndarray, cell_size: int = 48) -> np.ndarray:
     # Apply mild blur
     blurred = cv2.GaussianBlur(gray, (3, 3), 0)
 
-    # Enhance contrast with CLAHE
-    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
-    enhanced = clahe.apply(blurred)
+    # Enhance contrast with CLAHE (reuse module-level instance).
+    enhanced = _CLAHE.apply(blurred)
 
     # Use Otsu thresholding
     _, binary = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)

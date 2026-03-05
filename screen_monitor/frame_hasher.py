@@ -9,6 +9,10 @@ import cv2
 import numpy as np
 
 
+# Pre-allocated structuring element for find_changed_regions().
+_MORPH_KERNEL_5x5 = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+
+
 def make_thumbnail(
     frame_bgr: np.ndarray,
     size: tuple[int, int] = (160, 90),
@@ -48,8 +52,7 @@ def find_changed_regions(
     """
     diff = cv2.absdiff(prev_thumb, curr_thumb)
     _, mask = cv2.threshold(diff, int(threshold), 255, cv2.THRESH_BINARY)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-    mask = cv2.dilate(mask, kernel)
+    mask = cv2.dilate(mask, _MORPH_KERNEL_5x5)
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
