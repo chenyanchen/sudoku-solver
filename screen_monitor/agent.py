@@ -21,8 +21,14 @@ from .grid_tracker import (
     grid_signature,
     puzzle_signature,
 )
-from .renderer import build_render_key, compute_hint_positions, should_render
+from .renderer import (
+    build_render_key,
+    compute_all_cell_positions,
+    compute_hint_positions,
+    should_render,
+)
 from .solver_pipeline import solve_hints_from_warped
+from .telemetry import FrameTelemetry, TelemetryRing
 from .types import LruCache, MonitorConfig
 
 LOGGER = logging.getLogger("screen_monitor")
@@ -54,9 +60,16 @@ def run_monitor(config: MonitorConfig) -> int:
     overlay.show()
     overlay.raise_()
 
+    telemetry_ring: Optional[TelemetryRing] = None
+    if config.debug_hud:
+        telemetry_ring = TelemetryRing(capacity=120)
+        overlay.set_debug_hud(True)
+        overlay.set_telemetry_ring(telemetry_ring)
+
     signals = OverlaySignals()
     signals.update_signal.connect(overlay.set_cells)
     signals.clear_signal.connect(overlay.clear_cells)
+    signals.confidence_signal.connect(overlay.set_confidence_cells)
     # FIX #2: worker crash triggers app exit instead of zombie overlay.
     signals.error_signal.connect(app.quit)
 
@@ -76,6 +89,7 @@ def run_monitor(config: MonitorConfig) -> int:
             _capture_loop(
                 config, reader, signals, stop_event,
                 mss, screens, primary_screen,
+                telemetry_ring=telemetry_ring,
             )
         except Exception:
             LOGGER.exception("capture worker crashed")
@@ -107,6 +121,7 @@ def _capture_loop(
     mss: Any,
     screens: list,
     primary_screen: Any,
+    telemetry_ring: Optional[TelemetryRing] = None,
 ) -> None:
     """Main capture → detect → solve → render loop (runs in daemon thread)."""
     tracker = StabilityTracker()
@@ -202,16 +217,30 @@ def _capture_loop(
             )
 
             if not any_changed:
+                if telemetry_ring is not None:
+                    elapsed_ms = (time.perf_counter() - loop_start) * 1000.0
+                    telemetry_ring.push(FrameTelemetry(
+                        fps=target_fps, state="idle",
+                    ))
                 _sleep_until_next(loop_start, target_fps, stop_event)
                 continue
 
             # --- Detect + solve ---
+            t_detect_start = time.perf_counter()
             selected = _select_best_candidate(
                 frames, config, reader, detect_cache, solve_cache, monitor_meta,
             )
+            t_detect_end = time.perf_counter()
 
             if selected is None:
                 lost = tracker.on_no_grid()
+                if telemetry_ring is not None:
+                    telemetry_ring.push(FrameTelemetry(
+                        fps=target_fps,
+                        detect_ms=(t_detect_end - t_detect_start) * 1000.0,
+                        stable_count=0,
+                        state="lost" if overlay_visible else "active",
+                    ))
                 if (
                     overlay_visible
                     and lost >= config.lost_frames
@@ -230,6 +259,17 @@ def _capture_loop(
              sel_mid, sel_offset, sel_scale) = selected
 
             stable = tracker.on_grid(sel_sig, sel_bbox, config)
+
+            if telemetry_ring is not None:
+                telemetry_ring.push(FrameTelemetry(
+                    fps=target_fps,
+                    detect_ms=(t_detect_end - t_detect_start) * 1000.0,
+                    detect_cache_hit=sel_payload.get("_detect_cache_hit", False),
+                    solve_cache_hit=sel_payload.get("_solve_cache_hit", False),
+                    stable_count=stable,
+                    state="stable" if stable >= config.stable_frames else "active",
+                ))
+
             if stable < config.stable_frames:
                 _sleep_until_next(loop_start, target_fps, stop_event)
                 continue
@@ -258,6 +298,19 @@ def _capture_loop(
                 )
                 last_render_key = render_key
                 overlay_visible = True
+
+                # Emit confidence data when debug HUD is active.
+                if config.debug_hud:
+                    cell_predictions = sel_payload.get("metadata", {}).get(
+                        "cell_predictions",
+                    )
+                    if cell_predictions:
+                        conf_cells = compute_all_cell_positions(
+                            sel_corners, cell_predictions,
+                            sel_offset, sel_scale,
+                        )
+                        if conf_cells:
+                            signals.confidence_signal.emit(conf_cells)
 
             _sleep_until_next(loop_start, target_fps, stop_event)
 

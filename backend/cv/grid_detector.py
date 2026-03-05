@@ -1,11 +1,28 @@
 """Sudoku grid detection and perspective transformation."""
 
+from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
 
 from .preprocessor import morphological_operations, preprocess
+
+
+@dataclass
+class GridDetectionDebug:
+    """Intermediate results from the grid detection pipeline."""
+
+    original: Optional[np.ndarray] = None
+    gray: Optional[np.ndarray] = None
+    thresh: Optional[np.ndarray] = None
+    morphed: Optional[np.ndarray] = None
+    contours_image: Optional[np.ndarray] = None
+    quad_image: Optional[np.ndarray] = None
+    warped: Optional[np.ndarray] = None
+    cells_montage: Optional[np.ndarray] = None
+    corners: Optional[np.ndarray] = None
+    error: Optional[str] = None
 
 
 def find_grid(image: np.ndarray, debug: bool = False) -> Optional[np.ndarray]:
@@ -278,6 +295,112 @@ def validate_grid(image: np.ndarray) -> bool:
 
     # A Sudoku grid should have enough visible lines.
     return len(lines) >= 15
+
+
+def find_grid_with_debug(
+    image: np.ndarray,
+    reader: object = None,
+) -> GridDetectionDebug:
+    """Run the full grid detection pipeline and capture every intermediate step.
+
+    *reader* is an optional ``CnnDigitReader`` instance used to annotate the
+    cells montage with OCR predictions.
+    """
+    debug = GridDetectionDebug()
+
+    try:
+        debug.original = image.copy()
+
+        processed = preprocess(image)
+        debug.gray = processed["gray"]
+        debug.thresh = processed["thresh"]
+
+        morphed = morphological_operations(processed["thresh"])
+        debug.morphed = morphed
+
+        contours, _ = cv2.findContours(
+            morphed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE,
+        )
+        if not contours:
+            debug.error = "no contours found"
+            return debug
+
+        # Draw all contours on a copy of the original.
+        contours_vis = debug.original.copy()
+        cv2.drawContours(contours_vis, contours, -1, (0, 255, 0), 2)
+        debug.contours_image = contours_vis
+
+        grid_contour = find_largest_quadrilateral(contours)
+        if grid_contour is None:
+            debug.error = "no quadrilateral found"
+            return debug
+
+        corners = get_corner_points(grid_contour)
+        if corners is None:
+            debug.error = "could not extract corners"
+            return debug
+
+        ordered = order_corners(corners)
+        debug.corners = ordered
+
+        # Quad visualisation.
+        quad_vis = debug.original.copy()
+        pts = ordered.astype(np.int32).reshape((-1, 1, 2))
+        cv2.polylines(quad_vis, [pts], True, (0, 0, 255), 2)
+        for pt in ordered:
+            cv2.circle(quad_vis, (int(pt[0]), int(pt[1])), 8, (255, 0, 0), -1)
+        debug.quad_image = quad_vis
+
+        warped = perspective_transform(processed["original"], ordered, (450, 450))
+        debug.warped = warped
+
+        if not validate_grid(warped):
+            debug.error = "grid validation failed"
+            return debug
+
+        # Build 9×9 cells montage.
+        try:
+            from backend.api.routes import prepare_grid_for_ocr
+            from backend.cv.cell_extractor import extract_cells
+
+            ocr_grid = prepare_grid_for_ocr(warped)
+            cells = extract_cells(ocr_grid)
+
+            cell_h, cell_w = cells[0].shape[:2] if cells else (50, 50)
+            montage = np.ones((cell_h * 9, cell_w * 9), dtype=np.uint8) * 255
+            for idx, cell in enumerate(cells[:81]):
+                r, c = divmod(idx, 9)
+                montage[r * cell_h:(r + 1) * cell_h, c * cell_w:(c + 1) * cell_w] = cell
+
+            # Convert to colour for annotation.
+            montage_bgr = cv2.cvtColor(montage, cv2.COLOR_GRAY2BGR)
+
+            if reader is not None and hasattr(reader, "recognize_grid_with_metadata"):
+                _, metadata = reader.recognize_grid_with_metadata(cells, threshold=None)
+                preds = metadata.get("cell_predictions", [])
+                for pred in preds:
+                    r_idx = int(pred["row"])
+                    c_idx = int(pred["col"])
+                    val = int(pred.get("value", 0))
+                    conf = float(pred.get("confidence", 0.0))
+                    if val != 0:
+                        cx = c_idx * cell_w + cell_w // 2
+                        cy = r_idx * cell_h + cell_h // 2
+                        text = f"{val}:{conf:.0%}"
+                        cv2.putText(
+                            montage_bgr, text,
+                            (cx - 15, cy + 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 200), 1,
+                        )
+
+            debug.cells_montage = montage_bgr
+        except Exception:
+            pass  # cells montage is best-effort
+
+    except Exception as exc:
+        debug.error = str(exc)
+
+    return debug
 
 
 def find_grids_multiple(image: np.ndarray, max_grids: int = 5) -> List[np.ndarray]:

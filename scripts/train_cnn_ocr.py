@@ -210,6 +210,7 @@ def compute_metrics(logits, labels):
 
     # Digit-only macro F1 for labels 1..9
     f1_scores = []
+    per_digit_f1: dict[str, float] = {}
     for cls in range(1, 10):
         tp = ((preds == cls) & (labels == cls)).sum().item()
         fp = ((preds == cls) & (labels != cls)).sum().item()
@@ -219,6 +220,7 @@ def compute_metrics(logits, labels):
         recall = tp / (tp + fn + 1e-8)
         f1 = 2 * precision * recall / (precision + recall + 1e-8)
         f1_scores.append(f1)
+        per_digit_f1[str(cls)] = float(f1)
 
     macro_f1_digits = float(np.mean(f1_scores)) if f1_scores else 0.0
 
@@ -226,10 +228,18 @@ def compute_metrics(logits, labels):
     blank_fp = ((preds == 0) & (labels != 0)).sum().item()
     blank_precision = blank_tp / (blank_tp + blank_fp + 1e-8)
 
+    # Confusion matrix (10×10): confusion[true][pred] = count.
+    num_classes = 10
+    confusion: list[list[int]] = [[0] * num_classes for _ in range(num_classes)]
+    for t, p in zip(labels.tolist(), preds.tolist()):
+        confusion[int(t)][int(p)] += 1
+
     return {
         "accuracy": acc,
         "macro_f1_digits": macro_f1_digits,
         "blank_precision": float(blank_precision),
+        "per_digit_f1": per_digit_f1,
+        "confusion": confusion,
     }
 
 
@@ -299,6 +309,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--patience", type=int, default=12)
     parser.add_argument("--version", type=str, default="1.0.0")
+    parser.add_argument(
+        "--metrics-log",
+        type=Path,
+        default=None,
+        help="JSONL path for per-epoch metrics (default: <output>.metrics.jsonl)",
+    )
     return parser.parse_args()
 
 
@@ -351,6 +367,9 @@ def main() -> int:
     best_state = None
     epochs_no_improve = 0
 
+    metrics_log_path: Path = args.metrics_log or args.output.with_suffix(".metrics.jsonl")
+    metrics_log_path.parent.mkdir(parents=True, exist_ok=True)
+
     for epoch in range(1, args.epochs + 1):
         model.train()
         train_loss = 0.0
@@ -376,6 +395,8 @@ def main() -> int:
             + 0.15 * val_metrics["accuracy"]
         )
 
+        is_best = score > best_score
+
         print(
             f"epoch={epoch:03d} train_loss={train_loss:.4f} "
             f"val_loss={val_metrics['loss']:.4f} "
@@ -385,7 +406,25 @@ def main() -> int:
             f"score={score:.4f}"
         )
 
-        if score > best_score:
+        # Write JSONL metrics record.
+        current_lr = optimizer.param_groups[0]["lr"]
+        metrics_record = {
+            "epoch": epoch,
+            "train_loss": round(train_loss, 6),
+            "val_loss": round(val_metrics["loss"], 6),
+            "val_accuracy": round(val_metrics["accuracy"], 6),
+            "val_macro_f1_digits": round(val_metrics["macro_f1_digits"], 6),
+            "val_blank_precision": round(val_metrics["blank_precision"], 6),
+            "score": round(score, 6),
+            "is_best": is_best,
+            "lr": current_lr,
+            "per_digit_f1": val_metrics.get("per_digit_f1", {}),
+            "confusion": val_metrics.get("confusion", []),
+        }
+        with metrics_log_path.open("a", encoding="utf-8") as mf:
+            mf.write(json.dumps(metrics_record, ensure_ascii=False) + "\n")
+
+        if is_best:
             best_score = score
             best_state = {
                 "state_dict": model.state_dict(),

@@ -26,6 +26,7 @@ class MonitorConfig:
     detect_cache_max: int = 64
     quantize_step: int = 4
     debug: bool = False
+    debug_hud: bool = False
 
 
 class LruCache:
