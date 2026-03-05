@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from screen_monitor.frame_hasher import is_frame_changed, make_thumbnail
+from screen_monitor.frame_hasher import find_changed_regions, is_frame_changed, make_thumbnail
 from screen_monitor.grid_tracker import (
     StabilityTracker,
     bbox_iou,
@@ -239,3 +239,53 @@ def test_compute_hint_positions_with_retina_scale():
 def test_compute_hint_positions_empty_hints():
     corners = np.float32([[0, 0], [449, 0], [449, 449], [0, 449]])
     assert compute_hint_positions(corners, []) == []
+
+
+# ---------------------------------------------------------------------------
+# P0: rescan_interval default
+# ---------------------------------------------------------------------------
+
+
+def test_monitor_config_rescan_interval_default():
+    cfg = MonitorConfig()
+    assert cfg.rescan_interval == 1.0
+
+
+def test_monitor_config_rescan_interval_custom():
+    cfg = MonitorConfig(rescan_interval=0.5)
+    assert cfg.rescan_interval == 0.5
+
+
+# ---------------------------------------------------------------------------
+# P3: find_changed_regions
+# ---------------------------------------------------------------------------
+
+
+def test_find_changed_regions_identical_frames():
+    thumb = np.zeros((90, 160), dtype=np.uint8)
+    regions = find_changed_regions(thumb, thumb)
+    assert regions == []
+
+
+def test_find_changed_regions_detects_block():
+    prev = np.zeros((90, 160), dtype=np.uint8)
+    curr = prev.copy()
+    # Paint a bright block in the center.
+    curr[30:60, 60:100] = 255
+    regions = find_changed_regions(prev, curr)
+    assert len(regions) >= 1
+    # The detected region should overlap with the changed area.
+    x, y, w, h = regions[0]
+    assert 0.2 < x < 0.7
+    assert 0.2 < y < 0.8
+    assert w > 0.05
+    assert h > 0.05
+
+
+def test_find_changed_regions_ignores_tiny_noise():
+    prev = np.zeros((90, 160), dtype=np.uint8)
+    curr = prev.copy()
+    # Single pixel change — should be below min_area_frac.
+    curr[45, 80] = 255
+    regions = find_changed_regions(prev, curr, min_area_frac=0.01)
+    assert regions == []

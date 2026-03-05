@@ -13,16 +13,27 @@ import numpy as np
 
 from backend.ocr.cnn_digit_reader import CnnDigitReader
 
-from .detector import detect_candidates_with_corners
-from .frame_hasher import is_frame_changed, make_thumbnail, thumbnail_hash
+from .detector import detect_candidates_in_regions, detect_candidates_with_corners
+from .frame_hasher import (
+    find_changed_regions,
+    is_frame_changed,
+    make_thumbnail,
+    thumbnail_hash,
+)
 from .grid_tracker import (
     StabilityTracker,
     bbox_from_corners,
     grid_signature,
     puzzle_signature,
 )
-from .renderer import build_render_key, compute_hint_positions, should_render
+from .renderer import (
+    build_render_key,
+    compute_all_cell_positions,
+    compute_hint_positions,
+    should_render,
+)
 from .solver_pipeline import solve_hints_from_warped
+from .telemetry import FrameTelemetry, TelemetryRing
 from .types import LruCache, MonitorConfig
 
 LOGGER = logging.getLogger("screen_monitor")
@@ -54,9 +65,17 @@ def run_monitor(config: MonitorConfig) -> int:
     overlay.show()
     overlay.raise_()
 
+    telemetry_ring: Optional[TelemetryRing] = None
+    if config.debug_hud:
+        telemetry_ring = TelemetryRing(capacity=120)
+        overlay.set_debug_hud(True)
+        overlay.set_telemetry_ring(telemetry_ring)
+
     signals = OverlaySignals()
     signals.update_signal.connect(overlay.set_cells)
     signals.clear_signal.connect(overlay.clear_cells)
+    signals.confidence_signal.connect(overlay.set_confidence_cells)
+    signals.geometry_signal.connect(overlay.move_to_screen)
     # FIX #2: worker crash triggers app exit instead of zombie overlay.
     signals.error_signal.connect(app.quit)
 
@@ -76,6 +95,7 @@ def run_monitor(config: MonitorConfig) -> int:
             _capture_loop(
                 config, reader, signals, stop_event,
                 mss, screens, primary_screen,
+                telemetry_ring=telemetry_ring,
             )
         except Exception:
             LOGGER.exception("capture worker crashed")
@@ -99,6 +119,34 @@ def run_monitor(config: MonitorConfig) -> int:
     return int(exit_code)
 
 
+def _match_qt_screen(
+    mss_monitor: dict[str, Any],
+    screens: list,
+    fallback: Any,
+) -> Any:
+    """Match an mss monitor to a Qt screen by comparing position.
+
+    On macOS, mss ``left``/``top`` (from CGDisplayBounds) and Qt
+    ``screen.geometry()`` both use the global display coordinate system
+    (logical points), but the enumeration *order* can differ between the
+    two APIs.  Matching by position avoids index-order mismatches.
+    """
+    mss_x = int(mss_monitor.get("left", 0))
+    mss_y = int(mss_monitor.get("top", 0))
+
+    best_screen = fallback
+    best_dist = float("inf")
+
+    for screen in screens:
+        geo = screen.geometry()
+        dist = abs(geo.x() - mss_x) + abs(geo.y() - mss_y)
+        if dist < best_dist:
+            best_dist = dist
+            best_screen = screen
+
+    return best_screen
+
+
 def _capture_loop(
     config: MonitorConfig,
     reader: CnnDigitReader,
@@ -107,6 +155,7 @@ def _capture_loop(
     mss: Any,
     screens: list,
     primary_screen: Any,
+    telemetry_ring: Optional[TelemetryRing] = None,
 ) -> None:
     """Main capture → detect → solve → render loop (runs in daemon thread)."""
     tracker = StabilityTracker()
@@ -118,6 +167,8 @@ def _capture_loop(
     last_valid_solution_at = 0.0
     prev_thumbs: dict[int, np.ndarray] = {}
     active_until = 0.0
+    last_scan_at = 0.0
+    last_known_grid_bbox: dict[int, tuple[float, float, float, float]] = {}
 
     with mss.mss() as sct:
         monitors = sct.monitors
@@ -138,10 +189,7 @@ def _capture_loop(
         monitor_meta: dict[int, dict[str, Any]] = {}
         for mid in monitor_ids:
             monitor = monitors[mid]
-            if 1 <= mid <= len(screens):
-                screen = screens[mid - 1]
-            else:
-                screen = primary_screen
+            screen = _match_qt_screen(monitor, screens, primary_screen)
             if screen is not None:
                 geometry = screen.geometry()
                 logical_offset = (float(geometry.x()), float(geometry.y()))
@@ -153,10 +201,24 @@ def _capture_loop(
                 logical_offset = (0.0, 0.0)
                 scale_x, scale_y = 1.0, 1.0
 
+            LOGGER.debug(
+                "monitor %d matched Qt screen at (%s), "
+                "mss pos=(%d,%d) scale=(%.3f,%.3f)",
+                mid, logical_offset,
+                monitor.get("left", 0), monitor.get("top", 0),
+                scale_x, scale_y,
+            )
+
+            screen_geo = (
+                (geometry.x(), geometry.y(), geometry.width(), geometry.height())
+                if screen is not None else (0, 0, 1920, 1080)
+            )
+
             monitor_meta[mid] = {
                 "monitor": monitor,
                 "logical_offset": logical_offset,
                 "capture_to_logical_scale": (scale_x, scale_y),
+                "screen_geometry": screen_geo,
             }
 
         # FIX #4: permission probe — check for all-black frames.
@@ -202,16 +264,34 @@ def _capture_loop(
             )
 
             if not any_changed:
-                _sleep_until_next(loop_start, target_fps, stop_event)
-                continue
+                rescan_due = (now - last_scan_at) >= config.rescan_interval
+                if not rescan_due:
+                    if telemetry_ring is not None:
+                        telemetry_ring.push(FrameTelemetry(
+                            fps=target_fps, state="idle",
+                        ))
+                    _sleep_until_next(loop_start, target_fps, stop_event)
+                    continue
 
             # --- Detect + solve ---
+            t_detect_start = time.perf_counter()
             selected = _select_best_candidate(
                 frames, config, reader, detect_cache, solve_cache, monitor_meta,
+                prev_thumbs=prev_thumbs,
+                last_known_grid_bbox=last_known_grid_bbox,
             )
+            t_detect_end = time.perf_counter()
+            last_scan_at = now
 
             if selected is None:
                 lost = tracker.on_no_grid()
+                if telemetry_ring is not None:
+                    telemetry_ring.push(FrameTelemetry(
+                        fps=target_fps,
+                        detect_ms=(t_detect_end - t_detect_start) * 1000.0,
+                        stable_count=0,
+                        state="lost" if overlay_visible else "active",
+                    ))
                 if (
                     overlay_visible
                     and lost >= config.lost_frames
@@ -229,7 +309,25 @@ def _capture_loop(
             (sel_corners, sel_sig, sel_bbox, sel_payload,
              sel_mid, sel_offset, sel_scale) = selected
 
+            # Store grid bbox as fractional ROI for future ROI detection.
+            fh, fw = frames[0][1].shape[:2]  # frame dimensions
+            last_known_grid_bbox[sel_mid] = (
+                sel_bbox[0] / fw, sel_bbox[1] / fh,
+                (sel_bbox[2] - sel_bbox[0]) / fw, (sel_bbox[3] - sel_bbox[1]) / fh,
+            )
+
             stable = tracker.on_grid(sel_sig, sel_bbox, config)
+
+            if telemetry_ring is not None:
+                telemetry_ring.push(FrameTelemetry(
+                    fps=target_fps,
+                    detect_ms=(t_detect_end - t_detect_start) * 1000.0,
+                    detect_cache_hit=sel_payload.get("_detect_cache_hit", False),
+                    solve_cache_hit=sel_payload.get("_solve_cache_hit", False),
+                    stable_count=stable,
+                    state="stable" if stable >= config.stable_frames else "active",
+                ))
+
             if stable < config.stable_frames:
                 _sleep_until_next(loop_start, target_fps, stop_event)
                 continue
@@ -251,6 +349,9 @@ def _capture_loop(
                 sel_sig, sel_bbox, render_scale, config.quantize_step,
             )
             if should_render(last_render_key, render_key):
+                # Move overlay to the detected grid's screen first.
+                screen_geo = monitor_meta[sel_mid]["screen_geometry"]
+                signals.geometry_signal.emit(*screen_geo)
                 signals.update_signal.emit(hint_cells)
                 LOGGER.debug(
                     "overlay updated: monitor=%s hints=%d stable=%d",
@@ -258,6 +359,19 @@ def _capture_loop(
                 )
                 last_render_key = render_key
                 overlay_visible = True
+
+                # Emit confidence data when debug HUD is active.
+                if config.debug_hud:
+                    cell_predictions = sel_payload.get("metadata", {}).get(
+                        "cell_predictions",
+                    )
+                    if cell_predictions:
+                        conf_cells = compute_all_cell_positions(
+                            sel_corners, cell_predictions,
+                            sel_offset, sel_scale,
+                        )
+                        if conf_cells:
+                            signals.confidence_signal.emit(conf_cells)
 
             _sleep_until_next(loop_start, target_fps, stop_event)
 
@@ -269,6 +383,8 @@ def _select_best_candidate(
     detect_cache: LruCache,
     solve_cache: LruCache,
     monitor_meta: dict[int, dict[str, Any]],
+    prev_thumbs: Optional[dict[int, np.ndarray]] = None,
+    last_known_grid_bbox: Optional[dict[int, tuple[float, float, float, float]]] = None,
 ) -> Optional[tuple]:
     """Find the best solvable grid across all monitors/frames.
 
@@ -282,7 +398,22 @@ def _select_best_candidate(
         frame_key = f"m{mid}:{thumbnail_hash(thumb)}"
         candidates = detect_cache.get(frame_key)
         if candidates is None:
-            candidates = detect_candidates_with_corners(frame_bgr)
+            # Try ROI detection first when we have previous thumbnails.
+            roi_candidates = None
+            if changed and prev_thumbs and mid in prev_thumbs:
+                regions = find_changed_regions(prev_thumbs[mid], thumb)
+                # Always include last known grid bbox as an extra ROI.
+                if last_known_grid_bbox and mid in last_known_grid_bbox:
+                    grid_roi = last_known_grid_bbox[mid]
+                    if grid_roi not in regions:
+                        regions.append(grid_roi)
+                if regions:
+                    roi_candidates = detect_candidates_in_regions(frame_bgr, regions)
+
+            if roi_candidates:
+                candidates = roi_candidates
+            else:
+                candidates = detect_candidates_with_corners(frame_bgr)
             detect_cache.put(frame_key, candidates)
 
         if not candidates:

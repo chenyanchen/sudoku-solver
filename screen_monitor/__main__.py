@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from pathlib import Path
@@ -16,7 +17,7 @@ from .agent import run_monitor
 from .types import MonitorConfig
 
 
-def _parse_args() -> MonitorConfig:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Realtime Sudoku screen monitor (macOS)",
     )
@@ -38,10 +39,42 @@ def _parse_args() -> MonitorConfig:
         default=int(os.getenv("SCREEN_MONITOR_INDEX", "0")),
         help="MSS monitor index: 0=all, 1/2/...=specific monitor",
     )
+    parser.add_argument("--rescan-interval", type=float, default=1.0,
+                        help="Seconds between forced rescans when frame is unchanged")
     parser.add_argument("--debug", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--debug-hud", action="store_true",
+        help="Show real-time debug HUD overlay (FPS, latency, cache stats)",
+    )
+    parser.add_argument(
+        "--visualize",
+        metavar="IMAGE",
+        help="Run CV pipeline visualisation on IMAGE and exit (mutually exclusive with monitor mode)",
+    )
+    parser.add_argument(
+        "--viz-output",
+        metavar="DIR",
+        default="viz_output",
+        help="Output directory for --visualize step images (default: viz_output)",
+    )
+    return parser.parse_args()
 
-    return MonitorConfig(
+
+def main() -> int:
+    args = _parse_args()
+
+    # --visualize mode: run pipeline visualiser and exit.
+    if args.visualize:
+        logging.basicConfig(
+            level=logging.DEBUG if args.debug else logging.INFO,
+            format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+            force=True,
+        )
+        from .visualize_cli import run_visualize
+
+        return run_visualize(args.visualize, args.viz_output, model_path=args.model)
+
+    config = MonitorConfig(
         model_path=args.model,
         monitor_index=args.monitor_index,
         idle_fps=args.idle_fps,
@@ -51,12 +84,10 @@ def _parse_args() -> MonitorConfig:
         lost_frames=args.lost_frames,
         min_bbox_area_ratio=args.min_bbox_area_ratio,
         overlay_hold_seconds=args.overlay_hold_seconds,
+        rescan_interval=args.rescan_interval,
         debug=args.debug,
+        debug_hud=args.debug_hud,
     )
-
-
-def main() -> int:
-    config = _parse_args()
     return run_monitor(config)
 
 

@@ -92,6 +92,61 @@ def detect_candidates_with_corners(
     return []
 
 
+def detect_candidates_in_regions(
+    frame_bgr: np.ndarray,
+    regions: list[tuple[float, float, float, float]],
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Detect sudoku grid candidates within specific ROI regions.
+
+    Args:
+        frame_bgr: Full frame in BGR format.
+        regions: Fractional bounding boxes (x_frac, y_frac, w_frac, h_frac).
+
+    Returns:
+        List of (warped, corners) with corners mapped back to full-frame coords.
+    """
+    h, w = frame_bgr.shape[:2]
+    all_candidates: list[tuple[np.ndarray, np.ndarray]] = []
+
+    for x_frac, y_frac, w_frac, h_frac in regions:
+        # Convert fractional coords to pixel coords with padding.
+        pad_frac = 0.05
+        x1 = max(0, int((x_frac - pad_frac) * w))
+        y1 = max(0, int((y_frac - pad_frac) * h))
+        x2 = min(w, int((x_frac + w_frac + pad_frac) * w))
+        y2 = min(h, int((y_frac + h_frac + pad_frac) * h))
+
+        if x2 - x1 < 50 or y2 - y1 < 50:
+            continue
+
+        crop = frame_bgr[y1:y2, x1:x2]
+
+        # Upscale small crops for better detection.
+        scale_up = max(1.0, _UPSCALE_TARGET_W / max(crop.shape[1], 1))
+        if scale_up > 1.0:
+            upscaled = cv2.resize(
+                crop, None, fx=scale_up, fy=scale_up,
+                interpolation=cv2.INTER_CUBIC,
+            )
+        else:
+            upscaled = crop
+
+        grids = find_grids_with_corners(
+            upscaled, max_grids=4, min_area_ratio=0.01,
+        )
+
+        for warped, corners in grids:
+            # Map corners back to full-frame coordinates.
+            corners = corners / scale_up
+            corners[:, 0] += x1
+            corners[:, 1] += y1
+            all_candidates.append((warped, corners))
+
+    if all_candidates:
+        return _dedupe_candidates(all_candidates, max_candidates=8)
+    return []
+
+
 def _is_roughly_square(corners: np.ndarray, min_ratio: float = 0.5) -> bool:
     """Check if corners form a roughly square quadrilateral."""
     w = float(np.linalg.norm(corners[1] - corners[0]))
