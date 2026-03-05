@@ -15,7 +15,7 @@ class SudokuSolver:
         self._iterations = 0
         self._max_iterations = 0
 
-    def solve(self, grid: Grid, max_iterations: int = 1_000_000) -> Grid | None:
+    def solve(self, grid: Grid, max_iterations: int = 100_000) -> Grid | None:
         """
         Solve a Sudoku puzzle.
 

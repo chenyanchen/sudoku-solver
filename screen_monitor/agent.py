@@ -294,13 +294,13 @@ def _capture_loop(
                     continue
 
             # --- Detect + solve ---
-            t_detect_start = time.perf_counter()
+            t_pipeline_start = time.perf_counter()
             selected = _select_best_candidate(
                 frames, config, reader, detect_cache, solve_cache, monitor_meta,
                 prev_thumbs=prev_thumbs,
                 last_known_grid_bbox=last_known_grid_bbox,
             )
-            detect_ms = (time.perf_counter() - t_detect_start) * 1000.0
+            pipeline_ms = (time.perf_counter() - t_pipeline_start) * 1000.0
             last_scan_at = now
 
             if selected is None:
@@ -308,7 +308,7 @@ def _capture_loop(
                 state = "lost" if overlay_visible else "active"
                 telemetry_ring.push(FrameTelemetry(
                     fps=target_fps, capture_ms=capture_ms,
-                    detect_ms=detect_ms,
+                    detect_ms=pipeline_ms,
                     stable_count=0, state=state,
                 ))
                 if (
@@ -343,7 +343,7 @@ def _capture_loop(
             telemetry_ring.push(FrameTelemetry(
                 fps=target_fps,
                 capture_ms=capture_ms,
-                detect_ms=detect_ms,
+                detect_ms=pipeline_ms - timing.get("ocr_ms", 0.0) - timing.get("solve_ms", 0.0),
                 ocr_ms=timing.get("ocr_ms", 0.0),
                 solve_ms=timing.get("solve_ms", 0.0),
                 detect_cache_hit=sel_payload.get("_detect_cache_hit", False),
@@ -491,9 +491,16 @@ def _select_best_candidate(
             cached_result = solve_cache.get(raw_sig)
             solve_hit = cached_result is not None
             if cached_result is None:
+                t_solve = time.perf_counter()
                 payload, reason, givens = solve_hints_from_warped(
                     warped, reader, config.min_givens,
                 )
+                solve_elapsed = (time.perf_counter() - t_solve) * 1000.0
+                if payload is None and solve_elapsed > 500:
+                    LOGGER.warning(
+                        "slow failed solve: %.0fms reason=%s givens=%d",
+                        solve_elapsed, reason, givens,
+                    )
                 solve_cache.put(raw_sig, {
                     "payload": payload, "reason": reason, "givens": int(givens),
                 })
