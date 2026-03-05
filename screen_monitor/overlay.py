@@ -79,11 +79,17 @@ class OverlayWindow(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
+        # Convert global logical coords to widget-local coords.
+        # The overlay spans virtualGeometry, so painter (0,0) =
+        # virtualGeometry.topLeft() in global coords.
+        ox = self.x()
+        oy = self.y()
+
         # Confidence heatmap (under hint digits).
         if self._debug_hud and self._confidence_cells:
             from .confidence_painter import paint_confidence_grid
 
-            paint_confidence_grid(painter, self._confidence_cells)
+            paint_confidence_grid(painter, self._confidence_cells, ox, oy)
 
         # Hint digits.
         if self._cells:
@@ -94,8 +100,8 @@ class OverlayWindow(QWidget):
             radius = 13
 
             for cell in self._cells:
-                x = int(cell["x"])
-                y = int(cell["y"])
+                x = int(cell["x"]) - ox
+                y = int(cell["y"]) - oy
                 text = str(cell["digit"])
 
                 # Background circle.

@@ -118,6 +118,34 @@ def run_monitor(config: MonitorConfig) -> int:
     return int(exit_code)
 
 
+def _match_qt_screen(
+    mss_monitor: dict[str, Any],
+    screens: list,
+    fallback: Any,
+) -> Any:
+    """Match an mss monitor to a Qt screen by comparing position.
+
+    On macOS, mss ``left``/``top`` (from CGDisplayBounds) and Qt
+    ``screen.geometry()`` both use the global display coordinate system
+    (logical points), but the enumeration *order* can differ between the
+    two APIs.  Matching by position avoids index-order mismatches.
+    """
+    mss_x = int(mss_monitor.get("left", 0))
+    mss_y = int(mss_monitor.get("top", 0))
+
+    best_screen = fallback
+    best_dist = float("inf")
+
+    for screen in screens:
+        geo = screen.geometry()
+        dist = abs(geo.x() - mss_x) + abs(geo.y() - mss_y)
+        if dist < best_dist:
+            best_dist = dist
+            best_screen = screen
+
+    return best_screen
+
+
 def _capture_loop(
     config: MonitorConfig,
     reader: CnnDigitReader,
@@ -160,10 +188,7 @@ def _capture_loop(
         monitor_meta: dict[int, dict[str, Any]] = {}
         for mid in monitor_ids:
             monitor = monitors[mid]
-            if 1 <= mid <= len(screens):
-                screen = screens[mid - 1]
-            else:
-                screen = primary_screen
+            screen = _match_qt_screen(monitor, screens, primary_screen)
             if screen is not None:
                 geometry = screen.geometry()
                 logical_offset = (float(geometry.x()), float(geometry.y()))
@@ -174,6 +199,14 @@ def _capture_loop(
             else:
                 logical_offset = (0.0, 0.0)
                 scale_x, scale_y = 1.0, 1.0
+
+            LOGGER.debug(
+                "monitor %d matched Qt screen at (%s), "
+                "mss pos=(%d,%d) scale=(%.3f,%.3f)",
+                mid, logical_offset,
+                monitor.get("left", 0), monitor.get("top", 0),
+                scale_x, scale_y,
+            )
 
             monitor_meta[mid] = {
                 "monitor": monitor,

@@ -25,6 +25,8 @@ def confidence_color(conf: float) -> tuple[int, int, int]:
 def paint_confidence_grid(
     painter: QPainter,
     cells: list[dict[str, Any]],
+    offset_x: int = 0,
+    offset_y: int = 0,
 ) -> None:
     """Draw a small coloured rectangle for each cell based on OCR confidence."""
     from PyQt6.QtCore import Qt
@@ -33,8 +35,8 @@ def paint_confidence_grid(
     painter.setPen(Qt.PenStyle.NoPen)
 
     for cell in cells:
-        x = int(cell["x"])
-        y = int(cell["y"])
+        x = int(cell["x"]) - offset_x
+        y = int(cell["y"]) - offset_y
         size = int(cell.get("size", 20))
         conf = float(cell.get("confidence", 0.0))
         r, g, b = confidence_color(conf)
