@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
+import logging
+import sys
 from typing import Any, Optional
 
 from PyQt6.QtCore import QObject, QPoint, QRect, Qt, pyqtSignal
@@ -9,6 +13,8 @@ from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from .telemetry import TelemetryRing
+
+LOGGER = logging.getLogger("screen_monitor")
 
 
 class OverlaySignals(QObject):
@@ -45,6 +51,46 @@ class OverlayWindow(QWidget):
         screen = QApplication.primaryScreen()
         if screen is not None:
             self.setGeometry(screen.virtualGeometry())
+
+    def show(self) -> None:
+        super().show()
+        self._exclude_from_capture()
+
+    def _exclude_from_capture(self) -> None:
+        """Set NSWindow.sharingType = NSWindowSharingNone on macOS.
+
+        This prevents mss (which uses CGWindowListCreateImage) from
+        capturing the overlay, avoiding a feedback loop where the
+        overlay's own pixels interfere with grid detection.
+        """
+        if sys.platform != "darwin":
+            return
+        try:
+            lib = ctypes.util.find_library("objc")
+            if not lib:
+                return
+            objc = ctypes.cdll.LoadLibrary(lib)
+
+            objc.sel_registerName.restype = ctypes.c_void_p
+            objc.sel_registerName.argtypes = [ctypes.c_char_p]
+            sel_window = objc.sel_registerName(b"window")
+            sel_set_sharing = objc.sel_registerName(b"setSharingType:")
+
+            # [NSView window] → NSWindow*
+            send = objc.objc_msgSend
+            send.restype = ctypes.c_void_p
+            send.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            ns_view = int(self.winId())
+            ns_window = send(ns_view, sel_window)
+            if not ns_window:
+                return
+
+            # [NSWindow setSharingType: NSWindowSharingNone(0)]
+            send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
+            send(ns_window, sel_set_sharing, 0)
+            LOGGER.debug("overlay window excluded from screen capture")
+        except Exception:
+            LOGGER.debug("failed to exclude overlay from capture", exc_info=True)
 
     def set_debug_hud(self, enabled: bool) -> None:
         self._debug_hud = enabled
