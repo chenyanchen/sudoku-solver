@@ -353,7 +353,7 @@ def _capture_loop(
                 state=state,
             ))
 
-            if stable < config.stable_frames:
+            if stable < config.stable_frames and not overlay_visible:
                 _sleep_until_next(loop_start, target_fps, stop_event)
                 continue
 
