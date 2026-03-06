@@ -256,8 +256,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-size", type=int, default=48)
     parser.add_argument(
         "--arch",
-        choices=["custom_small_cnn", "timm_mobilenetv3"],
-        default="custom_small_cnn",
+        choices=["custom_small_cnn", "custom_cnn_v3", "timm_mobilenetv3"],
+        default="custom_cnn_v3",
     )
     parser.add_argument("--patience", type=int, default=12)
     parser.add_argument("--version", type=str, default="1.0.0")
