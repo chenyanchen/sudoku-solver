@@ -24,7 +24,7 @@ DEFAULT_MODEL_PATH = (
     Path(__file__).resolve().parents[2]
     / "models"
     / "releases"
-    / "sudoku_digit_cnn_v2.0.onnx"
+    / "sudoku_digit_cnn_v2.1.onnx"
 )
 
 

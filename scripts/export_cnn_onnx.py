@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=REPO_ROOT / "models" / "releases" / "sudoku_digit_cnn_v2.0.onnx",
+        default=REPO_ROOT / "models" / "releases" / "sudoku_digit_cnn_v2.1.onnx",
         help="Output ONNX path",
     )
     parser.add_argument("--opset", type=int, default=17)

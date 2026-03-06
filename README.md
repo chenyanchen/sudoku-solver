@@ -50,6 +50,13 @@ uv sync --extra screen
 
 ## CNN OCR Workflow
 
+### Model versioning
+
+Models follow `vMAJOR.MINOR`:
+
+- **MAJOR** — Architecture change (network structure, input/output incompatible with previous weights)
+- **MINOR** — Data or hyperparameter improvement (same architecture, retrained)
+
 ### 1. Prepare labels
 
 Default labels file:
@@ -106,7 +113,7 @@ Run a local screen-monitor daemon that detects Sudoku puzzles and overlays
 transparent hints on blank cells:
 
 ```bash
-CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_v2.1.0.onnx \
+CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_v2.1.onnx \
 uv run python -m screen_monitor --debug
 ```
 
@@ -134,7 +141,7 @@ Notes:
 export OCR_ENGINE=cnn
 
 # CNN model and thresholds
-export CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_v2.1.0.onnx
+export CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_v2.1.onnx
 export CNN_BLANK_THRESHOLD=0.65
 export CNN_DIGIT_THRESHOLD=0.55
 export CNN_RERANK_CONFIDENCE=0.80
