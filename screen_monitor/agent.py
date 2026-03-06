@@ -14,7 +14,8 @@ import numpy as np
 
 from backend.ocr.cnn_digit_reader import CnnDigitReader
 
-# Downscale frames wider than this before detection (Retina optimisation).
+# Downscale frames wider than this before detection.  Detection only needs
+# to find grid corners; OCR always re-warps from the original full-res frame.
 _MAX_DETECT_WIDTH = 1280
 
 from .detector import detect_candidates_in_regions, detect_candidates_with_corners
@@ -169,6 +170,8 @@ def _capture_loop(
 
     overlay_visible = False
     last_render_key: Any = None
+    last_hint_count: int = -1
+    hint_count_streak: int = 0
     last_valid_solution_at = 0.0
     prev_thumbs: dict[int, np.ndarray] = {}
     active_until = 0.0
@@ -247,7 +250,7 @@ def _capture_loop(
 
             # --- Grab all monitors ---
             t_capture_start = time.perf_counter()
-            frames: list[tuple[int, np.ndarray, np.ndarray, bool]] = []
+            frames: list[tuple[int, np.ndarray, np.ndarray, np.ndarray, bool, float]] = []
             any_changed = False
             for mid in monitor_ids:
                 monitor = monitor_meta[mid]["monitor"]
@@ -259,7 +262,8 @@ def _capture_loop(
                 )
                 prev_thumbs[mid] = thumb
                 any_changed = any_changed or changed
-                # Downscale wide frames (e.g. Retina 2560+) for faster detection.
+                # Downscale wide frames for faster detection.
+                # OCR always re-warps from the original frame_bgr.
                 if frame_bgr.shape[1] > _MAX_DETECT_WIDTH:
                     ds = _MAX_DETECT_WIDTH / frame_bgr.shape[1]
                     detect_frame = cv2.resize(
@@ -269,7 +273,7 @@ def _capture_loop(
                 else:
                     ds = 1.0
                     detect_frame = frame_bgr
-                frames.append((mid, detect_frame, thumb, changed, ds))
+                frames.append((mid, frame_bgr, detect_frame, thumb, changed, ds))
             capture_ms = (time.perf_counter() - t_capture_start) * 1000.0
 
             # --- FIX #1: skip when no change regardless of overlay state ---
@@ -290,13 +294,13 @@ def _capture_loop(
                     continue
 
             # --- Detect + solve ---
-            t_detect_start = time.perf_counter()
+            t_pipeline_start = time.perf_counter()
             selected = _select_best_candidate(
                 frames, config, reader, detect_cache, solve_cache, monitor_meta,
                 prev_thumbs=prev_thumbs,
                 last_known_grid_bbox=last_known_grid_bbox,
             )
-            detect_ms = (time.perf_counter() - t_detect_start) * 1000.0
+            pipeline_ms = (time.perf_counter() - t_pipeline_start) * 1000.0
             last_scan_at = now
 
             if selected is None:
@@ -304,7 +308,7 @@ def _capture_loop(
                 state = "lost" if overlay_visible else "active"
                 telemetry_ring.push(FrameTelemetry(
                     fps=target_fps, capture_ms=capture_ms,
-                    detect_ms=detect_ms,
+                    detect_ms=pipeline_ms,
                     stable_count=0, state=state,
                 ))
                 if (
@@ -326,10 +330,7 @@ def _capture_loop(
 
             # Store grid bbox as fractional ROI for future ROI detection.
             # sel_bbox is in original (pre-downscale) coordinates.
-            ds = frames[0][4]  # downscale factor
-            dfh, dfw = frames[0][1].shape[:2]
-            fw = int(dfw / ds) if ds != 1.0 else dfw
-            fh = int(dfh / ds) if ds != 1.0 else dfh
+            fh, fw = frames[0][1].shape[:2]  # original frame dimensions
             last_known_grid_bbox[sel_mid] = (
                 sel_bbox[0] / fw, sel_bbox[1] / fh,
                 (sel_bbox[2] - sel_bbox[0]) / fw, (sel_bbox[3] - sel_bbox[1]) / fh,
@@ -342,7 +343,7 @@ def _capture_loop(
             telemetry_ring.push(FrameTelemetry(
                 fps=target_fps,
                 capture_ms=capture_ms,
-                detect_ms=detect_ms,
+                detect_ms=pipeline_ms - timing.get("ocr_ms", 0.0) - timing.get("solve_ms", 0.0),
                 ocr_ms=timing.get("ocr_ms", 0.0),
                 solve_ms=timing.get("solve_ms", 0.0),
                 detect_cache_hit=sel_payload.get("_detect_cache_hit", False),
@@ -352,7 +353,7 @@ def _capture_loop(
                 state=state,
             ))
 
-            if stable < config.stable_frames:
+            if stable < config.stable_frames and not overlay_visible:
                 _sleep_until_next(loop_start, target_fps, stop_event)
                 continue
 
@@ -364,8 +365,22 @@ def _capture_loop(
                     signals.clear_signal.emit()
                     overlay_visible = False
                     last_render_key = None
+                    last_hint_count = -1
                 _sleep_until_next(loop_start, target_fps, stop_event)
                 continue
+
+            # Debounce hint count changes to suppress OCR flicker.
+            cur_hint_count = len(hint_cells)
+            if cur_hint_count != last_hint_count:
+                hint_count_streak += 1
+                if hint_count_streak < 2 and overlay_visible:
+                    # Keep previous overlay until new count stabilises.
+                    _sleep_until_next(loop_start, target_fps, stop_event)
+                    continue
+                last_hint_count = cur_hint_count
+                hint_count_streak = 0
+            else:
+                hint_count_streak = 0
 
             last_valid_solution_at = now
             render_scale = float((sel_scale[0] + sel_scale[1]) / 2.0)
@@ -400,8 +415,18 @@ def _capture_loop(
             _sleep_until_next(loop_start, target_fps, stop_event)
 
 
+def _rewarp_from_original(
+    original_bgr: np.ndarray,
+    corners: np.ndarray,
+) -> np.ndarray:
+    """Warp a 450x450 grid from the original full-res frame."""
+    dst = np.float32([[0, 0], [449, 0], [449, 449], [0, 449]])
+    matrix = cv2.getPerspectiveTransform(corners.astype(np.float32), dst)
+    return cv2.warpPerspective(original_bgr, matrix, (450, 450))
+
+
 def _select_best_candidate(
-    frames: list[tuple[int, np.ndarray, np.ndarray, bool, float]],
+    frames: list[tuple[int, np.ndarray, np.ndarray, np.ndarray, bool, float]],
     config: MonitorConfig,
     reader: CnnDigitReader,
     detect_cache: LruCache,
@@ -412,13 +437,16 @@ def _select_best_candidate(
 ) -> Optional[tuple]:
     """Find the best solvable grid across all monitors/frames.
 
+    Detection runs on the (potentially downscaled) detect_frame for speed.
+    OCR always re-warps from the original full-res frame for quality.
+
     Returns a tuple of (corners, signature, bbox, payload,
     monitor_id, logical_offset, capture_to_logical_scale) or None.
     """
     best_givens = -1
     best: Optional[tuple] = None
 
-    for mid, frame_bgr, thumb, changed, downscale in frames:
+    for mid, original_bgr, detect_frame, thumb, changed, downscale in frames:
         frame_key = f"m{mid}:{thumbnail_hash(thumb)}"
         candidates = detect_cache.get(frame_key)
         detect_hit = candidates is not None
@@ -433,21 +461,21 @@ def _select_best_candidate(
                     if grid_roi not in regions:
                         regions.append(grid_roi)
                 if regions:
-                    roi_candidates = detect_candidates_in_regions(frame_bgr, regions)
+                    roi_candidates = detect_candidates_in_regions(detect_frame, regions)
 
             if roi_candidates:
                 candidates = roi_candidates
             else:
-                candidates = detect_candidates_with_corners(frame_bgr)
+                candidates = detect_candidates_with_corners(detect_frame)
             detect_cache.put(frame_key, candidates)
 
         if not candidates:
             continue
 
-        for warped, corners in candidates:
+        for _warped_detect, corners in candidates:
             bbox = bbox_from_corners(corners)
             bbox_area = max(1, (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]))
-            frame_area = max(1, frame_bgr.shape[0] * frame_bgr.shape[1])
+            frame_area = max(1, detect_frame.shape[0] * detect_frame.shape[1])
             if bbox_area / float(frame_area) < config.min_bbox_area_ratio:
                 continue
 
@@ -456,13 +484,23 @@ def _select_best_candidate(
                 corners = corners / downscale
                 bbox = bbox_from_corners(corners)
 
+            # Re-warp from the original full-res frame for OCR quality.
+            warped = _rewarp_from_original(original_bgr, corners)
+
             raw_sig = grid_signature(warped)
             cached_result = solve_cache.get(raw_sig)
             solve_hit = cached_result is not None
             if cached_result is None:
+                t_solve = time.perf_counter()
                 payload, reason, givens = solve_hints_from_warped(
                     warped, reader, config.min_givens,
                 )
+                solve_elapsed = (time.perf_counter() - t_solve) * 1000.0
+                if payload is None and solve_elapsed > 500:
+                    LOGGER.warning(
+                        "slow failed solve: %.0fms reason=%s givens=%d",
+                        solve_elapsed, reason, givens,
+                    )
                 solve_cache.put(raw_sig, {
                     "payload": payload, "reason": reason, "givens": int(givens),
                 })

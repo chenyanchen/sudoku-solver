@@ -1,6 +1,14 @@
 # Sudoku Solver
 
-A web application that solves Sudoku puzzles from images. Upload a photo or screenshot of a Sudoku puzzle, and the app will detect the grid, recognize the digits, and solve the puzzle.
+A universal Sudoku solver — from web uploads to real-time screen overlays, with a roadmap toward mobile and wearable devices.
+
+## Roadmap
+
+- [x] **Image solver** — Upload a photo, detect grid (OpenCV), recognize digits (Tesseract), solve (backtracking)
+- [x] **CNN OCR** — Replace Tesseract with a self-trained CNN model (48×48 grayscale, ONNX Runtime)
+- [x] **Screen monitor** — macOS real-time overlay: capture screen, detect grid, show hints on blank cells
+- [ ] **Android app** — Camera-based detection (YOLO26n-pose), on-device OCR + solver
+- [ ] **Wearable** — Sudoku-solving glasses: ultra-low-latency pipeline on edge NPU
 
 ## Features
 
@@ -41,6 +49,13 @@ uv sync --extra screen
 ```
 
 ## CNN OCR Workflow
+
+### Model versioning
+
+Models follow `vMAJOR.MINOR`:
+
+- **MAJOR** — Architecture change (network structure, input/output incompatible with previous weights)
+- **MINOR** — Data or hyperparameter improvement (same architecture, retrained)
 
 ### 1. Prepare labels
 
@@ -98,14 +113,14 @@ Run a local screen-monitor daemon that detects Sudoku puzzles and overlays
 transparent hints on blank cells:
 
 ```bash
-CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_v1.1.onnx \
-uv run python scripts/screen_monitor.py --debug
+CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_v2.1.onnx \
+uv run python -m screen_monitor --debug
 ```
 
 Optional args:
 
 ```bash
-uv run python scripts/screen_monitor.py \
+uv run python -m screen_monitor \
   --idle-fps 2 \
   --active-fps 6 \
   --active-seconds 2.0 \
@@ -126,7 +141,7 @@ Notes:
 export OCR_ENGINE=cnn
 
 # CNN model and thresholds
-export CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_v1.1.onnx
+export CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_v2.1.onnx
 export CNN_BLANK_THRESHOLD=0.65
 export CNN_DIGIT_THRESHOLD=0.55
 export CNN_RERANK_CONFIDENCE=0.80
