@@ -491,20 +491,13 @@ def _try_refine_grid_bounds(
 
     cell_h = float(np.diff(best_h).mean())
 
-    # Use V peaks for cell width, fall back to cell_h (square cells).
-    if len(v_peaks) >= 2:
-        cell_w = float(np.median(np.diff(v_peaks)))
-    else:
-        cell_w = cell_h
-
     # --- Y extent from best H peaks ---
     y_top = float(best_h[0])
     y_bot = float(best_h[-1])
 
     # --- X extent from H-line mask endpoints (per-row) ---
-    # The grid may be trapezoidal in the warped image due to remaining
-    # perspective distortion.  Use the top and bottom rows' endpoints to
-    # build a quadrilateral (not a rectangle) for accurate correction.
+    # Fit a line through (y, x_left) and (y, x_right) to extrapolate
+    # corners at y_top/y_bot while preserving trapezoidal shape.
     row_extents: list[Tuple[int, int, int]] = []  # (y, x_left, x_right)
     for y in best_h:
         row = h_lines_mask[int(y), :]
@@ -514,15 +507,51 @@ def _try_refine_grid_bounds(
     if len(row_extents) < 2:
         return None
 
-    # Average the top-N and bottom-N rows for robustness.
-    n_avg = min(3, len(row_extents) // 2)
-    top_rows = row_extents[:n_avg]
-    bot_rows = row_extents[-n_avg:]
+    # Remove endpoint outliers separately for x_left and x_right.
+    # Decorative borders can truncate individual line endpoints severely,
+    # causing x_left to be too far right or x_right too far left.
+    med_xl = float(np.median([r[1] for r in row_extents]))
+    med_xr = float(np.median([r[2] for r in row_extents]))
+    row_extents = [
+        r for r in row_extents
+        if r[1] <= med_xl + cell_h and r[2] >= med_xr - cell_h
+    ]
+    if len(row_extents) < 2:
+        return None
 
-    tl_x = float(np.mean([r[1] for r in top_rows]))
-    tr_x = float(np.mean([r[2] for r in top_rows]))
-    bl_x = float(np.mean([r[1] for r in bot_rows]))
-    br_x = float(np.mean([r[2] for r in bot_rows]))
+    ys = np.array([r[0] for r in row_extents], dtype=float)
+    x_lefts = np.array([r[1] for r in row_extents], dtype=float)
+    x_rights = np.array([r[2] for r in row_extents], dtype=float)
+
+    left_fit = np.polyfit(ys, x_lefts, 1)
+    right_fit = np.polyfit(ys, x_rights, 1)
+
+    tl_x = float(np.polyval(left_fit, y_top))
+    tr_x = float(np.polyval(right_fit, y_top))
+    bl_x = float(np.polyval(left_fit, y_bot))
+    br_x = float(np.polyval(right_fit, y_bot))
+
+    # H-line endpoints may not reach the true grid boundary when the
+    # decorative border obscures the intersection with vertical lines.
+    # Use V peaks to widen each corner independently if a vertical grid
+    # line exists just outside the endpoint estimate (within one cell).
+    if len(v_peaks) >= 2:
+        v_gaps = np.diff(v_peaks).astype(float)
+        single_gaps = v_gaps[v_gaps < cell_h * 1.8]
+        if len(single_gaps) > 0:
+            v_cell = float(np.median(single_gaps))
+            v_left = float(v_peaks[0])
+            v_right_est = v_left + 9 * v_cell
+            # Expand left corners independently.
+            if v_left < tl_x and (tl_x - v_left) < v_cell:
+                tl_x = v_left
+            if v_left < bl_x and (bl_x - v_left) < v_cell:
+                bl_x = v_left
+            # Expand right corners independently.
+            if v_right_est > tr_x and (v_right_est - tr_x) < v_cell:
+                tr_x = v_right_est
+            if v_right_est > br_x and (v_right_est - br_x) < v_cell:
+                br_x = v_right_est
 
     # Sanity: inner grid must be meaningfully smaller than the warped image.
     top_w = tr_x - tl_x
