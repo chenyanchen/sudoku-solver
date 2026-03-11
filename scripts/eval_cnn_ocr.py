@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cnn-model",
         type=Path,
-        default=REPO_ROOT / "models" / "releases" / "sudoku_digit_cnn_v2.1.onnx",
+        default=REPO_ROOT / "models" / "releases" / "sudoku_digit_cnn_v3.2.onnx",
         help="ONNX model path",
     )
     parser.add_argument(

@@ -34,5 +34,17 @@
   "suduku_phone_1.png": {
     "source": "manual",
     "note": "phone screenshot from sudoku app, verified by user and CNN v1.1"
+  },
+  "sudoku_15.png": {
+    "source": "manual",
+    "note": "NYTimes medium, full desktop screenshot with browser chrome and orange highlight"
+  },
+  "sudoku_19.png": {
+    "source": "manual",
+    "note": "NYTimes medium, cropped grid with orange highlight and beige 3x3 blocks"
+  },
+  "sudoku_20.png": {
+    "source": "manual",
+    "note": "Desktop web screenshot, wooden decorative border sudoku app"
   }
 }

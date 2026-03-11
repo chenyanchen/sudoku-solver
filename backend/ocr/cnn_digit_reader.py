@@ -24,7 +24,7 @@ DEFAULT_MODEL_PATH = (
     Path(__file__).resolve().parents[2]
     / "models"
     / "releases"
-    / "sudoku_digit_cnn_v2.1.onnx"
+    / "sudoku_digit_cnn_v3.2.onnx"
 )
 
 
@@ -430,6 +430,13 @@ class CnnDigitReader:
         """Apply lightweight Sudoku-constraint rerank on uncertain cells."""
         reranked = [row[:] for row in grid]
 
+        # Remember which cells were originally blank — never fill these.
+        originally_blank: set[int] = set()
+        for row in range(9):
+            for col in range(9):
+                if reranked[row][col] == 0:
+                    originally_blank.add(row * 9 + col)
+
         # Drop obviously invalid low-confidence digits first.
         for row in range(9):
             for col in range(9):
@@ -446,6 +453,8 @@ class CnnDigitReader:
         for row in range(9):
             for col in range(9):
                 idx = row * 9 + col
+                if idx in originally_blank:
+                    continue  # Never fill originally blank cells
                 if reranked[row][col] == 0 or confidences[idx] < self.rerank_confidence:
                     unresolved.append((row, col, idx))
 

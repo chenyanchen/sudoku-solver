@@ -7,12 +7,13 @@ import pytest
 
 from backend.api.routes import detect_grid_image, prepare_grid_for_ocr
 from backend.cv.cell_extractor import extract_cells
+from backend.cv.grid_detector import _has_regular_grid_lines
 from backend.ocr.cnn_digit_reader import CnnDigitReader
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_IMAGE_ROOT = PROJECT_ROOT / "data" / "raw" / "images"
-MODEL_PATH = PROJECT_ROOT / "models" / "releases" / "sudoku_digit_cnn_v2.1.onnx"
+MODEL_PATH = PROJECT_ROOT / "models" / "releases" / "sudoku_digit_cnn_v3.2.onnx"
 
 EXPECTED_SAMPLE_GRIDS = {
     "sudoku_2.png": [
@@ -109,3 +110,22 @@ def test_given_digit_recall_floor(sample_grids, image_name, minimum_recall):
 
     assert total_givens > 0
     assert matched >= minimum_recall
+
+
+def test_sudoku_20_framed_grid_detected():
+    """sudoku_20.png has a decorative border; the inner grid must be found."""
+    image_path = DATA_IMAGE_ROOT / "sudoku_20.png"
+    if not image_path.exists():
+        pytest.skip(f"Test image not found: {image_path}")
+
+    image = cv2.imread(str(image_path))
+    assert image is not None, f"Failed to read {image_path}"
+
+    grid_image = detect_grid_image(image)
+    assert grid_image is not None, "detect_grid_image returned None for sudoku_20"
+
+    gray = cv2.cvtColor(grid_image, cv2.COLOR_BGR2GRAY)
+    assert _has_regular_grid_lines(gray), (
+        "Warped grid from sudoku_20 does not have regular grid lines — "
+        "likely detected the decorative border instead of the inner grid"
+    )
