@@ -49,6 +49,10 @@ def find_grid_with_corners(
     """
     Find and extract the Sudoku grid and return screen-space corners.
 
+    Tries all quadrilateral contours (not just the largest) and picks the
+    one whose warped result has the most regular grid-line spacing.  This
+    handles decorative borders that are larger than the actual grid.
+
     Args:
         image: Input image (BGR format)
 
@@ -58,36 +62,60 @@ def find_grid_with_corners(
     """
     try:
         processed = preprocess(image)
-
-        # Apply morphological operations to strengthen grid lines.
         thresh = morphological_operations(processed["thresh"])
 
-        # Find contours.
+        # RETR_LIST finds all contours including nested ones, so we can
+        # skip decorative borders and find the actual grid inside.
         contours, _ = cv2.findContours(
-            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
         )
 
         if not contours:
             return None
 
-        # Find the largest contour that could be the grid.
-        grid_contour = find_largest_quadrilateral(contours)
-        if grid_contour is None:
-            return None
+        # Collect all quadrilateral candidates, sorted by area (largest first).
+        quads = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < 10000:
+                continue
+            perimeter = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
+            if len(approx) == 4:
+                quads.append((area, approx))
 
-        corners = get_corner_points(grid_contour)
-        if corners is None:
-            return None
+        quads.sort(key=lambda x: x[0], reverse=True)
 
-        ordered = order_corners(corners)
+        # Try each candidate: the first one with regular grid lines wins.
+        fallback = None
+        for _, contour in quads:
+            corners = get_corner_points(contour)
+            if corners is None:
+                continue
 
-        # Perspective transform to 450x450 (50px per cell).
-        warped = perspective_transform(processed["original"], ordered, (450, 450))
+            ordered = order_corners(corners)
+            warped = perspective_transform(processed["original"], ordered, (450, 450))
 
-        if not validate_grid(warped):
-            return None
+            if not validate_grid(warped):
+                continue
 
-        return warped, ordered
+            gray_check = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+            if _has_regular_grid_lines(gray_check):
+                return warped, ordered
+
+            if fallback is None:
+                fallback = (warped, ordered)
+
+        # No candidate passed regularity.  Try line-based refinement on the
+        # best fallback (likely a decorative-border warp).
+        if fallback is not None:
+            refined = _try_refine_grid_bounds(
+                fallback[0], processed["original"], fallback[1]
+            )
+            if refined is not None:
+                return refined
+
+        return fallback
     except Exception:
         return None
 
@@ -112,8 +140,9 @@ def find_grids_with_corners(
         processed = preprocess(image)
         thresh = morphological_operations(processed["thresh"])
 
+        # RETR_LIST to find nested grids inside decorative borders.
         contours, _ = cv2.findContours(
-            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
         )
 
         if not contours:
@@ -138,7 +167,8 @@ def find_grids_with_corners(
         quads.sort(key=lambda x: x[0], reverse=True)
 
         grids: List[Tuple[np.ndarray, np.ndarray]] = []
-        for _, contour in quads[: max_grids * 2]:
+        fallbacks: List[Tuple[np.ndarray, np.ndarray]] = []
+        for _, contour in quads[: max_grids * 4]:
             corners = get_corner_points(contour)
             if corners is None:
                 continue
@@ -148,11 +178,25 @@ def find_grids_with_corners(
             if not validate_grid(warped):
                 continue
 
-            grids.append((warped, ordered))
-            if len(grids) >= max_grids:
-                break
+            gray_check = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+            if _has_regular_grid_lines(gray_check):
+                grids.append((warped, ordered))
+                if len(grids) >= max_grids:
+                    break
+            elif len(fallbacks) < max_grids:
+                fallbacks.append((warped, ordered))
 
-        return grids
+        if grids:
+            return grids
+
+        # Try line-based refinement on fallbacks.
+        for warped, ordered in fallbacks:
+            refined = _try_refine_grid_bounds(warped, processed["original"], ordered)
+            if refined is not None:
+                grids.append(refined)
+                if len(grids) >= max_grids:
+                    break
+        return grids if grids else fallbacks
     except Exception:
         return []
 
@@ -295,6 +339,247 @@ def validate_grid(image: np.ndarray) -> bool:
 
     # A Sudoku grid should have enough visible lines.
     return len(lines) >= 15
+
+
+def _find_line_peaks(projection: np.ndarray, min_prominence: float = 0.3) -> np.ndarray:
+    """Find peaks in a 1D projection that correspond to grid lines.
+
+    Groups consecutive above-threshold pixels and returns the centre of
+    each group.
+
+    Args:
+        projection: 1D array of row/column sums from a binary line mask.
+        min_prominence: Minimum peak height relative to max, as a fraction.
+
+    Returns:
+        Array of peak centre indices.
+    """
+    if projection.size == 0 or projection.max() == 0:
+        return np.array([], dtype=int)
+
+    threshold = projection.max() * min_prominence
+    above = projection > threshold
+
+    peaks: list[int] = []
+    start: Optional[int] = None
+    for i in range(len(above)):
+        if above[i]:
+            if start is None:
+                start = i
+        else:
+            if start is not None:
+                peaks.append((start + i - 1) // 2)
+                start = None
+    if start is not None:
+        peaks.append((start + len(above) - 1) // 2)
+
+    return np.array(peaks, dtype=int)
+
+
+def _detect_grid_lines(gray: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Detect horizontal and vertical grid lines via morphological projection.
+
+    Returns:
+        (h_peaks, v_peaks, h_lines_mask) where peaks are 1-D arrays of row/col
+        indices and h_lines_mask is the binary mask of horizontal lines.
+    """
+    h, w = gray.shape[:2]
+
+    binary = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 15, 10
+    )
+
+    h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (w // 5, 1))
+    h_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, h_kernel)
+
+    v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, h // 5))
+    v_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, v_kernel)
+
+    h_proj = h_lines.sum(axis=1).astype(float)
+    v_proj = v_lines.sum(axis=0).astype(float)
+
+    return _find_line_peaks(h_proj), _find_line_peaks(v_proj), h_lines
+
+
+def _direction_is_regular(
+    peaks: np.ndarray, dim_size: int, max_cv: float = 0.25, min_span: float = 0.7
+) -> bool:
+    """Check if a set of peaks has regular spacing spanning most of the axis."""
+    if len(peaks) < 8:
+        return False
+    gaps = np.diff(peaks).astype(float)
+    if gaps.mean() == 0:
+        return False
+    if gaps.std() / gaps.mean() >= max_cv:
+        return False
+    span = float(peaks[-1] - peaks[0])
+    return span >= dim_size * min_span
+
+
+def _has_regular_grid_lines(
+    gray: np.ndarray, min_lines: int = 8, max_cv: float = 0.25
+) -> bool:
+    """Check whether the warped image contains equally-spaced grid lines.
+
+    A correctly warped 450x450 Sudoku grid has 10 horizontal + 10 vertical
+    lines spaced ~50px apart.  An incorrectly warped decorative border will
+    have lines clustered in the centre with irregular spacing.
+
+    Two paths to pass:
+    1. **Both** directions have ≥8 regular peaks spanning ≥70% of the image.
+    2. **One** direction has ≥9 regular peaks AND average spacing is within
+       15% of the expected cell size (image_dim / 9).  This handles grids
+       whose thin lines are invisible in one direction due to border texture.
+
+    Args:
+        gray: Grayscale warped image (expected 450x450).
+        min_lines: Minimum number of line peaks required in each direction.
+        max_cv: Maximum coefficient of variation for the peak spacing.
+
+    Returns:
+        True if the image has a regular grid pattern.
+    """
+    h, w = gray.shape[:2]
+    h_peaks, v_peaks, _ = _detect_grid_lines(gray)
+
+    h_ok = _direction_is_regular(h_peaks, h, max_cv)
+    v_ok = _direction_is_regular(v_peaks, w, max_cv)
+
+    if h_ok and v_ok:
+        return True
+
+    # Single-direction fallback: accept if one direction has ≥9 peaks with
+    # average spacing close to the expected cell size (~50 px for 450 px).
+    expected = float(max(h, w)) / 9.0
+    tol = 0.15  # ±15 %
+
+    for peaks, ok in [(h_peaks, h_ok), (v_peaks, v_ok)]:
+        if not ok or len(peaks) < 9:
+            continue
+        avg = float(np.diff(peaks).mean())
+        if abs(avg - expected) / expected < tol:
+            return True
+
+    return False
+
+
+def _try_refine_grid_bounds(
+    warped: np.ndarray,
+    original: np.ndarray,
+    outer_corners: np.ndarray,
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """Refine grid bounds when the warped image fails the regularity check.
+
+    Uses the horizontal line mask to estimate the inner grid extent, maps
+    the tighter corners back to the original image, and re-warps.  This
+    handles decorative borders where the inner grid doesn't form a separate
+    contour but its grid lines are visible in the initial warp.
+    """
+    gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY) if len(warped.shape) == 3 else warped
+    h, w = gray.shape[:2]
+
+    h_peaks, v_peaks, h_lines_mask = _detect_grid_lines(gray)
+
+    # Need enough horizontal peaks to estimate cell size.
+    if len(h_peaks) < 8:
+        return None
+
+    # Select the best 10 consecutive peaks (lowest CV).
+    best_h = _select_best_consecutive(h_peaks, 10)
+    if best_h is None:
+        return None
+
+    cell_h = float(np.diff(best_h).mean())
+
+    # Use V peaks for cell width, fall back to cell_h (square cells).
+    if len(v_peaks) >= 2:
+        cell_w = float(np.median(np.diff(v_peaks)))
+    else:
+        cell_w = cell_h
+
+    # --- Y extent from best H peaks ---
+    y_top = float(best_h[0])
+    y_bot = float(best_h[-1])
+
+    # --- X extent from H-line mask endpoints (per-row) ---
+    # The grid may be trapezoidal in the warped image due to remaining
+    # perspective distortion.  Use the top and bottom rows' endpoints to
+    # build a quadrilateral (not a rectangle) for accurate correction.
+    row_extents: list[Tuple[int, int, int]] = []  # (y, x_left, x_right)
+    for y in best_h:
+        row = h_lines_mask[int(y), :]
+        nz = np.nonzero(row)[0]
+        if len(nz) > 0:
+            row_extents.append((int(y), int(nz[0]), int(nz[-1])))
+    if len(row_extents) < 2:
+        return None
+
+    # Average the top-N and bottom-N rows for robustness.
+    n_avg = min(3, len(row_extents) // 2)
+    top_rows = row_extents[:n_avg]
+    bot_rows = row_extents[-n_avg:]
+
+    tl_x = float(np.mean([r[1] for r in top_rows]))
+    tr_x = float(np.mean([r[2] for r in top_rows]))
+    bl_x = float(np.mean([r[1] for r in bot_rows]))
+    br_x = float(np.mean([r[2] for r in bot_rows]))
+
+    # Sanity: inner grid must be meaningfully smaller than the warped image.
+    top_w = tr_x - tl_x
+    bot_w = br_x - bl_x
+    avg_w = (top_w + bot_w) / 2.0
+    grid_h = y_bot - y_top
+    inner_area = avg_w * grid_h
+    if inner_area < 0.25 * w * h or inner_area > 0.98 * w * h:
+        return None
+
+    # Build a quadrilateral (may be trapezoidal) that matches the actual
+    # grid shape, preserving perspective information for accurate correction.
+    inner_corners = np.array(
+        [[tl_x, y_top], [tr_x, y_top], [br_x, y_bot], [bl_x, y_bot]],
+        dtype=np.float32,
+    )
+    dst_pts = np.array(
+        [[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype=np.float32
+    )
+    M_inv = cv2.getPerspectiveTransform(dst_pts, outer_corners)
+    mapped = cv2.perspectiveTransform(inner_corners.reshape(-1, 1, 2), M_inv)
+    inner_in_orig = mapped.reshape(-1, 2).astype(np.float32)
+
+    # Re-warp from the original image.
+    refined = perspective_transform(original, inner_in_orig, (w, h))
+
+    # Accept if the refined warp passes the regularity check.
+    ref_gray = cv2.cvtColor(refined, cv2.COLOR_BGR2GRAY) if len(refined.shape) == 3 else refined
+    if not _has_regular_grid_lines(ref_gray):
+        return None
+
+    return refined, inner_in_orig
+
+
+def _select_best_consecutive(peaks: np.ndarray, n: int = 10) -> Optional[np.ndarray]:
+    """Select the *n* consecutive peaks with the most regular spacing."""
+    if len(peaks) < n:
+        return None
+    if len(peaks) == n:
+        gaps = np.diff(peaks).astype(float)
+        if gaps.mean() > 0 and gaps.std() / gaps.mean() < 0.25:
+            return peaks
+        return None
+
+    best: Optional[np.ndarray] = None
+    best_cv = float("inf")
+    for start in range(len(peaks) - n + 1):
+        subset = peaks[start : start + n]
+        gaps = np.diff(subset).astype(float)
+        if gaps.mean() == 0:
+            continue
+        cv = float(gaps.std() / gaps.mean())
+        if cv < best_cv:
+            best_cv = cv
+            best = subset
+
+    return best if best is not None and best_cv < 0.25 else None
 
 
 def find_grid_with_debug(
