@@ -127,9 +127,16 @@ def quantize_bbox(
 
 
 def grid_signature(warped_bgr: np.ndarray) -> str:
+    """Colour-invariant visual hash of a warped grid.
+
+    Converts to binary (digits/lines vs. background) so that tinted
+    backgrounds (NYTimes selection highlight, 3x3 block shading) do not
+    change the hash.
+    """
     gray = cv2.cvtColor(warped_bgr, cv2.COLOR_BGR2GRAY)
-    normalized = cv2.resize(gray, (96, 96), interpolation=cv2.INTER_AREA)
-    return hashlib.sha1(normalized.tobytes()).hexdigest()
+    small = cv2.resize(gray, (96, 96), interpolation=cv2.INTER_AREA)
+    _, binary = cv2.threshold(small, 128, 255, cv2.THRESH_BINARY)
+    return hashlib.sha1(binary.tobytes()).hexdigest()
 
 
 def puzzle_signature(grid: list[list[int]]) -> str:

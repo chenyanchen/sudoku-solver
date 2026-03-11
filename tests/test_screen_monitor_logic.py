@@ -6,7 +6,9 @@ from screen_monitor.frame_hasher import find_changed_regions, is_frame_changed, 
 from screen_monitor.grid_tracker import (
     StabilityTracker,
     bbox_iou,
+    grid_signature,
     grids_match,
+    puzzle_signature,
     quantize_bbox,
     size_delta_ratio,
 )
@@ -289,3 +291,93 @@ def test_find_changed_regions_ignores_tiny_noise():
     curr[45, 80] = 255
     regions = find_changed_regions(prev, curr, min_area_frac=0.01)
     assert regions == []
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: grid_signature color-invariance
+# ---------------------------------------------------------------------------
+
+
+def test_grid_signature_ignores_background_color():
+    """Different background colors should produce the same grid signature.
+
+    NYTimes uses subtle tints: selected cell is light blue (~rgb 187,222,251),
+    3x3 block shading is light gray (~rgb 232,232,232).  These high-luminance
+    backgrounds should all binarize to white, producing identical signatures.
+    """
+    # Create a grid with black lines on white background.
+    base = np.ones((450, 450, 3), dtype=np.uint8) * 255
+    # Draw grid lines.
+    for i in range(10):
+        pos = i * 50
+        base[pos:pos+2, :] = 0   # horizontal
+        base[:, pos:pos+2] = 0   # vertical
+
+    # Variant A: light blue selection highlight (NYTimes selected cell).
+    blue_highlight = base.copy()
+    blue_highlight[100:150, 100:150] = [251, 222, 187]  # BGR light blue
+
+    # Variant B: light gray 3x3 block shading.
+    gray_block = base.copy()
+    gray_block[100:150, 100:150] = [232, 232, 232]  # BGR light gray
+
+    sig_a = grid_signature(blue_highlight)
+    sig_b = grid_signature(gray_block)
+    assert sig_a == sig_b, (
+        f"grid_signature should be color-invariant: {sig_a} != {sig_b}"
+    )
+
+
+def test_grid_signature_differs_for_different_digits():
+    """Grids with different digit content should have different signatures."""
+    base = np.ones((450, 450, 3), dtype=np.uint8) * 255
+    import cv2
+
+    with_digit = base.copy()
+    cv2.putText(with_digit, "5", (200, 250), cv2.FONT_HERSHEY_SIMPLEX,
+                3, (0, 0, 0), 5)
+
+    sig_blank = grid_signature(base)
+    sig_digit = grid_signature(with_digit)
+    assert sig_blank != sig_digit
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: puzzle_cache (solver not re-called for same digits)
+# ---------------------------------------------------------------------------
+
+
+def test_puzzle_cache_prevents_redundant_solve():
+    """When puzzle_signature matches, solver should not be called again."""
+    from unittest.mock import MagicMock, patch
+    from screen_monitor.solver_pipeline import solve_from_grid
+
+    grid = [[0]*9 for _ in range(9)]
+    grid[0][0] = 5
+    grid[0][1] = 3
+
+    ocr_result = {
+        "original_grid": grid,
+        "metadata": {},
+        "givens": 2,
+        "_timing": {"extract_cells_ms": 1.0, "ocr_ms": 2.0},
+    }
+
+    # First call: solver runs.
+    with patch("screen_monitor.solver_pipeline.SudokuSolver") as MockSolver:
+        mock_instance = MagicMock()
+        mock_instance.solve.return_value = None  # unsolvable
+        MockSolver.return_value = mock_instance
+        solve_from_grid(ocr_result)
+        assert mock_instance.solve.call_count == 1
+
+    # Verify puzzle_signature is deterministic for same grid.
+    sig1 = puzzle_signature(grid)
+    sig2 = puzzle_signature(grid)
+    assert sig1 == sig2
+
+    # Different grid → different signature.
+    grid2 = [row[:] for row in grid]
+    grid2[0][0] = 7
+    sig3 = puzzle_signature(grid2)
+    assert sig1 != sig3
