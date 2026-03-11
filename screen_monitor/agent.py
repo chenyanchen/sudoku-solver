@@ -37,7 +37,7 @@ from .renderer import (
     compute_hint_positions,
     should_render,
 )
-from .solver_pipeline import solve_hints_from_warped
+from .solver_pipeline import ocr_grid_from_warped, solve_from_grid
 from .telemetry import FrameTelemetry, TelemetryRing
 from .types import LruCache, MonitorConfig
 
@@ -167,6 +167,7 @@ def _capture_loop(
     tracker = StabilityTracker()
     detect_cache = LruCache(config.detect_cache_max)
     solve_cache = LruCache(config.solve_cache_max)
+    puzzle_cache = LruCache(config.solve_cache_max)
 
     overlay_visible = False
     last_render_key: Any = None
@@ -296,7 +297,8 @@ def _capture_loop(
             # --- Detect + solve ---
             t_pipeline_start = time.perf_counter()
             selected = _select_best_candidate(
-                frames, config, reader, detect_cache, solve_cache, monitor_meta,
+                frames, config, reader, detect_cache, solve_cache,
+                puzzle_cache, monitor_meta,
                 prev_thumbs=prev_thumbs,
                 last_known_grid_bbox=last_known_grid_bbox,
             )
@@ -431,14 +433,19 @@ def _select_best_candidate(
     reader: CnnDigitReader,
     detect_cache: LruCache,
     solve_cache: LruCache,
+    puzzle_cache: LruCache,
     monitor_meta: dict[int, dict[str, Any]],
     prev_thumbs: Optional[dict[int, np.ndarray]] = None,
     last_known_grid_bbox: Optional[dict[int, tuple[float, float, float, float]]] = None,
 ) -> Optional[tuple]:
     """Find the best solvable grid across all monitors/frames.
 
-    Detection runs on the (potentially downscaled) detect_frame for speed.
-    OCR always re-warps from the original full-res frame for quality.
+    Two-layer cache strategy:
+      1. solve_cache: keyed by visual grid_signature (binary thumbnail hash)
+      2. puzzle_cache: keyed by puzzle_signature (OCR digit hash)
+
+    If visual hash misses but OCR produces the same digits, puzzle_cache
+    provides the cached solution without re-running the solver.
 
     Returns a tuple of (corners, signature, bbox, payload,
     monitor_id, logical_offset, capture_to_logical_scale) or None.
@@ -487,26 +494,59 @@ def _select_best_candidate(
             # Re-warp from the original full-res frame for OCR quality.
             warped = _rewarp_from_original(original_bgr, corners)
 
+            # --- Layer 1: visual hash cache ---
             raw_sig = grid_signature(warped)
             cached_result = solve_cache.get(raw_sig)
             solve_hit = cached_result is not None
-            if cached_result is None:
-                t_solve = time.perf_counter()
-                payload, reason, givens = solve_hints_from_warped(
-                    warped, reader, config.min_givens,
-                )
-                solve_elapsed = (time.perf_counter() - t_solve) * 1000.0
-                if payload is None and solve_elapsed > 500:
-                    LOGGER.warning(
-                        "slow failed solve: %.0fms reason=%s givens=%d",
-                        solve_elapsed, reason, givens,
-                    )
-                solve_cache.put(raw_sig, {
-                    "payload": payload, "reason": reason, "givens": int(givens),
-                })
-            else:
+            puzzle_hit = False
+
+            if cached_result is not None:
                 payload = cached_result.get("payload")
                 givens = int(cached_result.get("givens") or 0)
+            else:
+                # Visual hash miss — run OCR.
+                t_ocr_start = time.perf_counter()
+                ocr_result, reason, givens = ocr_grid_from_warped(
+                    warped, reader, config.min_givens,
+                )
+                ocr_elapsed = (time.perf_counter() - t_ocr_start) * 1000.0
+
+                if ocr_result is None:
+                    solve_cache.put(raw_sig, {
+                        "payload": None, "reason": reason, "givens": int(givens),
+                    })
+                    continue
+
+                # --- Layer 2: puzzle (digit) hash cache ---
+                puz_key = puzzle_signature(ocr_result["original_grid"])
+                cached_puzzle = puzzle_cache.get(puz_key)
+
+                if cached_puzzle is not None:
+                    # Same digits as before — reuse cached solution.
+                    payload = cached_puzzle.get("payload")
+                    puzzle_hit = True
+                else:
+                    # Puzzle cache miss — run solver.
+                    t_solve_start = time.perf_counter()
+                    payload, solve_reason = solve_from_grid(ocr_result)
+                    solve_elapsed = (time.perf_counter() - t_solve_start) * 1000.0
+
+                    if payload is None and (ocr_elapsed + solve_elapsed) > 500:
+                        LOGGER.warning(
+                            "slow failed solve: %.0fms reason=%s givens=%d",
+                            ocr_elapsed + solve_elapsed, solve_reason, givens,
+                        )
+
+                    puzzle_cache.put(puz_key, {
+                        "payload": payload,
+                        "reason": solve_reason if payload is None else "ok",
+                    })
+
+                # Cache full result under visual hash too.
+                solve_cache.put(raw_sig, {
+                    "payload": payload, "reason": "ok" if payload else reason,
+                    "givens": int(givens),
+                })
 
             if payload is None:
                 continue
@@ -516,7 +556,7 @@ def _select_best_candidate(
                 continue
 
             payload["_detect_cache_hit"] = detect_hit
-            payload["_solve_cache_hit"] = solve_hit
+            payload["_solve_cache_hit"] = solve_hit or puzzle_hit
 
             meta = monitor_meta[mid]
             puz_sig = puzzle_signature(payload["original_grid"])

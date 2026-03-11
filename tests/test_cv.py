@@ -17,6 +17,7 @@ from backend.cv.grid_detector import (
     order_corners,
     perspective_transform,
     validate_grid,
+    _has_regular_grid_lines,
 )
 from backend.cv.cell_extractor import (
     extract_cells,
@@ -183,6 +184,37 @@ class TestCellExtractor:
         assert len(positions) == 81
         # First position should be at origin
         assert positions[0] == (0, 0, 50, 50)
+
+
+class TestHasRegularGridLines:
+    """Tests for _has_regular_grid_lines."""
+
+    def test_synthetic_regular_grid(self):
+        """A synthetic 450x450 image with 10 equally-spaced lines should pass."""
+        img = np.ones((450, 450), dtype=np.uint8) * 255
+        # Draw 10 horizontal and 10 vertical lines at 50px intervals.
+        for i in range(10):
+            y = i * 50
+            cv2.line(img, (0, y), (449, y), 0, 2)
+            x = i * 50
+            cv2.line(img, (x, 0), (x, 449), 0, 2)
+        assert _has_regular_grid_lines(img)
+
+    def test_irregular_lines(self):
+        """Lines clustered in the centre should fail (insufficient span)."""
+        img = np.ones((450, 450), dtype=np.uint8) * 255
+        # Draw 10 lines clustered between y=150..285 (span < 70%).
+        for i in range(10):
+            y = 150 + i * 15
+            cv2.line(img, (0, y), (449, y), 0, 2)
+            x = 150 + i * 15
+            cv2.line(img, (x, 0), (x, 449), 0, 2)
+        assert not _has_regular_grid_lines(img)
+
+    def test_blank_image(self):
+        """A blank image with no lines should fail."""
+        img = np.ones((450, 450), dtype=np.uint8) * 255
+        assert not _has_regular_grid_lines(img)
 
 
 def test_find_grid_with_synthetic_image():
