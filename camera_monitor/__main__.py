@@ -38,7 +38,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--min-givens", type=int, default=17)
     parser.add_argument("--min-confidence", type=float, default=0.30,
                         help="Minimum OCR average confidence to accept (0.0-1.0)")
-    parser.add_argument("--yolo-conf", type=float, default=0.5,
+    parser.add_argument("--yolo-conf", type=float, default=0.3,
                         help="YOLO detection confidence threshold")
     parser.add_argument("--debug", action="store_true")
     return parser.parse_args()
