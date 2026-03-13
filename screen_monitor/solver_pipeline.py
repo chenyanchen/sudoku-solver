@@ -26,6 +26,7 @@ def ocr_grid_from_warped(
     warped_bgr: Any,
     reader: CnnDigitReader,
     min_givens: int,
+    prepare_fn: Optional[Any] = None,
 ) -> tuple[Optional[dict[str, Any]], str, int]:
     """Run OCR on a warped 450x450 grid image (no solving).
 
@@ -33,7 +34,8 @@ def ocr_grid_from_warped(
     ocr_result contains: original_grid, metadata, _timing.
     """
     t0 = time.perf_counter()
-    ocr_grid = _prepare_grid_for_screen_ocr(warped_bgr)
+    prep = prepare_fn or _prepare_grid_for_screen_ocr
+    ocr_grid = prep(warped_bgr)
     cells = extract_cells(ocr_grid)
     if len(cells) != 81:
         return None, "bad-cells", 0

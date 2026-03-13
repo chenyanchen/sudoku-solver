@@ -1,0 +1,10 @@
+# path is set at runtime by train_yolo_grid.py
+path: .
+train: images/train
+val: images/train
+
+names:
+  0: sudoku_grid
+
+kpt_shape: [4, 2]
+flip_idx: []
