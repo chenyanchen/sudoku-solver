@@ -44,7 +44,7 @@ class CameraConfig:
     fps: int = 30
     min_givens: int = 17
     min_confidence: float = 0.30
-    yolo_conf: float = 0.5
+    yolo_conf: float = 0.3
     debug: bool = False
 
 
@@ -85,11 +85,12 @@ def _processing_loop(
             # YOLO detection: grid + 4 corner keypoints.
             det = detector.detect(frame)
             if det is None:
+                LOGGER.debug("YOLO: no grid detected")
                 result_holder.set(ProcessingResult())
                 continue
 
             warped, corners, det_conf = det
-            LOGGER.debug("YOLO detection: conf=%.2f", det_conf)
+            LOGGER.info("YOLO: conf=%.2f", det_conf)
 
             # OCR (camera needs CLAHE for uneven lighting).
             ocr_result, reason, givens = ocr_grid_from_warped(
@@ -97,6 +98,7 @@ def _processing_loop(
                 prepare_fn=_prepare_grid_for_camera_ocr,
             )
             if ocr_result is None:
+                LOGGER.info("OCR failed: reason=%s givens=%d", reason, givens)
                 result_holder.set(ProcessingResult(
                     corners=corners, warped=warped, givens=givens,
                 ))
@@ -105,8 +107,8 @@ def _processing_loop(
             # Gate: reject low-confidence OCR results.
             avg_conf = ocr_result.get("metadata", {}).get("average_confidence")
             if avg_conf is not None and avg_conf < config.min_confidence:
-                LOGGER.debug("low OCR confidence %.2f < %.2f, skipping",
-                             avg_conf, config.min_confidence)
+                LOGGER.info("OCR rejected: avg_conf=%.2f < %.2f",
+                            avg_conf, config.min_confidence)
                 result_holder.set(ProcessingResult(
                     corners=corners, warped=warped, givens=givens,
                 ))
@@ -115,6 +117,7 @@ def _processing_loop(
             # Solve.
             payload, solve_reason = solve_from_grid(ocr_result)
             if payload is None:
+                LOGGER.info("Solve failed: reason=%s givens=%d", solve_reason, givens)
                 result_holder.set(ProcessingResult(
                     corners=corners, warped=warped,
                     original_grid=ocr_result["original_grid"],
@@ -137,7 +140,7 @@ def _processing_loop(
             ))
 
         except Exception:
-            LOGGER.debug("processing error", exc_info=True)
+            LOGGER.warning("processing error", exc_info=True)
             result_holder.set(ProcessingResult())
 
 
