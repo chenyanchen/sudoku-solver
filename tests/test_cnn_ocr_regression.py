@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import os
+
 import cv2
 import pytest
 
@@ -13,7 +15,6 @@ from backend.ocr.cnn_digit_reader import CnnDigitReader
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_IMAGE_ROOT = PROJECT_ROOT / "data" / "raw" / "images"
-MODEL_PATH = PROJECT_ROOT / "models" / "releases" / "sudoku_digit_cnn_v3.2.onnx"
 
 EXPECTED_SAMPLE_GRIDS = {
     "sudoku_2.jpg": [
@@ -58,10 +59,13 @@ def _recognize_sample_grid(reader: CnnDigitReader, image_name: str) -> list[list
 
 @pytest.fixture(scope="module")
 def sample_grids() -> dict[str, list[list[int]]]:
-    if not MODEL_PATH.exists():
-        pytest.skip(f"CNN model file is missing: {MODEL_PATH}")
+    model_path = os.getenv("CNN_MODEL_PATH")
+    if model_path is None:
+        pytest.skip("CNN_MODEL_PATH not set")
+    if not Path(model_path).exists():
+        pytest.skip(f"CNN model file is missing: {model_path}")
 
-    reader = CnnDigitReader(model_path=MODEL_PATH, strict=False)
+    reader = CnnDigitReader(model_path=model_path, strict=False)
     if not reader.is_ready:
         pytest.skip(f"CNN model not ready: {reader.load_error}")
 

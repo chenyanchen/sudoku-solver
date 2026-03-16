@@ -20,14 +20,6 @@ except Exception:  # pragma: no cover - environment dependent
     ort = None
 
 
-DEFAULT_MODEL_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "models"
-    / "releases"
-    / "sudoku_digit_cnn_v3.2.onnx"
-)
-
-
 class CnnDigitReader:
     """Read Sudoku digits with a self-trained CNN model exported to ONNX."""
 
@@ -40,7 +32,13 @@ class CnnDigitReader:
         top_k_candidates: int = 4,
         strict: bool = False,
     ):
-        self.model_path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
+        resolved = model_path or os.getenv("CNN_MODEL_PATH")
+        if resolved is None:
+            raise RuntimeError(
+                "CNN model path not specified. "
+                "Set CNN_MODEL_PATH env var or pass model_path argument."
+            )
+        self.model_path = Path(resolved)
         self.blank_threshold = blank_threshold
         self.digit_threshold = digit_threshold
         self.rerank_confidence = rerank_confidence
