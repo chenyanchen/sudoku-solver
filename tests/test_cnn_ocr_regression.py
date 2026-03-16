@@ -16,7 +16,7 @@ DATA_IMAGE_ROOT = PROJECT_ROOT / "data" / "raw" / "images"
 MODEL_PATH = PROJECT_ROOT / "models" / "releases" / "sudoku_digit_cnn_v3.2.onnx"
 
 EXPECTED_SAMPLE_GRIDS = {
-    "sudoku_2.png": [
+    "sudoku_2.jpg": [
         [6, 0, 8, 0, 0, 3, 0, 2, 4],
         [4, 3, 0, 0, 0, 0, 0, 0, 0],
         [0, 0, 0, 0, 5, 0, 0, 8, 0],
@@ -27,7 +27,7 @@ EXPECTED_SAMPLE_GRIDS = {
         [0, 4, 3, 8, 0, 0, 6, 0, 0],
         [0, 8, 0, 7, 2, 6, 9, 0, 0],
     ],
-    "sudoku_3.png": [
+    "sudoku_3.jpg": [
         [3, 0, 2, 1, 0, 6, 9, 0, 0],
         [0, 8, 0, 0, 0, 0, 0, 0, 2],
         [0, 7, 0, 0, 3, 0, 0, 0, 0],
@@ -72,26 +72,26 @@ def sample_grids() -> dict[str, list[list[int]]]:
 
 
 def test_recognize_9_in_sudoku_2(sample_grids):
-    grid = sample_grids["sudoku_2.png"]
+    grid = sample_grids["sudoku_2.jpg"]
     assert grid[4][7] == 9  # r5c8
     assert grid[8][6] == 9  # r9c7
 
 
 def test_recognize_9_in_sudoku_3(sample_grids):
-    grid = sample_grids["sudoku_3.png"]
+    grid = sample_grids["sudoku_3.jpg"]
     assert grid[0][6] == 9  # r1c7
     assert grid[7][5] == 9  # r8c6
 
 
 def test_blank_cells_not_false_positive_in_sudoku_3(sample_grids):
-    grid = sample_grids["sudoku_3.png"]
+    grid = sample_grids["sudoku_3.jpg"]
     assert grid[5][7] == 0  # r6c8
     assert grid[6][7] == 0  # r7c8
 
 
 @pytest.mark.parametrize(
     "image_name,minimum_recall",
-    [("sudoku_2.png", 35), ("sudoku_3.png", 21)],
+    [("sudoku_2.jpg", 35), ("sudoku_3.jpg", 21)],
 )
 def test_given_digit_recall_floor(sample_grids, image_name, minimum_recall):
     predicted = sample_grids[image_name]
@@ -113,8 +113,8 @@ def test_given_digit_recall_floor(sample_grids, image_name, minimum_recall):
 
 
 def test_sudoku_20_framed_grid_detected():
-    """sudoku_20.png has a decorative border; the inner grid must be found."""
-    image_path = DATA_IMAGE_ROOT / "sudoku_20.png"
+    """sudoku_20.jpg has a decorative border; the inner grid must be found."""
+    image_path = DATA_IMAGE_ROOT / "sudoku_20.jpg"
     if not image_path.exists():
         pytest.skip(f"Test image not found: {image_path}")
 

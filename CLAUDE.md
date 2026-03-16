@@ -61,7 +61,7 @@ Three architectures: `custom_small_cnn` (v1-v2), `custom_cnn_v3` (ResBlock + SE 
 
 ### Camera Monitor (`camera_monitor/`)
 
-Prototype for camera-based (phone photo / Android / wearable) grid detection. **Must use YOLO26n-pose** — do not use Claude Vision API or other alternatives for this path. YOLO model: `models/releases/yolo_grid_detect.onnx`. Validation baseline: `data/raw/images/photo_1.png` must be correctly recognized.
+Prototype for camera-based (phone photo / Android / wearable) grid detection. **Must use YOLO26n-pose** — do not use Claude Vision API or other alternatives for this path. YOLO model: `models/releases/yolo_grid_detect.onnx`. Validation baseline: `data/raw/images/photo_1.jpg` must be correctly recognized.
 
 ### Key Design Decisions
 

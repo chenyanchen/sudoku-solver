@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 
 from ..cv.cell_extractor import extract_cells
 from ..cv.grid_detector import find_grid
+from ..cv.yolo_detector import YoloGridDetector
 from ..models.schemas import (
     HealthResponse,
     ImageSolveResponse,
@@ -27,6 +28,8 @@ from ..solver.backtracking import SudokuSolver, is_valid_grid
 
 router = APIRouter()
 _CNN_READER: CnnDigitReader | None = None
+_YOLO_DETECTOR: YoloGridDetector | None = None
+_YOLO_INIT_DONE: bool = False
 _LOGGER = logging.getLogger(__name__)
 
 _T = TypeVar("_T", int, float)
@@ -49,12 +52,42 @@ def image_to_base64(image: np.ndarray) -> str:
     return base64.b64encode(buffer).decode("utf-8")
 
 
+def _get_yolo_detector() -> YoloGridDetector | None:
+    """Lazy-load YOLO detector singleton. Returns None if model unavailable."""
+    global _YOLO_DETECTOR, _YOLO_INIT_DONE
+
+    if _YOLO_INIT_DONE:
+        return _YOLO_DETECTOR
+
+    _YOLO_INIT_DONE = True
+    model_path = os.getenv("YOLO_MODEL_PATH")
+    detector = YoloGridDetector(model_path=model_path)
+    if detector.is_ready:
+        _YOLO_DETECTOR = detector
+        _LOGGER.info("YOLO grid detector ready")
+    else:
+        _LOGGER.info("YOLO grid detector unavailable: %s (falling back to OpenCV)",
+                      detector.load_error)
+    return _YOLO_DETECTOR
+
+
 def detect_grid_image(image: np.ndarray) -> np.ndarray | None:
-    """Detect the Sudoku grid, retrying with a simple contrast enhancement."""
+    """Detect the Sudoku grid using YOLO (preferred) with OpenCV fallback."""
+    # Try YOLO first.
+    detector = _get_yolo_detector()
+    if detector is not None:
+        det = detector.detect(image)
+        if det is not None:
+            warped, corners, conf = det
+            _LOGGER.debug("YOLO grid detected: conf=%.2f", conf)
+            return warped
+
+    # Fallback to existing OpenCV pipeline.
     grid_img = find_grid(image)
     if grid_img is not None:
         return grid_img
 
+    # CLAHE retry.
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
     enhanced = clahe.apply(gray)

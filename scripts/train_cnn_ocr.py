@@ -100,9 +100,23 @@ def apply_augmentations(image: np.ndarray) -> np.ndarray:
     return out
 
 
-def build_samples(labels_path: Path, input_size: int) -> list[CellSample]:
+def build_samples(
+    labels_path: Path,
+    input_size: int,
+    use_yolo: bool = False,
+    yolo_model_path: str | None = None,
+) -> list[CellSample]:
     with labels_path.open("r", encoding="utf-8") as f:
         labels_data = json.load(f)
+
+    yolo_detector = None
+    if use_yolo:
+        from backend.cv.yolo_detector import YoloGridDetector
+        yolo_detector = YoloGridDetector(model_path=yolo_model_path)
+        if not yolo_detector.is_ready:
+            raise RuntimeError(
+                f"YOLO detector failed to load: {yolo_detector.load_error}"
+            )
 
     samples: list[CellSample] = []
 
@@ -112,9 +126,15 @@ def build_samples(labels_path: Path, input_size: int) -> list[CellSample]:
         if image is None:
             raise FileNotFoundError(f"Image not found or unreadable: {image_path}")
 
-        detected = detect_grid_image(image)
-        if detected is None:
-            raise ValueError(f"Could not detect Sudoku grid in image: {image_path}")
+        if yolo_detector is not None:
+            det = yolo_detector.detect(image)
+            if det is None:
+                raise ValueError(f"YOLO could not detect grid in {image_path}")
+            detected, _, _ = det
+        else:
+            detected = detect_grid_image(image)
+            if detected is None:
+                raise ValueError(f"Could not detect Sudoku grid in image: {image_path}")
 
         ocr_grid = prepare_grid_for_ocr(detected)
         cells = extract_cells(ocr_grid)
@@ -267,6 +287,17 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="JSONL path for per-epoch metrics (default: <output>.metrics.jsonl)",
     )
+    parser.add_argument(
+        "--use-yolo",
+        action="store_true",
+        help="Use YOLO detector for grid extraction instead of OpenCV",
+    )
+    parser.add_argument(
+        "--yolo-model",
+        type=str,
+        default=None,
+        help="Path to YOLO ONNX model (default: models/releases/yolo_grid_detect.onnx)",
+    )
     return parser.parse_args()
 
 
@@ -280,7 +311,10 @@ def main() -> int:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    samples = build_samples(args.labels, args.input_size)
+    samples = build_samples(
+        args.labels, args.input_size,
+        use_yolo=args.use_yolo, yolo_model_path=args.yolo_model,
+    )
     if len(samples) < 50:
         raise RuntimeError(
             "Training dataset is too small. Add more labeled Sudoku images first."
