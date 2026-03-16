@@ -73,9 +73,9 @@ Prototype for camera-based (phone photo / Android / wearable) grid detection. **
 
 ## Environment Variables
 
-Key runtime configuration (all optional, have defaults):
+Key runtime configuration:
 
-- `CNN_MODEL_PATH` — path to ONNX model (default: `models/releases/sudoku_digit_cnn_v3.2.onnx`)
+- `CNN_MODEL_PATH` — **required**, path to CNN ONNX model (no default; must be set for backend/tests)
 - `CNN_BLANK_THRESHOLD`, `CNN_DIGIT_THRESHOLD`, `CNN_RERANK_CONFIDENCE`, `CNN_TOPK_CANDIDATES`
 - `CNN_REPAIR_MAX_CHANGES`, `CNN_REPAIR_MAX_CELLS`
 - `OCR_ENGINE` — only `cnn` is supported (others fallback to cnn)
