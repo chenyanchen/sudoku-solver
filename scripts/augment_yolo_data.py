@@ -5,7 +5,7 @@ onto generated backgrounds at random positions/scales/perspectives. This
 multiplies the effective training set size.
 
 Usage:
-    uv run python scripts/augment_yolo_data.py [--count 200]
+    uv run python scripts/augment_yolo_data.py [--count 500]
 """
 
 from __future__ import annotations
@@ -22,28 +22,48 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def random_background(w: int, h: int) -> np.ndarray:
-    """Generate a random background that looks like a screen/desktop."""
+    """Generate a random background with varied texture."""
     bg = np.zeros((h, w, 3), dtype=np.uint8)
 
-    # Random base color (light or dark theme)
-    if random.random() < 0.5:
-        base = random.randint(200, 255)
+    style = random.random()
+    if style < 0.25:
+        # Solid with gradient
+        base = random.randint(20, 240)
+        bg[:] = base
+        grad = np.linspace(0, random.randint(-40, 40), h).reshape(-1, 1, 1)
+        bg = np.clip(bg.astype(np.float32) + grad, 0, 255).astype(np.uint8)
+    elif style < 0.5:
+        # Multi-color patches (simulating a room/desk)
+        for _ in range(random.randint(3, 12)):
+            x1 = random.randint(0, w - 50)
+            y1 = random.randint(0, h - 50)
+            x2 = x1 + random.randint(50, min(500, w - x1))
+            y2 = y1 + random.randint(30, min(400, h - y1))
+            color = tuple(random.randint(0, 255) for _ in range(3))
+            cv2.rectangle(bg, (x1, y1), (x2, y2), color, -1)
+    elif style < 0.75:
+        # Random circles and lines (simulating complex scene)
+        base = random.randint(60, 200)
+        bg[:] = base
+        for _ in range(random.randint(5, 15)):
+            cx = random.randint(0, w)
+            cy = random.randint(0, h)
+            r = random.randint(20, 200)
+            color = tuple(random.randint(0, 255) for _ in range(3))
+            cv2.circle(bg, (cx, cy), r, color, -1)
     else:
-        base = random.randint(20, 80)
-    bg[:] = base
+        # Perlin-like noise pattern
+        base = np.random.randint(40, 220, (h // 8 + 1, w // 8 + 1, 3), dtype=np.uint8)
+        bg = cv2.resize(base, (w, h), interpolation=cv2.INTER_CUBIC)
 
-    # Add some random rectangles (simulating UI elements)
-    for _ in range(random.randint(2, 8)):
-        x1 = random.randint(0, w - 50)
-        y1 = random.randint(0, h - 50)
-        x2 = x1 + random.randint(50, min(400, w - x1))
-        y2 = y1 + random.randint(30, min(300, h - y1))
-        color = tuple(random.randint(0, 255) for _ in range(3))
-        cv2.rectangle(bg, (x1, y1), (x2, y2), color, -1)
-
-    # Add noise
-    noise = np.random.normal(0, 8, bg.shape).astype(np.int16)
+    # Add Gaussian noise
+    noise = np.random.normal(0, random.uniform(5, 20), bg.shape).astype(np.int16)
     bg = np.clip(bg.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+
+    # Occasional blur
+    if random.random() < 0.3:
+        ksize = random.choice([3, 5])
+        bg = cv2.GaussianBlur(bg, (ksize, ksize), 0)
 
     return bg
 
@@ -71,9 +91,9 @@ def paste_grid(
 
 
 def random_quad(w: int, h: int, grid_frac: float) -> np.ndarray:
-    """Generate random quadrilateral corners for placing a grid.
+    """Generate random quadrilateral corners with perspective distortion.
 
-    Returns 4 corners (TL, TR, BR, BL) with slight perspective distortion.
+    Returns 4 corners (TL, TR, BR, BL).
     """
     size = int(min(w, h) * grid_frac)
     margin_x = max(10, w - size - 10)
@@ -82,24 +102,45 @@ def random_quad(w: int, h: int, grid_frac: float) -> np.ndarray:
     x0 = random.randint(10, margin_x)
     y0 = random.randint(10, margin_y)
 
-    # Add slight perspective jitter (up to 3% of size)
-    jitter = int(size * 0.03)
+    # Perspective jitter: up to 10% of size (camera-like distortion)
+    jitter = int(size * random.uniform(0.02, 0.10))
 
     def j():
         return random.randint(-jitter, jitter)
 
     corners = np.float32([
-        [x0 + j(), y0 + j()],           # TL
-        [x0 + size + j(), y0 + j()],     # TR
-        [x0 + size + j(), y0 + size + j()],  # BR
-        [x0 + j(), y0 + size + j()],     # BL
+        [x0 + j(), y0 + j()],
+        [x0 + size + j(), y0 + j()],
+        [x0 + size + j(), y0 + size + j()],
+        [x0 + j(), y0 + size + j()],
     ])
 
-    # Clip to image bounds
     corners[:, 0] = np.clip(corners[:, 0], 0, w - 1)
     corners[:, 1] = np.clip(corners[:, 1], 0, h - 1)
-
     return corners
+
+
+def augment_grid(grid: np.ndarray) -> np.ndarray:
+    """Apply random augmentation to the grid image."""
+    result = grid.copy()
+
+    # Brightness/contrast
+    if random.random() < 0.5:
+        alpha = random.uniform(0.7, 1.3)
+        beta = random.uniform(-30, 30)
+        result = cv2.convertScaleAbs(result, alpha=alpha, beta=beta)
+
+    # Gaussian blur (simulates camera out-of-focus)
+    if random.random() < 0.3:
+        ksize = random.choice([3, 5])
+        result = cv2.GaussianBlur(result, (ksize, ksize), 0)
+
+    # Add noise
+    if random.random() < 0.3:
+        noise = np.random.normal(0, random.uniform(5, 15), result.shape)
+        result = np.clip(result.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+
+    return result
 
 
 def corners_to_yolo_pose(corners: np.ndarray, img_w: int, img_h: int) -> str:
@@ -137,7 +178,6 @@ def load_source_grids(label_dir: Path, image_dir: Path) -> list[np.ndarray]:
 
         line = lbl_path.read_text().strip()
         parts = list(map(float, line.split()))
-        # parts: cls cx cy bw bh kx1 ky1 kx2 ky2 kx3 ky3 kx4 ky4
         h, w = image.shape[:2]
         corners = np.float32([
             [parts[5] * w, parts[6] * h],
@@ -153,7 +193,7 @@ def load_source_grids(label_dir: Path, image_dir: Path) -> list[np.ndarray]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Augment YOLO grid dataset")
-    parser.add_argument("--count", type=int, default=200, help="Total images to generate")
+    parser.add_argument("--count", type=int, default=500, help="Total images to generate")
     parser.add_argument("--size", type=int, default=640, help="Output image size")
     parser.add_argument(
         "--dst",
@@ -169,7 +209,6 @@ def main() -> int:
     img_dir = args.dst / "images" / "train"
     lbl_dir = args.dst / "labels" / "train"
 
-    # Load source grids from existing labels
     grids = load_source_grids(lbl_dir, img_dir)
     if not grids:
         print("No source grids found. Run auto_label_yolo.py first.")
@@ -181,16 +220,10 @@ def main() -> int:
     generated = 0
 
     for i in range(args.count):
-        grid = random.choice(grids)
-
-        # Random augmentation on the grid itself
-        if random.random() < 0.3:
-            alpha = random.uniform(0.85, 1.15)
-            beta = random.uniform(-15, 15)
-            grid = cv2.convertScaleAbs(grid, alpha=alpha, beta=beta)
-
+        grid = augment_grid(random.choice(grids))
         bg = random_background(w, h)
-        grid_frac = random.uniform(0.3, 0.85)
+        # Varied grid sizes: 20%-85% of image (camera photos have small grids)
+        grid_frac = random.uniform(0.20, 0.85)
         corners = random_quad(w, h, grid_frac)
         result = paste_grid(bg, grid, corners)
 

@@ -1,5 +1,5 @@
-# path is set at runtime by train_yolo_grid.py
-path: .
+# Absolute path set to avoid ultralytics CWD resolution issues
+path: /Users/nle/go/src/github.com/chenyanchen/sudoku-solver/data/yolo_grid
 train: images/train
 val: images/train
 
