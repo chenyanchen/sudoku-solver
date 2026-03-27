@@ -1,7 +1,18 @@
 """Tests for YOLO 16-keypoint detector output parsing."""
+import os
+from pathlib import Path
+
+import cv2
 import numpy as np
 import pytest
+
+from backend.cv.adaptive_cell_extractor import extract_cells_adaptive
+from backend.cv.cell_extractor import clean_cell
 from backend.cv.yolo_detector import YoloGridDetector
+from backend.ocr.cnn_digit_reader import CnnDigitReader
+from backend.solver.backtracking import SudokuSolver
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestParseKeypoints16:
@@ -71,3 +82,65 @@ class TestParseKeypoints16:
         corners, _ = result
         assert corners[0, 0] == pytest.approx(320.0)
         assert corners[0, 1] == pytest.approx(320.0)
+
+
+class TestEndToEnd16Kpt:
+    """End-to-end tests: YOLO 16-kpt → adaptive extraction → CNN OCR → solve."""
+
+    @pytest.fixture(scope="class")
+    def detector(self):
+        model_path = str(REPO_ROOT / "models" / "releases" / "yolo_grid_detect.onnx")
+        det = YoloGridDetector(model_path=model_path, num_keypoints=16, conf_threshold=0.3)
+        if not det.is_ready:
+            pytest.skip(f"YOLO model not available: {det.load_error}")
+        return det
+
+    @pytest.fixture(scope="class")
+    def reader(self):
+        cnn_path = os.environ.get("CNN_MODEL_PATH")
+        if not cnn_path:
+            pytest.skip("CNN_MODEL_PATH not set")
+        r = CnnDigitReader(model_path=cnn_path)
+        if not r.is_ready:
+            pytest.skip(f"CNN model not available: {r.load_error}")
+        return r
+
+    def _run_pipeline(self, img_path: str, detector, reader) -> list[list[int]]:
+        """Run full pipeline and return solved grid."""
+        image = cv2.imread(img_path)
+        assert image is not None, f"Cannot read {img_path}"
+
+        result = detector.detect(image)
+        assert result is not None, f"YOLO detection failed for {img_path}"
+        warped, keypoints, conf = result
+
+        assert keypoints.shape == (16, 2), f"Expected 16 keypoints, got {keypoints.shape}"
+
+        cells = extract_cells_adaptive(image, keypoints)
+        assert len(cells) == 81
+
+        cleaned = [clean_cell(c) for c in cells]
+        grid, metadata = reader.recognize_grid_with_metadata(cleaned)
+        givens = sum(1 for row in grid for c in row if c != 0)
+        assert givens >= 17, f"Too few givens: {givens}"
+
+        solver = SudokuSolver()
+        solved = solver.solve(grid)
+        assert solved is not None, f"Solver failed for {img_path}"
+        return solved
+
+    def test_photo_1(self, detector, reader):
+        """Validation baseline: photo_1.jpg must be correctly recognized."""
+        img = str(REPO_ROOT / "data" / "raw" / "images" / "photo_1.jpg")
+        if not Path(img).exists():
+            pytest.skip("photo_1.jpg not found")
+        solved = self._run_pipeline(img, detector, reader)
+        assert all(all(c != 0 for c in row) for row in solved)
+
+    def test_bamboo_grid(self, detector, reader):
+        """Decorative grid: IMG_8710.jpg (bamboo-style board)."""
+        img = str(REPO_ROOT / "data" / "raw" / "images" / "IMG_8710.jpg")
+        if not Path(img).exists():
+            pytest.skip("IMG_8710.jpg not found")
+        solved = self._run_pipeline(img, detector, reader)
+        assert all(all(c != 0 for c in row) for row in solved)
