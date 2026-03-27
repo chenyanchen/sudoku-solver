@@ -69,6 +69,9 @@ class ImageSolveResponse(BaseModel):
     ocr_latency_ms: float | None = Field(
         default=None, description="OCR stage latency in milliseconds"
     )
+    detector_name: str | None = Field(
+        default=None, description="Grid detector that found the puzzle (e.g. yolo, opencv)"
+    )
 
 
 class ErrorResponse(BaseModel):
