@@ -61,7 +61,7 @@ def _get_yolo_detector() -> YoloGridDetector | None:
 
     _YOLO_INIT_DONE = True
     model_path = os.getenv("YOLO_MODEL_PATH")
-    detector = YoloGridDetector(model_path=model_path)
+    detector = YoloGridDetector(model_path=model_path, num_keypoints=16)
     if detector.is_ready:
         _YOLO_DETECTOR = detector
         _LOGGER.info("YOLO grid detector ready")
