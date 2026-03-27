@@ -49,28 +49,31 @@ class SolveResponse(BaseModel):
     message: str = Field(description="Status message")
 
 
-class ImageSolveResponse(BaseModel):
-    """Response from solving a Sudoku from an image."""
+class RecognizeResponse(BaseModel):
+    """Response from recognizing a Sudoku grid in an image."""
 
-    success: bool = Field(description="Whether the operation was successful")
+    success: bool = Field(description="Whether recognition was successful")
     message: str = Field(description="Status message")
-    original_grid: list[list[int]] | None = Field(description="OCR-extracted grid")
-    solved_grid: list[list[int]] | None = Field(description="Solved grid")
-    detected_image: str | None = Field(
-        description="Base64 encoded detected grid image"
+    grid: list[list[int]] | None = Field(
+        default=None, description="9x9 recognized grid (0 for empty cells)"
     )
-    confidence: float | None = Field(description="Overall OCR confidence")
+    detected_image: str | None = Field(
+        default=None, description="Base64 encoded detected grid image"
+    )
+    detector_name: str | None = Field(
+        default=None, description="Grid detector that found the puzzle (e.g. yolo, opencv)"
+    )
+    ocr_confidence: float | None = Field(
+        default=None, description="Average OCR confidence"
+    )
     ocr_engine: str | None = Field(
         default=None, description="OCR engine used for recognition"
     )
     ocr_model_version: str | None = Field(
-        default=None, description="OCR model version (for model-based engines)"
+        default=None, description="OCR model version"
     )
     ocr_latency_ms: float | None = Field(
         default=None, description="OCR stage latency in milliseconds"
-    )
-    detector_name: str | None = Field(
-        default=None, description="Grid detector that found the puzzle (e.g. yolo, opencv)"
     )
 
 

@@ -11,7 +11,6 @@ from typing import TypeVar
 import cv2
 import numpy as np
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
 
 from ..cv.cell_extractor import extract_cells
 from ..cv.detector import ChainDetector, warp_grid
@@ -19,12 +18,11 @@ from ..cv.opencv_detector import OpenCVGridDetector
 from ..cv.yolo_detector import YoloGridDetector
 from ..models.schemas import (
     HealthResponse,
-    ImageSolveResponse,
+    RecognizeResponse,
     SolveRequest,
     SolveResponse,
 )
 from ..ocr.cnn_digit_reader import CnnDigitReader
-from ..ocr.grid_repair import try_repair_grid_with_candidates
 from ..solver.backtracking import SudokuSolver, is_valid_grid
 
 router = APIRouter()
@@ -198,52 +196,16 @@ async def solve_sudoku(request: SolveRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _image_response(
-    message: str,
-    *,
-    success: bool = False,
-    original_grid: list[list[int]] | None = None,
-    solved_grid: list[list[int]] | None = None,
-    detected_image: str | None = None,
-    confidence: float | None = None,
-    ocr_engine: str | None = None,
-    ocr_model_version: str | None = None,
-    ocr_latency_ms: float | None = None,
-    detector_name: str | None = None,
-) -> ImageSolveResponse:
-    """Build an ImageSolveResponse with sensible defaults for optional fields."""
-    return ImageSolveResponse(
-        success=success,
-        message=message,
-        original_grid=original_grid,
-        solved_grid=solved_grid,
-        detected_image=detected_image,
-        confidence=confidence,
-        ocr_engine=ocr_engine,
-        ocr_model_version=ocr_model_version,
-        ocr_latency_ms=ocr_latency_ms,
-        detector_name=detector_name,
-    )
-
-
 @router.post(
-    "/api/v1/sudoku:solveImage",
-    response_model=ImageSolveResponse,
+    "/api/v1/sudoku:recognize",
+    response_model=RecognizeResponse,
     tags=["Sudoku"],
 )
-async def solve_sudoku_from_image(
-    image: UploadFile = File(...)
-):
-    """
-    Solve a Sudoku puzzle from an uploaded image.
+async def recognize_sudoku(image: UploadFile = File(...)):
+    """Recognize a Sudoku grid from an uploaded image.
 
-    The image should contain a Sudoku grid. The API will:
-    1. Detect the grid
-    2. Extract cells
-    3. Recognize digits using OCR
-    4. Solve the puzzle
-
-    Returns the original and solved grids, plus the detected grid image.
+    Detects the grid, extracts cells, and runs OCR.
+    Returns the recognized grid — call `/api/v1/sudoku:solve` to solve it.
     """
     try:
         contents = await image.read()
@@ -251,15 +213,16 @@ async def solve_sudoku_from_image(
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         if img is None:
-            return _image_response(
-                "Failed to decode image. Please upload a valid image file."
+            return RecognizeResponse(
+                success=False,
+                message="Failed to decode image. Please upload a valid image file.",
             )
 
         det_result = detect_grid_image(img)
         if det_result is None:
-            return _image_response(
-                "Could not detect a Sudoku grid in the image. "
-                "Please ensure the grid is clearly visible."
+            return RecognizeResponse(
+                success=False,
+                message="Could not detect a Sudoku grid in the image.",
             )
 
         grid_img, detector_name = det_result
@@ -269,122 +232,34 @@ async def solve_sudoku_from_image(
 
         reader, engine, reader_error = _resolve_ocr_reader()
         if reader is None:
-            return _image_response(
-                f"OCR engine '{engine}' is not ready: {reader_error}",
+            return RecognizeResponse(
+                success=False,
+                message=f"OCR engine '{engine}' is not ready: {reader_error}",
                 detected_image=detected_b64,
+                detector_name=detector_name,
                 ocr_engine=engine,
             )
 
         ocr_start = time.perf_counter()
-        ocr_confidence: float | None = None
-        ocr_model_version: str | None = None
-        cell_predictions: list[dict] | None = None
-
         grid, metadata = reader.recognize_grid_with_metadata(cells, threshold=None)
-        ocr_confidence = metadata.get("average_confidence")
-        ocr_model_version = metadata.get("model_version")
-        raw_predictions = metadata.get("cell_predictions")
-        if isinstance(raw_predictions, list):
-            cell_predictions = raw_predictions
-
         ocr_latency_ms = (time.perf_counter() - ocr_start) * 1000.0
 
-        # Shared keyword arguments for all remaining responses.
-        ocr_kwargs: dict = dict(
-            detected_image=detected_b64,
-            confidence=ocr_confidence,
-            ocr_engine=engine,
-            ocr_model_version=ocr_model_version,
-            ocr_latency_ms=ocr_latency_ms,
-            detector_name=detector_name,
-        )
-
         given_cells = sum(1 for row in grid for cell in row if cell != 0)
-        if given_cells < 17:
-            return _image_response(
-                f"Only {given_cells} cells were recognized. A valid Sudoku "
-                "requires at least 17 given cells. Please try with a clearer image.",
-                original_grid=grid,
-                **ocr_kwargs,
-            )
 
-        solver = SudokuSolver()
-        solved = solver.solve(grid)
-        repaired_cells = 0
-
-        if solved is None:
-            repaired_grid, repaired_solution, repair_info = (
-                try_repair_grid_with_candidates(
-                    grid=grid,
-                    cell_predictions=cell_predictions,
-                    max_changes=_env("CNN_REPAIR_MAX_CHANGES", 2),
-                    max_cells=_env("CNN_REPAIR_MAX_CELLS", 14),
-                )
-            )
-            if repaired_solution is not None:
-                grid = repaired_grid
-                solved = repaired_solution
-                repaired_cells = int(repair_info.get("changes", 0))
-
-        if solved is None:
-            return _image_response(
-                "Could not solve the detected puzzle. "
-                "It may be invalid or have multiple solutions.",
-                original_grid=grid,
-                **ocr_kwargs,
-            )
-
-        message = "Puzzle solved successfully"
-        if repaired_cells > 0:
-            message += f" (OCR auto-repaired {repaired_cells} cell(s))"
-
-        return _image_response(
-            message,
+        return RecognizeResponse(
             success=True,
-            original_grid=grid,
-            solved_grid=solved,
-            **ocr_kwargs,
+            message=f"Recognized {given_cells} givens",
+            grid=grid,
+            detected_image=detected_b64,
+            detector_name=detector_name,
+            ocr_confidence=metadata.get("average_confidence"),
+            ocr_engine=engine,
+            ocr_model_version=metadata.get("model_version"),
+            ocr_latency_ms=ocr_latency_ms,
         )
 
     except Exception as e:
-        return _image_response(
-            f"Error processing image: {e}",
-            ocr_engine=_ocr_engine(),
+        return RecognizeResponse(
+            success=False,
+            message=f"Error processing image: {e}",
         )
-
-
-@router.post("/api/v1/sudoku:detectGrid", tags=["Sudoku"])
-async def detect_grid(image: UploadFile = File(...)):
-    """Detect and extract the Sudoku grid from an image.
-
-    Returns the detected grid image as base64.
-    """
-    try:
-        contents = await image.read()
-        nparr = np.frombuffer(contents, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-        if img is None:
-            raise HTTPException(status_code=400, detail="Failed to decode image")
-
-        det_result = detect_grid_image(img)
-
-        if det_result is None:
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "success": False,
-                    "message": "Could not detect a Sudoku grid in the image",
-                },
-            )
-
-        grid_img, detector_name = det_result
-        return {
-            "success": True,
-            "message": "Grid detected successfully",
-            "detected_image": image_to_base64(grid_img),
-            "detector_name": detector_name,
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
