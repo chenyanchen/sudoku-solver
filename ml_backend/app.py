@@ -44,9 +44,12 @@ def _get_yolo():
     global _yolo
     if _yolo is None:
         from backend.cv.yolo_detector import YoloGridDetector
-        _yolo = YoloGridDetector(model_path=os.getenv("YOLO_MODEL"))
+        _yolo = YoloGridDetector(
+            model_path=os.getenv("YOLO_MODEL"),
+            num_keypoints=16,
+        )
         if _yolo.is_ready:
-            logger.info("YOLO loaded")
+            logger.info("YOLO loaded (16-kpt)")
         else:
             logger.error("YOLO failed: %s", _yolo.load_error)
     return _yolo
@@ -119,6 +122,10 @@ def _is_keypoints_project(label_config: str) -> bool:
 # /predict
 # ---------------------------------------------------------------------------
 
+# 16-keypoint labels: 4x4 grid, row-major.  P{row}{col}.
+_KPT_LABELS_16 = [f"P{r}{c}" for r in range(4) for c in range(4)]
+
+
 def _predict_keypoints(image: np.ndarray) -> tuple[list[dict], float]:
     yolo = _get_yolo()
     if not yolo.is_ready:
@@ -127,18 +134,18 @@ def _predict_keypoints(image: np.ndarray) -> tuple[list[dict], float]:
     if det is None:
         return [], 0.0
 
-    _, corners, conf = det
+    _, keypoints, conf = det
     h, w = image.shape[:2]
 
     result = []
-    for i, label in enumerate(["TL", "TR", "BR", "BL"]):
+    for i, label in enumerate(_KPT_LABELS_16):
         result.append({
             "from_name": "corners",
             "to_name": "image",
             "type": "keypointlabels",
             "value": {
-                "x": round(float(corners[i][0]) / w * 100, 4),
-                "y": round(float(corners[i][1]) / h * 100, 4),
+                "x": round(float(keypoints[i][0]) / w * 100, 4),
+                "y": round(float(keypoints[i][1]) / h * 100, 4),
                 "width": 0.3,
                 "keypointlabels": [label],
             },
@@ -191,8 +198,8 @@ def _predict_ocr(image: np.ndarray) -> tuple[list[dict], float]:
 # ---------------------------------------------------------------------------
 
 def _fit_keypoints(annotation: dict, task: dict) -> None:
-    """Save corrected keypoints to YOLO pose label format."""
-    from scripts.auto_label_yolo import corners_to_yolo_pose
+    """Save corrected 16 keypoints to YOLO pose label format."""
+    from scripts.auto_label_yolo import keypoints_16_to_yolo_pose
 
     filename = _extract_filename(task)
     src_image = REPO_ROOT / "data" / "raw" / "images" / filename
@@ -205,8 +212,8 @@ def _fit_keypoints(annotation: dict, task: dict) -> None:
         return
     h, w = image.shape[:2]
 
-    # Parse keypoints from annotation.
-    corner_map: dict[str, tuple[float, float]] = {}
+    # Parse 16 keypoints from annotation (labels: P00..P33).
+    kpt_map: dict[str, tuple[float, float]] = {}
     for r in annotation.get("result", []):
         if r.get("type") != "keypointlabels":
             continue
@@ -215,19 +222,22 @@ def _fit_keypoints(annotation: dict, task: dict) -> None:
             continue
         x_abs = r["value"]["x"] / 100.0 * w
         y_abs = r["value"]["y"] / 100.0 * h
-        corner_map[labels[0]] = (x_abs, y_abs)
+        kpt_map[labels[0]] = (x_abs, y_abs)
 
-    if len(corner_map) < 4:
-        logger.warning("fit/keypoints: only %d corners for %s", len(corner_map), filename)
+    if len(kpt_map) < 16:
+        logger.warning("fit/keypoints: only %d keypoints for %s", len(kpt_map), filename)
         return
 
-    corners = np.float32([corner_map[l] for l in ["TL", "TR", "BR", "BL"]])
-    label_line = corners_to_yolo_pose(corners, w, h)
+    keypoints = np.array(
+        [kpt_map[label] for label in _KPT_LABELS_16],
+        dtype=np.float32,
+    )
+    label_line = keypoints_16_to_yolo_pose(keypoints, w, h)
 
     lbl_dir = REPO_ROOT / "data" / "yolo_grid" / "labels" / "train"
     lbl_dir.mkdir(parents=True, exist_ok=True)
     (lbl_dir / f"{Path(filename).stem}.txt").write_text(label_line + "\n")
-    logger.info("fit/keypoints: saved %s", filename)
+    logger.info("fit/keypoints: saved %s (16-kpt)", filename)
 
 
 def _fit_ocr(annotation: dict, task: dict) -> None:
