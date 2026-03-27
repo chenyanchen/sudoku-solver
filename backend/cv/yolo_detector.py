@@ -9,6 +9,8 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from .detector import DetectionResult
+
 LOGGER = logging.getLogger(__name__)
 
 try:
@@ -52,6 +54,7 @@ class YoloGridDetector:
         self._input_name = ""
         self._output_names: list[str] = []
         self._load_error: Optional[str] = None
+        self.last_confidence: float = 0.0
 
         path = Path(model_path) if model_path else DEFAULT_YOLO_MODEL
         self._load_model(path)
@@ -70,52 +73,42 @@ class YoloGridDetector:
 
     def detect(
         self, image: np.ndarray,
-    ) -> Optional[tuple[np.ndarray, np.ndarray, float]]:
+    ) -> DetectionResult | None:
         """Detect the best sudoku grid in an image.
 
         Args:
             image: BGR image (any size).
 
         Returns:
-            (warped_450x450, corners_4x2, confidence) or None if no grid found.
+            DetectionResult with 4 corner coordinates, or None.
         """
         if not self.is_ready:
             return None
 
         h_orig, w_orig = image.shape[:2]
-
-        # Preprocess: letterbox resize to imgsz x imgsz.
         img_input, scale, pad_x, pad_y = self._preprocess(image)
 
-        # Run inference.
         outputs = self._session.run(
             self._output_names,
             {self._input_name: img_input},
         )
-        # YOLO pose output shape: (1, num_preds, 5 + num_classes + num_kpts*3)
-        # For 1 class + 4 keypoints*2: (1, N, 14)
-        # or (1, N, 5+1+4*3) = (1, N, 18) if visibility is included.
-        preds = outputs[0]  # (1, N, C) or (1, C, N) depending on export
+        preds = outputs[0]
 
-        # Parse detections.
         best = self._parse_best_detection(preds, scale, pad_x, pad_y, w_orig, h_orig)
         if best is None:
+            self.last_confidence = 0.0
             return None
 
         keypoints, conf = best
+        self.last_confidence = conf
 
-        # Extract the 4 outer corners for the perspective warp.
+        # Extract the 4 outer corners.
         if self._num_keypoints == 16:
             corners = keypoints[_OUTER_CORNER_INDICES_16]
         else:
             corners = keypoints
 
-        # Warp to 450x450.
-        dst = np.array([[0, 0], [449, 0], [449, 449], [0, 449]], dtype=np.float32)
-        matrix = cv2.getPerspectiveTransform(corners.astype(np.float32), dst)
-        warped = cv2.warpPerspective(image, matrix, (450, 450))
-
-        return warped, keypoints, conf
+        return DetectionResult(corners=corners, detector_name="yolo")
 
     def _load_model(self, path: Path) -> None:
         if ort is None:
