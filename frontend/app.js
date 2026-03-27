@@ -85,47 +85,51 @@ class SudokuSolver {
         this.clearMessages();
 
         try {
+            // Step 1: Recognize grid from image
             const formData = new FormData();
             formData.append('image', this.selectedFile);
 
-            const response = await fetch('/api/v1/sudoku:solveImage', {
+            const recResp = await fetch('/api/v1/sudoku:recognize', {
                 method: 'POST',
                 body: formData
             });
+            const recData = await recResp.json();
 
-            const data = await response.json();
+            if (!recData.success || !recData.grid) {
+                this.showMessage(recData.message || 'Failed to recognize grid', 'warning');
+                if (recData.detected_image) {
+                    this.displayDetectedGrid(recData.detected_image);
+                }
+                return;
+            }
 
-            if (data.success) {
-                this.showSuccess(data);
+            if (recData.detected_image) {
+                this.displayDetectedGrid(recData.detected_image);
+            }
+            this.displayGrid(recData.grid, 'originalGrid', false);
+
+            // Step 2: Solve the recognized grid
+            const solveResp = await fetch('/api/v1/sudoku:solve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ grid: { cells: recData.grid } })
+            });
+            const solveData = await solveResp.json();
+
+            if (solveData.success && solveData.solved) {
+                const detector = recData.detector_name ? ` [${recData.detector_name}]` : '';
+                this.showMessage(`Puzzle solved successfully!${detector}`, 'success');
+                this.displayGrid(solveData.solved, 'solvedGrid', true);
+                this.resultsSection.style.display = 'block';
             } else {
-                this.showMessage(data.message || 'Failed to solve puzzle', 'warning');
-                if (data.detected_image) {
-                    this.displayDetectedGrid(data.detected_image);
-                }
-                if (data.original_grid) {
-                    this.displayGrid(data.original_grid, 'originalGrid', false);
-                }
+                this.showMessage(solveData.message || 'Could not solve puzzle', 'warning');
+                this.resultsSection.style.display = 'block';
             }
         } catch (error) {
             this.showMessage('Error communicating with server: ' + error.message, 'error');
         } finally {
             this.setLoading(false);
         }
-    }
-
-    showSuccess(data) {
-        this.showMessage(data.message || 'Puzzle solved successfully!', 'success');
-
-        // Display detected grid if available
-        if (data.detected_image) {
-            this.displayDetectedGrid(data.detected_image);
-        }
-
-        // Display grids
-        this.displayGrid(data.original_grid, 'originalGrid', false);
-        this.displayGrid(data.solved_grid, 'solvedGrid', true);
-
-        this.resultsSection.style.display = 'block';
     }
 
     displayDetectedGrid(base64Image) {
