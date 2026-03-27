@@ -14,7 +14,8 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from ..cv.cell_extractor import extract_cells
-from ..cv.grid_detector import find_grid
+from ..cv.detector import ChainDetector, warp_grid
+from ..cv.opencv_detector import OpenCVGridDetector
 from ..cv.yolo_detector import YoloGridDetector
 from ..models.schemas import (
     HealthResponse,
@@ -28,8 +29,7 @@ from ..solver.backtracking import SudokuSolver, is_valid_grid
 
 router = APIRouter()
 _CNN_READER: CnnDigitReader | None = None
-_YOLO_DETECTOR: YoloGridDetector | None = None
-_YOLO_INIT_DONE: bool = False
+_DETECTOR: ChainDetector | None = None
 _LOGGER = logging.getLogger(__name__)
 
 _T = TypeVar("_T", int, float)
@@ -52,47 +52,37 @@ def image_to_base64(image: np.ndarray) -> str:
     return base64.b64encode(buffer).decode("utf-8")
 
 
-def _get_yolo_detector() -> YoloGridDetector | None:
-    """Lazy-load YOLO detector singleton. Returns None if model unavailable."""
-    global _YOLO_DETECTOR, _YOLO_INIT_DONE
+def _get_detector() -> ChainDetector:
+    """Lazy-init the detector chain: YOLO (preferred) → OpenCV (fallback)."""
+    global _DETECTOR
+    if _DETECTOR is not None:
+        return _DETECTOR
 
-    if _YOLO_INIT_DONE:
-        return _YOLO_DETECTOR
+    detectors = []
 
-    _YOLO_INIT_DONE = True
-    model_path = os.getenv("YOLO_MODEL_PATH")
-    detector = YoloGridDetector(model_path=model_path, num_keypoints=16)
-    if detector.is_ready:
-        _YOLO_DETECTOR = detector
+    yolo = YoloGridDetector(
+        model_path=os.getenv("YOLO_MODEL_PATH"),
+        num_keypoints=16,
+    )
+    if yolo.is_ready:
+        detectors.append(yolo)
         _LOGGER.info("YOLO grid detector ready")
     else:
-        _LOGGER.info("YOLO grid detector unavailable: %s (falling back to OpenCV)",
-                      detector.load_error)
-    return _YOLO_DETECTOR
+        _LOGGER.info("YOLO unavailable: %s", yolo.load_error)
+
+    detectors.append(OpenCVGridDetector())
+    _LOGGER.info("OpenCV grid detector ready (fallback)")
+
+    _DETECTOR = ChainDetector(detectors)
+    return _DETECTOR
 
 
-def detect_grid_image(image: np.ndarray) -> np.ndarray | None:
-    """Detect the Sudoku grid using YOLO (preferred) with OpenCV fallback."""
-    # Try YOLO first.
-    detector = _get_yolo_detector()
-    if detector is not None:
-        det = detector.detect(image)
-        if det is not None:
-            warped, corners, conf = det
-            _LOGGER.debug("YOLO grid detected: conf=%.2f", conf)
-            return warped
-
-    # Fallback to existing OpenCV pipeline.
-    grid_img = find_grid(image)
-    if grid_img is not None:
-        return grid_img
-
-    # CLAHE retry.
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
-    enhanced = clahe.apply(gray)
-    enhanced_bgr = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
-    return find_grid(enhanced_bgr)
+def detect_grid_image(image: np.ndarray) -> tuple[np.ndarray, str] | None:
+    """Detect grid and warp to 450x450. Returns (warped, detector_name) or None."""
+    result = _get_detector().detect(image)
+    if result is None:
+        return None
+    return warp_grid(image, result.corners), result.detector_name
 
 
 def prepare_grid_for_ocr(grid_img: np.ndarray) -> np.ndarray:
@@ -219,6 +209,7 @@ def _image_response(
     ocr_engine: str | None = None,
     ocr_model_version: str | None = None,
     ocr_latency_ms: float | None = None,
+    detector_name: str | None = None,
 ) -> ImageSolveResponse:
     """Build an ImageSolveResponse with sensible defaults for optional fields."""
     return ImageSolveResponse(
@@ -231,6 +222,7 @@ def _image_response(
         ocr_engine=ocr_engine,
         ocr_model_version=ocr_model_version,
         ocr_latency_ms=ocr_latency_ms,
+        detector_name=detector_name,
     )
 
 
@@ -263,13 +255,14 @@ async def solve_sudoku_from_image(
                 "Failed to decode image. Please upload a valid image file."
             )
 
-        grid_img = detect_grid_image(img)
-        if grid_img is None:
+        det_result = detect_grid_image(img)
+        if det_result is None:
             return _image_response(
                 "Could not detect a Sudoku grid in the image. "
                 "Please ensure the grid is clearly visible."
             )
 
+        grid_img, detector_name = det_result
         ocr_grid = prepare_grid_for_ocr(grid_img)
         cells = extract_cells(ocr_grid)
         detected_b64 = image_to_base64(grid_img)
@@ -303,6 +296,7 @@ async def solve_sudoku_from_image(
             ocr_engine=engine,
             ocr_model_version=ocr_model_version,
             ocr_latency_ms=ocr_latency_ms,
+            detector_name=detector_name,
         )
 
         given_cells = sum(1 for row in grid for cell in row if cell != 0)
@@ -373,9 +367,9 @@ async def detect_grid(image: UploadFile = File(...)):
         if img is None:
             raise HTTPException(status_code=400, detail="Failed to decode image")
 
-        grid_img = detect_grid_image(img)
+        det_result = detect_grid_image(img)
 
-        if grid_img is None:
+        if det_result is None:
             return JSONResponse(
                 status_code=404,
                 content={
@@ -384,10 +378,12 @@ async def detect_grid(image: UploadFile = File(...)):
                 },
             )
 
+        grid_img, detector_name = det_result
         return {
             "success": True,
             "message": "Grid detected successfully",
             "detected_image": image_to_base64(grid_img),
+            "detector_name": detector_name,
         }
 
     except Exception as e:
