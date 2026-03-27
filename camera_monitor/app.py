@@ -15,6 +15,7 @@ import numpy as np
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
+from backend.cv.detector import warp_grid
 from backend.ocr.cnn_digit_reader import CnnDigitReader
 from screen_monitor.renderer import compute_hint_positions
 from screen_monitor.solver_pipeline import ocr_grid_from_warped, solve_from_grid
@@ -89,8 +90,9 @@ def _processing_loop(
                 result_holder.set(ProcessingResult())
                 continue
 
-            warped, corners, det_conf = det
-            LOGGER.info("YOLO: conf=%.2f", det_conf)
+            corners = det.corners
+            warped = warp_grid(frame, corners)
+            LOGGER.info("YOLO: conf=%.2f detector=%s", detector.last_confidence, det.detector_name)
 
             # OCR (camera needs CLAHE for uneven lighting).
             ocr_result, reason, givens = ocr_grid_from_warped(
