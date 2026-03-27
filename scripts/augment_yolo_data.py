@@ -70,7 +70,7 @@ def random_background(w: int, h: int) -> np.ndarray:
 
 def extract_grid_region(image: np.ndarray, corners: np.ndarray) -> np.ndarray:
     """Extract the grid as a 450x450 warped image."""
-    dst = np.float32([[0, 0], [449, 0], [449, 449], [0, 449]])
+    dst = np.array([[0, 0], [449, 0], [449, 449], [0, 449]], dtype=np.float32)
     matrix = cv2.getPerspectiveTransform(corners.astype(np.float32), dst)
     return cv2.warpPerspective(image, matrix, (450, 450))
 
@@ -79,7 +79,7 @@ def paste_grid(
     bg: np.ndarray, grid_img: np.ndarray, target_corners: np.ndarray
 ) -> np.ndarray:
     """Paste grid_img onto bg using perspective transform to target_corners."""
-    src = np.float32([[0, 0], [449, 0], [449, 449], [0, 449]])
+    src = np.array([[0, 0], [449, 0], [449, 449], [0, 449]], dtype=np.float32)
     matrix = cv2.getPerspectiveTransform(src, target_corners.astype(np.float32))
     warped = cv2.warpPerspective(grid_img, matrix, (bg.shape[1], bg.shape[0]))
     mask = cv2.warpPerspective(
@@ -108,12 +108,12 @@ def random_quad(w: int, h: int, grid_frac: float) -> np.ndarray:
     def j():
         return random.randint(-jitter, jitter)
 
-    corners = np.float32([
+    corners = np.array([
         [x0 + j(), y0 + j()],
         [x0 + size + j(), y0 + j()],
         [x0 + size + j(), y0 + size + j()],
         [x0 + j(), y0 + size + j()],
-    ])
+    ], dtype=np.float32)
 
     corners[:, 0] = np.clip(corners[:, 0], 0, w - 1)
     corners[:, 1] = np.clip(corners[:, 1], 0, h - 1)
