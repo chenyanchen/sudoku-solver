@@ -6,8 +6,8 @@ import cv2
 import numpy as np
 import pytest
 
-from backend.cv.adaptive_cell_extractor import extract_cells_adaptive
-from backend.cv.cell_extractor import clean_cell
+from backend.cv.cell_extractor import extract_cells, clean_cell
+from backend.cv.detector import warp_grid
 from backend.cv.yolo_detector import YoloGridDetector
 from backend.ocr.cnn_digit_reader import CnnDigitReader
 from backend.solver.backtracking import SudokuSolver
@@ -110,13 +110,12 @@ class TestEndToEnd16Kpt:
         image = cv2.imread(img_path)
         assert image is not None, f"Cannot read {img_path}"
 
-        result = detector.detect(image)
-        assert result is not None, f"YOLO detection failed for {img_path}"
-        warped, keypoints, conf = result
+        det = detector.detect(image)
+        assert det is not None, f"YOLO detection failed for {img_path}"
+        assert det.corners.shape == (4, 2), f"Expected 4 corners, got {det.corners.shape}"
 
-        assert keypoints.shape == (16, 2), f"Expected 16 keypoints, got {keypoints.shape}"
-
-        cells = extract_cells_adaptive(image, keypoints)
+        warped = warp_grid(image, det.corners)
+        cells = extract_cells(warped)
         assert len(cells) == 81
 
         cleaned = [clean_cell(c) for c in cells]
