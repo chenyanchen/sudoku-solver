@@ -6,5 +6,5 @@ val: images/train
 names:
   0: sudoku_grid
 
-kpt_shape: [4, 2]
+kpt_shape: [16, 2]
 flip_idx: []

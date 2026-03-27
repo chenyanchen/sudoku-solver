@@ -62,6 +62,59 @@ def corners_to_yolo_pose(corners: np.ndarray, img_w: int, img_h: int) -> str:
     return " ".join(parts)
 
 
+def corners_4_to_keypoints_16(corners: np.ndarray) -> np.ndarray:
+    """Interpolate 4 corners (TL, TR, BR, BL) into 16 block-intersection keypoints.
+
+    The 16 points form a 4x4 grid corresponding to the intersections of the
+    3x3 block boundaries. Points are evenly spaced along the edges of the
+    quadrilateral defined by the 4 corners using bilinear interpolation.
+
+    Args:
+        corners: Shape (4, 2), order [TL, TR, BR, BL].
+
+    Returns:
+        Shape (16, 2) keypoints in the same coordinate space as input corners.
+    """
+    tl, tr, br, bl = corners[0], corners[1], corners[2], corners[3]
+
+    keypoints = np.zeros((16, 2), dtype=np.float32)
+    for row in range(4):
+        for col in range(4):
+            u = col / 3.0  # 0, 1/3, 2/3, 1
+            v = row / 3.0
+            top = tl * (1 - u) + tr * u
+            bot = bl * (1 - u) + br * u
+            keypoints[row * 4 + col] = top * (1 - v) + bot * v
+
+    return keypoints
+
+
+def keypoints_16_to_yolo_pose(keypoints: np.ndarray, img_w: int, img_h: int) -> str:
+    """Convert 16 keypoints to YOLO pose label line.
+
+    Format: <cls> <cx> <cy> <bw> <bh> <kx0> <ky0> ... <kx15> <ky15>
+    All values normalized to [0, 1].
+    """
+    xs = keypoints[:, 0]
+    ys = keypoints[:, 1]
+
+    x_min, x_max = float(xs.min()), float(xs.max())
+    y_min, y_max = float(ys.min()), float(ys.max())
+
+    cx = (x_min + x_max) / 2.0 / img_w
+    cy = (y_min + y_max) / 2.0 / img_h
+    bw = (x_max - x_min) / img_w
+    bh = (y_max - y_min) / img_h
+
+    parts = [f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}"]
+    for i in range(16):
+        kx = float(keypoints[i, 0]) / img_w
+        ky = float(keypoints[i, 1]) / img_h
+        parts.append(f"{kx:.6f} {ky:.6f}")
+
+    return " ".join(parts)
+
+
 def _validate_warped_grid(warped: np.ndarray) -> bool:
     """Check if the warped image contains a regular grid pattern."""
     gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY) if len(warped.shape) == 3 else warped
@@ -187,7 +240,8 @@ def main() -> int:
                 print("\nVisualization stopped by user.")
                 break
 
-        label = corners_to_yolo_pose(corners, w, h)
+        kpts_16 = corners_4_to_keypoints_16(corners)
+        label = keypoints_16_to_yolo_pose(kpts_16, w, h)
 
         stem = img_path.stem
         shutil.copy2(img_path, img_dir / img_path.name)
