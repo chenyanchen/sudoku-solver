@@ -115,7 +115,7 @@ class YoloGridDetector:
         matrix = cv2.getPerspectiveTransform(corners.astype(np.float32), dst)
         warped = cv2.warpPerspective(image, matrix, (450, 450))
 
-        return warped, corners, conf
+        return warped, keypoints, conf
 
     def _load_model(self, path: Path) -> None:
         if ort is None:
