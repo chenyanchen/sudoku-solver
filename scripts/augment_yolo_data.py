@@ -143,10 +143,24 @@ def augment_grid(grid: np.ndarray) -> np.ndarray:
     return result
 
 
-def corners_to_yolo_pose(corners: np.ndarray, img_w: int, img_h: int) -> str:
-    """Convert corners to YOLO pose format label."""
-    xs = corners[:, 0]
-    ys = corners[:, 1]
+def corners_4_to_keypoints_16(corners: np.ndarray) -> np.ndarray:
+    """Interpolate 4 corners [TL, TR, BR, BL] into 16 block-intersection keypoints."""
+    tl, tr, br, bl = corners[0], corners[1], corners[2], corners[3]
+    keypoints = np.zeros((16, 2), dtype=np.float32)
+    for row in range(4):
+        for col in range(4):
+            u = col / 3.0
+            v = row / 3.0
+            top = tl * (1 - u) + tr * u
+            bot = bl * (1 - u) + br * u
+            keypoints[row * 4 + col] = top * (1 - v) + bot * v
+    return keypoints
+
+
+def corners_to_yolo_pose(keypoints: np.ndarray, img_w: int, img_h: int) -> str:
+    """Convert keypoints (4 or 16) to YOLO pose format label."""
+    xs = keypoints[:, 0]
+    ys = keypoints[:, 1]
 
     x_min, x_max = float(xs.min()), float(xs.max())
     y_min, y_max = float(ys.min()), float(ys.max())
@@ -157,20 +171,28 @@ def corners_to_yolo_pose(corners: np.ndarray, img_w: int, img_h: int) -> str:
     bh = (y_max - y_min) / img_h
 
     parts = [f"0 {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}"]
-    for i in range(4):
-        kx = float(corners[i, 0]) / img_w
-        ky = float(corners[i, 1]) / img_h
+    for i in range(len(keypoints)):
+        kx = float(keypoints[i, 0]) / img_w
+        ky = float(keypoints[i, 1]) / img_h
         parts.append(f"{kx:.6f} {ky:.6f}")
 
     return " ".join(parts)
 
 
-def load_source_grids(label_dir: Path, image_dir: Path) -> list[np.ndarray]:
-    """Load grid regions from already-labeled images."""
-    grids = []
+def load_source_grids(label_dir: Path, image_dir: Path) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Load grid regions and their keypoints from labeled images.
+
+    Returns list of (grid_450x450, normalized_keypoints) tuples.
+    """
+    results = []
     for lbl_path in sorted(label_dir.glob("*.txt")):
-        img_path = image_dir / f"{lbl_path.stem}.png"
-        if not img_path.exists():
+        img_path = None
+        for ext in (".png", ".jpg", ".jpeg"):
+            candidate = image_dir / f"{lbl_path.stem}{ext}"
+            if candidate.exists():
+                img_path = candidate
+                break
+        if img_path is None:
             continue
         image = cv2.imread(str(img_path))
         if image is None:
@@ -179,16 +201,29 @@ def load_source_grids(label_dir: Path, image_dir: Path) -> list[np.ndarray]:
         line = lbl_path.read_text().strip()
         parts = list(map(float, line.split()))
         h, w = image.shape[:2]
-        corners = np.float32([
-            [parts[5] * w, parts[6] * h],
-            [parts[7] * w, parts[8] * h],
-            [parts[9] * w, parts[10] * h],
-            [parts[11] * w, parts[12] * h],
-        ])
-        grid = extract_grid_region(image, corners)
-        grids.append(grid)
 
-    return grids
+        n_values = len(parts)
+        if n_values >= 37:  # 16 keypoints: 5 + 16*2
+            n_kpt = 16
+        elif n_values >= 13:  # 4 keypoints: 5 + 4*2
+            n_kpt = 4
+        else:
+            continue
+
+        keypoints = np.zeros((n_kpt, 2), dtype=np.float32)
+        for i in range(n_kpt):
+            keypoints[i, 0] = parts[5 + i * 2] * w
+            keypoints[i, 1] = parts[5 + i * 2 + 1] * h
+
+        if n_kpt == 16:
+            corners_4 = keypoints[[0, 3, 15, 12]]  # TL, TR, BR, BL
+        else:
+            corners_4 = keypoints
+
+        grid = extract_grid_region(image, corners_4)
+        results.append((grid, keypoints / np.array([w, h], dtype=np.float32)))
+
+    return results
 
 
 def main() -> int:
@@ -209,18 +244,18 @@ def main() -> int:
     img_dir = args.dst / "images" / "train"
     lbl_dir = args.dst / "labels" / "train"
 
-    grids = load_source_grids(lbl_dir, img_dir)
-    if not grids:
+    source_data = load_source_grids(lbl_dir, img_dir)
+    if not source_data:
         print("No source grids found. Run auto_label_yolo.py first.")
         return 1
-
-    print(f"Loaded {len(grids)} source grids")
+    print(f"Loaded {len(source_data)} source grids")
 
     w = h = args.size
     generated = 0
 
     for i in range(args.count):
-        grid = augment_grid(random.choice(grids))
+        grid, _ = random.choice(source_data)
+        grid = augment_grid(grid)
         bg = random_background(w, h)
         # Varied grid sizes: 20%-85% of image (camera photos have small grids)
         grid_frac = random.uniform(0.20, 0.85)
@@ -229,7 +264,8 @@ def main() -> int:
 
         name = f"aug_{i:04d}"
         cv2.imwrite(str(img_dir / f"{name}.png"), result)
-        label = corners_to_yolo_pose(corners, w, h)
+        kpts_16 = corners_4_to_keypoints_16(corners)
+        label = corners_to_yolo_pose(kpts_16, w, h)
         (lbl_dir / f"{name}.txt").write_text(label + "\n")
         generated += 1
 
