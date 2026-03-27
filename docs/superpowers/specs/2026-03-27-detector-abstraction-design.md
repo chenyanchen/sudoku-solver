@@ -8,6 +8,7 @@
 @dataclass
 class DetectionResult:
     corners: np.ndarray  # (4, 2), [TL, TR, BR, BL] in original image coords
+    detector_name: str   # e.g. "yolo", "opencv" — identifies which detector succeeded
 
 class GridDetector(Protocol):
     def detect(self, image: np.ndarray) -> DetectionResult | None: ...
@@ -56,11 +57,11 @@ class ChainDetector:
 ```python
 _detector = ChainDetector([YoloGridDetector(...), OpenCVGridDetector()])
 
-def detect_grid_image(image: np.ndarray) -> np.ndarray | None:
+def detect_grid_image(image: np.ndarray) -> tuple[np.ndarray, str] | None:
     result = _detector.detect(image)
     if result is None:
         return None
-    return warp_grid(image, result.corners)
+    return warp_grid(image, result.corners), result.detector_name
 ```
 
 CLAHE retry 逻辑移入 `OpenCVGridDetector` 内部（它本身就有多阶段检测策略）。
