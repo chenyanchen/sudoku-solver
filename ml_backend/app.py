@@ -134,8 +134,13 @@ def _predict_keypoints(image: np.ndarray) -> tuple[list[dict], float]:
     if det is None:
         return [], 0.0
 
-    _, keypoints, conf = det
+    corners = det.corners  # (4, 2)
+    conf = yolo.last_confidence
     h, w = image.shape[:2]
+
+    # For keypoints project, interpolate 4 corners to 16 block-intersection points
+    from scripts.auto_label_yolo import corners_4_to_keypoints_16
+    keypoints = corners_4_to_keypoints_16(corners)
 
     result = []
     for i, label in enumerate(_KPT_LABELS_16):
@@ -167,7 +172,8 @@ def _predict_ocr(image: np.ndarray) -> tuple[list[dict], float]:
         det = None
 
     if det is not None:
-        warped, _, _ = det
+        from backend.cv.detector import warp_grid
+        warped = warp_grid(image, det.corners)
     else:
         warped = cv2.resize(image, (450, 450))
 
