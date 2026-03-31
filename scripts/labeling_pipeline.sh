@@ -30,18 +30,17 @@ case "${1:-help}" in
     ;;
 
   train)
+    export MLFLOW_TRACKING_URI="file://${REPO_ROOT}/mlruns"
+
     echo "=== Training YOLO ==="
+    export MLFLOW_EXPERIMENT_NAME="sudoku-yolo-grid"
     uv run python scripts/train_yolo_grid.py --epochs 20
 
     echo ""
     echo "=== Training CNN with YOLO warp ==="
     uv run python scripts/train_cnn_ocr.py \
       --labels data/labels/sudoku_labels.json \
-      --output models/checkpoints/sudoku_digit_cnn.pt \
       --use-yolo --version 3.4.0
-    uv run python scripts/export_cnn_onnx.py \
-      --checkpoint models/checkpoints/sudoku_digit_cnn.pt \
-      --output models/releases/sudoku_digit_cnn_v3.4.onnx
     ;;
 
   help|*)
