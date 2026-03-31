@@ -8,6 +8,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +47,8 @@ def main() -> int:
     # relative to the YAML file location only when path is absolute.
     data_path = str(args.data.resolve())
 
+    os.environ.setdefault("MLFLOW_EXPERIMENT_NAME", "sudoku-yolo-grid")
+
     model.train(
         data=data_path,
         epochs=args.epochs,
@@ -67,6 +71,26 @@ def main() -> int:
         mosaic=0.5,
         mixup=0.0,
     )
+
+    # Tag the MLflow run with git commit (run is already ended by ultralytics)
+    try:
+        from mlflow.tracking import MlflowClient
+
+        client = MlflowClient()
+        experiment = client.get_experiment_by_name("sudoku-yolo-grid")
+        if experiment:
+            runs = client.search_runs(
+                experiment_ids=[experiment.experiment_id],
+                order_by=["start_time DESC"],
+                max_results=1,
+            )
+            if runs:
+                git_hash = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True
+                ).strip()
+                client.set_tag(runs[0].info.run_id, "git_commit", git_hash)
+    except Exception:
+        pass  # MLflow not configured or git not available
 
     # Export best model to ONNX
     best_pt = Path(args.project) / args.name / "weights" / "best.pt"
