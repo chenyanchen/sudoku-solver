@@ -421,11 +421,12 @@ def main() -> int:
                 f"score={score:.4f}"
             )
 
+            current_lr = optimizer.param_groups[0]["lr"]
             scheduler.step()
             epoch_duration = time.time() - epoch_start
 
-            current_lr = optimizer.param_groups[0]["lr"]
             epoch_metrics = {
+                "train_loss_epoch": train_loss,
                 "val_loss": val_metrics["loss"],
                 "val_accuracy": val_metrics["accuracy"],
                 "val_macro_f1": val_metrics["macro_f1_digits"],
@@ -479,10 +480,11 @@ def main() -> int:
                 ax.set_title("Confusion Matrix (best epoch)")
                 ax.set_xticks(range(10))
                 ax.set_yticks(range(10))
+                cm_max = max(max(row) for row in confusion) if confusion else 1
                 for i in range(10):
                     for j in range(10):
                         ax.text(j, i, str(confusion[i][j]), ha="center", va="center",
-                                color="white" if confusion[i][j] > max(max(row) for row in confusion) / 2 else "black",
+                                color="white" if confusion[i][j] > cm_max / 2 else "black",
                                 fontsize=8)
                 fig.colorbar(im)
                 fig.tight_layout()
