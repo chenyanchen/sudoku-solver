@@ -29,7 +29,7 @@ def find_best_run(experiment_name: str, metric: str) -> mlflow.entities.Run:
 
     runs = client.search_runs(
         experiment_ids=[experiment.experiment_id],
-        order_by=[f"metrics.{metric} DESC"],
+        order_by=[f"metrics.`{metric}` DESC"],
         max_results=1,
     )
     if not runs:
@@ -95,10 +95,10 @@ def release_yolo(run_id: str | None) -> int:
         client = MlflowClient()
         run = client.get_run(run_id)
     else:
-        run = find_best_run(experiment_name, "metrics/mAP50(B)")
+        run = find_best_run(experiment_name, "metrics/mAP50B")
         run_id = run.info.run_id
 
-    mAP = run.data.metrics.get("metrics/mAP50(B)", 0.0)
+    mAP = run.data.metrics.get("metrics/mAP50B", 0.0)
 
     print(f"YOLO Release")
     print(f"  Run ID:  {run_id}")
