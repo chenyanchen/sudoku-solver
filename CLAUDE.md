@@ -72,6 +72,16 @@ Label Studio ML Backend for semi-automated annotation. Runs as `python -m ml_bac
 - **Keypoints**: YOLO grid corner detection
 - **OCR**: YOLO warp → CNN digit recognition → solve verification
 
+**Release model setup**: ML Backend must be started with explicit released model paths via `CNN_MODEL_PATH` and `YOLO_MODEL`. The backend reads adjacent `.meta.json` sidecars and returns that release `model_version` from `/setup` and `/predict`.
+
+**Prediction Score setup**: Label Studio's Data Manager "Prediction score" column requires `project.model_version` to match the `model_version` returned by `/predict`. Due to a Label Studio bug ([#7151](https://github.com/HumanSignal/label-studio/issues/7151)), the UI does not set this correctly. After creating a new project or connecting the ML Backend, patch the project to the exact release version returned by the backend. For OCR projects this is the combined `cnn+yolo` release version:
+```bash
+curl -X PATCH "http://localhost:9111/api/projects/<PROJECT_ID>" \
+  -H "Authorization: Token <YOUR_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"model_version": "<MODEL_VERSION_FROM_/SETUP>"}'
+```
+
 ### CNN Model Architecture (`backend/ocr/model_arch.py`)
 
 Three architectures: `custom_small_cnn` (v1-v2), `custom_cnn_v3` (ResBlock + SE attention, current), `timm_mobilenetv3`. Training requires `--extra ml`. Model versioning: MAJOR = architecture change, MINOR = data/hyperparameter improvement.

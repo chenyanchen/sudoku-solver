@@ -14,6 +14,7 @@ Endpoints:
 from __future__ import annotations
 
 import base64
+from contextlib import asynccontextmanager
 import json
 import logging
 import os
@@ -31,21 +32,76 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 logger = logging.getLogger("ml_backend")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 
-app = FastAPI(title="Sudoku ML Backend")
-
 # ---------------------------------------------------------------------------
-# Model singletons (lazy-loaded)
+# Release configuration
 # ---------------------------------------------------------------------------
 _yolo = None
 _cnn = None
+
+_CNN_ENV = "CNN_MODEL_PATH"
+_YOLO_ENV = "YOLO_MODEL"
+
+
+def _validate_backend_model_env() -> tuple[Path, Path]:
+    cnn_path = os.getenv(_CNN_ENV)
+    yolo_path = os.getenv(_YOLO_ENV)
+
+    missing = [name for name, value in ((_CNN_ENV, cnn_path), (_YOLO_ENV, yolo_path)) if not value]
+    if missing:
+        raise RuntimeError(
+            "ML Backend requires explicit release model paths: "
+            + ", ".join(missing)
+        )
+
+    cnn = Path(cnn_path)
+    yolo = Path(yolo_path)
+    for path, env_name in ((cnn, _CNN_ENV), (yolo, _YOLO_ENV)):
+        if not path.exists():
+            raise RuntimeError(f"{env_name} points to a missing file: {path}")
+        meta_path = path.with_suffix(".meta.json")
+        if not meta_path.exists():
+            raise RuntimeError(f"Release metadata file is missing for {env_name}: {meta_path}")
+
+    return cnn, yolo
+
+
+def _read_release_metadata(model_path: Path) -> dict[str, Any]:
+    meta_path = model_path.with_suffix(".meta.json")
+    try:
+        payload = json.loads(meta_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Release metadata file is missing: {meta_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Release metadata file is invalid JSON: {meta_path}") from exc
+
+    version = payload.get("model_version") or payload.get("release_version") or payload.get("version")
+    if not isinstance(version, str) or not version.strip():
+        raise RuntimeError(f"Release metadata file has no model version: {meta_path}")
+    payload["model_version"] = version.strip()
+    return payload
+
+
+def _current_release_versions() -> tuple[str, str]:
+    cnn_path, yolo_path = _validate_backend_model_env()
+    cnn_version = _read_release_metadata(cnn_path)["model_version"]
+    yolo_version = _read_release_metadata(yolo_path)["model_version"]
+    return cnn_version, yolo_version
+
+
+def _response_model_version(label_config: str) -> str:
+    cnn_version, yolo_version = _current_release_versions()
+    if _is_keypoints_project(label_config):
+        return yolo_version
+    return f"{cnn_version}+{yolo_version}"
 
 
 def _get_yolo():
     global _yolo
     if _yolo is None:
+        _, yolo_path = _validate_backend_model_env()
         from backend.cv.yolo_detector import YoloGridDetector
         _yolo = YoloGridDetector(
-            model_path=os.getenv("YOLO_MODEL"),
+            model_path=yolo_path,
             num_keypoints=16,
         )
         if _yolo.is_ready:
@@ -58,13 +114,29 @@ def _get_yolo():
 def _get_cnn():
     global _cnn
     if _cnn is None:
+        cnn_path, _ = _validate_backend_model_env()
         from backend.ocr.cnn_digit_reader import CnnDigitReader
-        _cnn = CnnDigitReader(strict=False)
+        _cnn = CnnDigitReader(model_path=cnn_path, strict=False)
         if _cnn.is_ready:
             logger.info("CNN loaded: %s", _cnn.model_version)
         else:
             logger.error("CNN failed: %s", _cnn.load_error)
     return _cnn
+
+
+@asynccontextmanager
+async def _app_lifespan(_: FastAPI):
+    _validate_backend_model_env()
+    yolo = _get_yolo()
+    cnn = _get_cnn()
+    if not yolo.is_ready:
+        raise RuntimeError(f"Failed to load YOLO model at startup: {yolo.load_error}")
+    if not cnn.is_ready:
+        raise RuntimeError(f"Failed to load CNN model at startup: {cnn.load_error}")
+    yield
+
+
+app = FastAPI(title="Sudoku ML Backend", lifespan=_app_lifespan)
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +369,7 @@ def setup(payload: dict[str, Any] = {}) -> dict:
     # Warm up models.
     _get_yolo()
     _get_cnn()
-    return {"model_version": "sudoku-v1"}
+    return {"model_version": _response_model_version(payload.get("label_config", ""))}
 
 
 @app.post("/predict")
@@ -305,6 +377,7 @@ def predict(payload: dict[str, Any] = {}) -> dict:
     tasks = payload.get("tasks", [])
     label_config = payload.get("label_config", "")
     is_keypoints = _is_keypoints_project(label_config)
+    model_version = _response_model_version(label_config)
 
     ls_url = os.getenv("LABEL_STUDIO_URL", "http://localhost:8080")
     ls_token = os.getenv("LABEL_STUDIO_API_KEY", "")
@@ -324,7 +397,7 @@ def predict(payload: dict[str, Any] = {}) -> dict:
         image_ref = task.get("data", {}).get("image", "")
         image = _decode_image(image_ref, ls_url, ls_token)
         if image is None:
-            results.append({"result": [], "score": 0.0, "model_version": "sudoku-v1"})
+            results.append({"result": [], "score": 0.0, "model_version": model_version})
             continue
 
         if is_keypoints:
@@ -335,23 +408,8 @@ def predict(payload: dict[str, Any] = {}) -> dict:
         results.append({
             "result": result,
             "score": score,
-            "model_version": "sudoku-v1",
+            "model_version": model_version,
         })
-
-        # Write score to task data so Data Manager can sort by it.
-        # (Label Studio's native Prediction Score is broken in v1.20.)
-        task_id = task.get("id")
-        if task_id and ls_token:
-            try:
-                body = json.dumps({"data": {**task.get("data", {}), "score": score}}).encode()
-                req = urllib.request.Request(
-                    f"{ls_url}/api/tasks/{task_id}", data=body, method="PATCH",
-                )
-                req.add_header("Authorization", f"Bearer {ls_token}")
-                req.add_header("Content-Type", "application/json")
-                urllib.request.urlopen(req)
-            except Exception as e:
-                logger.debug("Failed to update task %s score: %s", task_id, e)
 
     return {"results": results}
 
