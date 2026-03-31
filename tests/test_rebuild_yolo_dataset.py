@@ -82,7 +82,7 @@ def _init_db(path: Path) -> None:
     conn.close()
 
 
-def test_export_project_prefers_annotation_and_falls_back_to_prediction(tmp_path):
+def test_export_project_uses_annotations_only(tmp_path):
     db_path = tmp_path / "label_studio.sqlite3"
     _init_db(db_path)
 
@@ -102,20 +102,18 @@ def test_export_project_prefers_annotation_and_falls_back_to_prediction(tmp_path
 
     assert stats == {
         "tasks_total": 2,
-        "exported_total": 2,
+        "exported_total": 1,
         "exported_from_annotations": 1,
-        "exported_from_predictions": 1,
+        "exported_from_predictions": 0,
         "skipped_missing_image": 0,
-        "skipped_missing_labels": 0,
+        "skipped_missing_labels": 1,
     }
     assert (dst_root / "images" / "train" / "IMG_0001.jpg").exists()
-    assert (dst_root / "images" / "train" / "IMG_0002.jpg").exists()
+    assert not (dst_root / "images" / "train" / "IMG_0002.jpg").exists()
 
     label_1 = (dst_root / "labels" / "train" / "IMG_0001.txt").read_text(encoding="utf-8")
-    label_2 = (dst_root / "labels" / "train" / "IMG_0002.txt").read_text(encoding="utf-8")
     yaml_text = (dst_root / "sudoku_grid.yaml").read_text(encoding="utf-8")
 
     assert "0.050000 0.050000" in label_1
-    assert "0.020000 0.020000" in label_2
     assert "train: images/train" in yaml_text
     assert "val: images/val" in yaml_text

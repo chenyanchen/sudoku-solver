@@ -108,7 +108,7 @@ class YoloGridDetector:
         else:
             corners = keypoints
 
-        return DetectionResult(corners=corners, detector_name="yolo")
+        return DetectionResult(corners=corners, detector_name="yolo", keypoints=keypoints)
 
     def _load_model(self, path: Path) -> None:
         if ort is None:

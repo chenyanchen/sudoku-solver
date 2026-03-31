@@ -47,3 +47,11 @@ def test_prepare_dataset_split_keeps_augmented_samples_out_of_val(tmp_path):
         "IMG_0002.jpg",
         "IMG_0003.jpg",
     ]
+
+
+def test_parser_defaults_to_50_epochs():
+    parser = train_yolo_grid.build_parser()
+
+    args = parser.parse_args([])
+
+    assert args.epochs == 50

@@ -2,7 +2,7 @@
 
 Usage:
     uv sync --extra ml
-    uv run python scripts/train_yolo_grid.py [--epochs 100] [--model yolo26n-pose]
+    uv run python scripts/train_yolo_grid.py [--epochs 50] [--model yolo26n-pose]
 """
 
 from __future__ import annotations
@@ -100,10 +100,10 @@ def prepare_dataset_split(
     return _write_split_yaml(split_root)
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train YOLO grid detector")
     parser.add_argument("--model", default="yolo26n-pose.pt", help="Pretrained model")
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--device", default=None, help="Device (cpu, mps, cuda)")
@@ -120,6 +120,11 @@ def main() -> int:
         default=REPO_ROOT / "models" / "yolo_runs",
     )
     parser.add_argument("--name", default="grid_detect")
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
     try:
