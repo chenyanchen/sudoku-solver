@@ -292,6 +292,7 @@ def _fit_keypoints(annotation: dict, task: dict) -> None:
 
     # Parse 16 keypoints from annotation (labels: P00..P33).
     kpt_map: dict[str, tuple[float, float]] = {}
+    seen_labels: list[str] = []
     for r in annotation.get("result", []):
         if r.get("type") != "keypointlabels":
             continue
@@ -300,16 +301,23 @@ def _fit_keypoints(annotation: dict, task: dict) -> None:
             continue
         x_abs = r["value"]["x"] / 100.0 * w
         y_abs = r["value"]["y"] / 100.0 * h
-        kpt_map[labels[0]] = (x_abs, y_abs)
+        label = labels[0]
+        seen_labels.append(label)
+        kpt_map[label] = (x_abs, y_abs)
 
-    if len(kpt_map) < 16:
-        logger.warning("fit/keypoints: only %d keypoints for %s", len(kpt_map), filename)
+    missing = [label for label in _KPT_LABELS_16 if label not in kpt_map]
+    duplicates = sorted({label for label in seen_labels if seen_labels.count(label) > 1})
+    if missing or duplicates:
+        logger.warning(
+            "fit/keypoints: invalid keypoint labels for %s missing=%s duplicates=%s",
+            filename,
+            missing,
+            duplicates,
+        )
         return
 
-    keypoints = np.array(
-        [kpt_map[label] for label in _KPT_LABELS_16],
-        dtype=np.float32,
-    )
+    keypoints = np.array([kpt_map[label] for label in _KPT_LABELS_16], dtype=np.float32)
+
     label_line = keypoints_16_to_yolo_pose(keypoints, w, h)
 
     lbl_dir = REPO_ROOT / "data" / "yolo_grid" / "labels" / "train"
