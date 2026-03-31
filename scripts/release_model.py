@@ -1,8 +1,8 @@
 """Release a trained model from MLflow to models/releases/.
 
 Usage:
-    uv run python scripts/release_model.py cnn [--run-id <id>]
-    uv run python scripts/release_model.py yolo [--run-id <id>]
+    uv run python scripts/release_model.py cnn --run-id <id> --version <YYYYMMDD.N>
+    uv run python scripts/release_model.py yolo --run-id <id> --version <YYYYMMDD.N>
 """
 
 from __future__ import annotations
@@ -65,33 +65,9 @@ def _write_release_metadata(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-
-
-def find_best_run(experiment_name: str, metric: str) -> mlflow.entities.Run:
+def release_cnn(run_id: str, release_version: str) -> int:
     client = MlflowClient()
-    experiment = client.get_experiment_by_name(experiment_name)
-    if experiment is None:
-        raise SystemExit(f"Experiment '{experiment_name}' not found in MLflow")
-
-    runs = client.search_runs(
-        experiment_ids=[experiment.experiment_id],
-        order_by=[f"metrics.`{metric}` DESC"],
-        max_results=1,
-    )
-    if not runs:
-        raise SystemExit(f"No runs found in experiment '{experiment_name}'")
-    return runs[0]
-
-
-def release_cnn(run_id: str | None, release_version: str) -> int:
-    experiment_name = "sudoku-cnn-ocr"
-
-    if run_id:
-        client = MlflowClient()
-        run = client.get_run(run_id)
-    else:
-        run = find_best_run(experiment_name, "score")
-        run_id = run.info.run_id
+    run = client.get_run(run_id)
 
     score = run.data.metrics.get("score", 0.0)
     training_version = run.data.params.get("version")
@@ -144,15 +120,9 @@ def release_cnn(run_id: str | None, release_version: str) -> int:
     return 0
 
 
-def release_yolo(run_id: str | None, release_version: str) -> int:
-    experiment_name = "sudoku-yolo-grid"
-
-    if run_id:
-        client = MlflowClient()
-        run = client.get_run(run_id)
-    else:
-        run = find_best_run(experiment_name, "metrics/mAP50B")
-        run_id = run.info.run_id
+def release_yolo(run_id: str, release_version: str) -> int:
+    client = MlflowClient()
+    run = client.get_run(run_id)
 
     mAP = run.data.metrics.get("metrics/mAP50B", 0.0)
 
@@ -203,7 +173,7 @@ def main() -> int:
         type=_validate_release_version,
         help="Unified release version in YYYYMMDD.N format",
     )
-    parser.add_argument("--run-id", default=None, help="MLflow run ID (default: best run)")
+    parser.add_argument("--run-id", required=True, help="MLflow run ID to release")
     args = parser.parse_args()
 
     if args.model == "cnn":
