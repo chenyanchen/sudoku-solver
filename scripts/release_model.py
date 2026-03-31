@@ -106,12 +106,7 @@ def release_yolo(run_id: str | None) -> int:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         client = MlflowClient()
-        artifacts = client.list_artifacts(run_id)
-        pt_artifacts = [a.path for a in artifacts if a.path.endswith("best.pt")]
-        if not pt_artifacts:
-            raise SystemExit(f"No best.pt artifact found in run {run_id}")
-
-        local_path = client.download_artifacts(run_id, pt_artifacts[0], tmpdir)
+        local_path = client.download_artifacts(run_id, "weights/best.pt", tmpdir)
         pt_path = Path(local_path)
 
         try:
