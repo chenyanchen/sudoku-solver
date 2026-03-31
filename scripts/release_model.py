@@ -79,6 +79,11 @@ def release_cnn(run_id: str | None) -> int:
         if result.returncode != 0:
             raise SystemExit(f"ONNX export failed with code {result.returncode}")
 
+        # Update canonical symlink (matches YOLO's yolo_grid_detect.onnx pattern)
+        canonical = RELEASES_DIR / "sudoku_digit_cnn.onnx"
+        canonical.unlink(missing_ok=True)
+        canonical.symlink_to(output_path.name)
+
     print(f"  Output:  {output_path}")
     return 0
 
