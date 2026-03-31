@@ -14,6 +14,13 @@ import numpy as np
 from ..cv.cell_extractor import clean_cell
 from ..solver.backtracking import is_valid_placement
 
+DEFAULT_CNN_MODEL = (
+    Path(__file__).resolve().parents[2]
+    / "models"
+    / "releases"
+    / "sudoku_digit_cnn.onnx"
+)
+
 try:
     import onnxruntime as ort
 except Exception:  # pragma: no cover - environment dependent
@@ -32,12 +39,7 @@ class CnnDigitReader:
         top_k_candidates: int = 4,
         strict: bool = False,
     ):
-        resolved = model_path or os.getenv("CNN_MODEL_PATH")
-        if resolved is None:
-            raise RuntimeError(
-                "CNN model path not specified. "
-                "Set CNN_MODEL_PATH env var or pass model_path argument."
-            )
+        resolved = model_path or os.getenv("CNN_MODEL_PATH") or DEFAULT_CNN_MODEL
         self.model_path = Path(resolved)
         self.blank_threshold = blank_threshold
         self.digit_threshold = digit_threshold
