@@ -143,13 +143,15 @@ def build_samples(
             det = yolo_detector.detect(image)
             if det is None:
                 raise ValueError(f"YOLO could not detect grid in {image_path}")
-            detected, _, _ = det
+            from backend.cv.detector import warp_grid
+            warped = warp_grid(image, det.corners)
         else:
-            detected = detect_grid_image(image)
-            if detected is None:
+            result = detect_grid_image(image)
+            if result is None:
                 raise ValueError(f"Could not detect Sudoku grid in image: {image_path}")
+            warped = result[0]
 
-        ocr_grid = prepare_grid_for_ocr(detected)
+        ocr_grid = prepare_grid_for_ocr(warped)
         cells = extract_cells(ocr_grid)
         if len(cells) != 81:
             raise ValueError(f"Expected 81 cells from {image_name}, got {len(cells)}")
