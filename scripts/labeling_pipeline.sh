@@ -43,6 +43,12 @@ case "${1:-help}" in
       --use-yolo --version 3.4.0
     ;;
 
+  release)
+    export MLFLOW_TRACKING_URI="file://${REPO_ROOT}/mlruns"
+    shift
+    uv run python scripts/release_model.py "$@"
+    ;;
+
   help|*)
     cat <<USAGE
 Usage: $0 <command>
@@ -50,7 +56,8 @@ Usage: $0 <command>
 Commands:
   backend [port]  Start ML Backend server (default: 9090)
   generate        Generate warped grids for OCR project import
-  train           Retrain YOLO + CNN models
+  train           Retrain YOLO + CNN models (metrics logged to MLflow)
+  release <cnn|yolo> [--run-id <id>]  Export best model to models/releases/
 
 Workflow:
   1. Start ML Backend:  $0 backend
@@ -58,12 +65,15 @@ Workflow:
   3. Import images into projects (Label Studio UI)
   4. Label (ML Backend auto-predicts + /fit auto-saves corrections)
   5. Train: $0 train
+  6. Review metrics: mlflow ui --port 5000 --backend-store-uri file://\$(pwd)/mlruns
+  7. Release: $0 release cnn && $0 release yolo
 
 Environment variables:
   LABEL_STUDIO_URL      (default: http://localhost:8080)
   LABEL_STUDIO_API_KEY  (required for ML Backend to fetch images)
   CNN_MODEL_PATH        (required)
   YOLO_MODEL            (default: models/releases/yolo_grid_detect.onnx)
+  MLFLOW_TRACKING_URI   (default: file://\$REPO_ROOT/mlruns, set by train/release)
 USAGE
     ;;
 esac
