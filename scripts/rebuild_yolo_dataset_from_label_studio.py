@@ -74,37 +74,6 @@ def _annotation_to_label_line(result_json: str, width: int, height: int) -> str 
     return keypoints_16_to_yolo_pose(keypoints, width, height)
 
 
-def _prediction_to_label_line(result_json: str, width: int, height: int) -> str | None:
-    try:
-        result = json.loads(result_json)
-    except json.JSONDecodeError:
-        return None
-
-    kpt_map: dict[str, tuple[float, float]] = {}
-    for item in result:
-        if item.get("type") != "keypointlabels":
-            continue
-        labels = item.get("value", {}).get("keypointlabels", [])
-        if not labels:
-            continue
-        x_pct = item["value"]["x"]
-        y_pct = item["value"]["y"]
-        kpt_map[labels[0]] = (x_pct / 100.0 * width, y_pct / 100.0 * height)
-
-    ordered = []
-    for row in range(4):
-        for col in range(4):
-            label = f"P{row}{col}"
-            if label not in kpt_map:
-                return None
-            ordered.append(kpt_map[label])
-
-    import numpy as np
-
-    keypoints = np.array(ordered, dtype=np.float32)
-    return keypoints_16_to_yolo_pose(keypoints, width, height)
-
-
 def export_project_to_yolo_dataset(
     *,
     db_path: Path,
@@ -119,10 +88,9 @@ def export_project_to_yolo_dataset(
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    project = conn.execute("select model_version from project where id = ?", (project_id,)).fetchone()
+    project = conn.execute("select id from project where id = ?", (project_id,)).fetchone()
     if project is None:
         raise RuntimeError(f"Project {project_id} not found in {db_path}")
-    model_version = project["model_version"]
 
     tasks = conn.execute("select id, data from task where project_id = ? order by id", (project_id,)).fetchall()
 
@@ -160,25 +128,6 @@ def export_project_to_yolo_dataset(
             label_line = _annotation_to_label_line(annotation["result"], width, height)
             if label_line is not None:
                 stats["exported_from_annotations"] += 1
-
-        if label_line is None:
-            prediction = conn.execute(
-                """
-                select result from prediction
-                where task_id = ? and model_version = ?
-                order by created_at desc limit 1
-                """,
-                (task["id"], model_version),
-            ).fetchone()
-            if prediction is None:
-                prediction = conn.execute(
-                    "select result from prediction where task_id = ? order by created_at desc limit 1",
-                    (task["id"],),
-                ).fetchone()
-            if prediction is not None:
-                label_line = _prediction_to_label_line(prediction["result"], width, height)
-                if label_line is not None:
-                    stats["exported_from_predictions"] += 1
 
         if label_line is None:
             stats["skipped_missing_labels"] += 1

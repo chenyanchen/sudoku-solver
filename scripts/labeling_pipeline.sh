@@ -37,7 +37,7 @@ case "${1:-help}" in
 
     echo "=== Training YOLO ==="
     export MLFLOW_EXPERIMENT_NAME="sudoku-yolo-grid"
-    uv run python scripts/train_yolo_grid.py --epochs 20
+    uv run python scripts/train_yolo_grid.py --epochs 50
 
     echo ""
     echo "=== Training CNN with YOLO warp ==="

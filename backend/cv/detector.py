@@ -11,10 +11,11 @@ import numpy as np
 
 @dataclass
 class DetectionResult:
-    """Result of grid detection: 4 corner coordinates + which detector found it."""
+    """Result of grid detection: 4 corners plus optional raw keypoints."""
 
     corners: np.ndarray  # (4, 2), [TL, TR, BR, BL] in original image coords
     detector_name: str
+    keypoints: np.ndarray | None = None
 
 
 @runtime_checkable
