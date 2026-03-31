@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import subprocess
 import sys
+import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import cv2
 import numpy as np
@@ -22,6 +24,17 @@ from scripts._paths import resolve_image_path
 from backend.api.routes import detect_grid_image, prepare_grid_for_ocr
 from backend.cv.cell_extractor import clean_cell, extract_cells
 from backend.ocr.model_arch import create_model
+
+import mlflow
+
+
+def _git_commit_hash() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True
+        ).strip()
+    except Exception:
+        return "unknown"
 
 
 def _import_torch():
@@ -261,12 +274,6 @@ def parse_args() -> argparse.Namespace:
         default=REPO_ROOT / "data" / "labels" / "sudoku_labels.json",
         help="JSON path: image -> 9x9 grid labels",
     )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=REPO_ROOT / "models" / "checkpoints" / "sudoku_digit_cnn.pt",
-        help="Output checkpoint path",
-    )
     parser.add_argument("--epochs", type=int, default=60)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -281,12 +288,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--patience", type=int, default=12)
     parser.add_argument("--version", type=str, default="1.0.0")
-    parser.add_argument(
-        "--metrics-log",
-        type=Path,
-        default=None,
-        help="JSONL path for per-epoch metrics (default: <output>.metrics.jsonl)",
-    )
     parser.add_argument(
         "--use-yolo",
         action="store_true",
@@ -353,106 +354,148 @@ def main() -> int:
         optimizer, T_max=args.epochs
     )
 
-    best_score = -1.0
-    best_state = None
-    epochs_no_improve = 0
+    mlflow.set_experiment("sudoku-cnn-ocr")
+    with mlflow.start_run() as run:
+        mlflow.log_params({
+            "lr": args.lr,
+            "batch_size": args.batch_size,
+            "epochs": args.epochs,
+            "arch": args.arch,
+            "version": args.version,
+            "weight_decay": args.weight_decay,
+            "label_smoothing": 0.1,
+            "early_stopping_patience": args.patience,
+            "val_ratio": args.val_ratio,
+            "seed": args.seed,
+            "input_size": args.input_size,
+            "optimizer": "AdamW",
+            "scheduler": "CosineAnnealingLR",
+            "num_train_samples": len(train_samples),
+            "num_val_samples": len(val_samples),
+            "use_yolo": args.use_yolo,
+        })
+        mlflow.set_tag("git_commit", _git_commit_hash())
 
-    metrics_log_path: Path = args.metrics_log or args.output.with_suffix(".metrics.jsonl")
-    metrics_log_path.parent.mkdir(parents=True, exist_ok=True)
+        best_score = -1.0
+        best_state = None
+        best_confusion: list[list[int]] = []
+        epochs_no_improve = 0
+        global_step = 0
 
-    for epoch in range(1, args.epochs + 1):
-        model.train()
-        train_loss = 0.0
+        for epoch in range(1, args.epochs + 1):
+            epoch_start = time.time()
+            model.train()
+            train_loss = 0.0
 
-        for images, labels in train_loader:
-            images = images.to(device)
-            labels = labels.to(device)
+            for images, labels in train_loader:
+                images = images.to(device)
+                labels = labels.to(device)
 
-            optimizer.zero_grad(set_to_none=True)
-            logits = model(images)
-            loss = criterion(logits, labels)
-            loss.backward()
-            optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                logits = model(images)
+                loss = criterion(logits, labels)
+                loss.backward()
+                optimizer.step()
 
-            train_loss += float(loss.item())
+                train_loss += float(loss.item())
+                global_step += 1
+                mlflow.log_metric("train_loss", loss.item(), step=global_step)
 
-        train_loss /= max(1, len(train_loader))
-        val_metrics = evaluate(model, val_loader, device)
+            train_loss /= max(1, len(train_loader))
+            val_metrics = evaluate(model, val_loader, device)
 
-        score = (
-            0.65 * val_metrics["macro_f1_digits"]
-            + 0.20 * val_metrics["blank_precision"]
-            + 0.15 * val_metrics["accuracy"]
-        )
+            score = (
+                0.65 * val_metrics["macro_f1_digits"]
+                + 0.20 * val_metrics["blank_precision"]
+                + 0.15 * val_metrics["accuracy"]
+            )
 
-        is_best = score > best_score
+            is_best = score > best_score
 
-        print(
-            f"epoch={epoch:03d} train_loss={train_loss:.4f} "
-            f"val_loss={val_metrics['loss']:.4f} "
-            f"val_acc={val_metrics['accuracy']:.4f} "
-            f"val_f1_digits={val_metrics['macro_f1_digits']:.4f} "
-            f"val_blank_precision={val_metrics['blank_precision']:.4f} "
-            f"score={score:.4f}"
-        )
+            print(
+                f"epoch={epoch:03d} train_loss={train_loss:.4f} "
+                f"val_loss={val_metrics['loss']:.4f} "
+                f"val_acc={val_metrics['accuracy']:.4f} "
+                f"val_f1_digits={val_metrics['macro_f1_digits']:.4f} "
+                f"val_blank_precision={val_metrics['blank_precision']:.4f} "
+                f"score={score:.4f}"
+            )
 
-        # Write JSONL metrics record.
-        current_lr = optimizer.param_groups[0]["lr"]
-        metrics_record = {
-            "epoch": epoch,
-            "train_loss": round(train_loss, 6),
-            "val_loss": round(val_metrics["loss"], 6),
-            "val_accuracy": round(val_metrics["accuracy"], 6),
-            "val_macro_f1_digits": round(val_metrics["macro_f1_digits"], 6),
-            "val_blank_precision": round(val_metrics["blank_precision"], 6),
-            "score": round(score, 6),
-            "is_best": is_best,
-            "lr": current_lr,
-            "per_digit_f1": val_metrics.get("per_digit_f1", {}),
-            "confusion": val_metrics.get("confusion", []),
-        }
-        with metrics_log_path.open("a", encoding="utf-8") as mf:
-            mf.write(json.dumps(metrics_record, ensure_ascii=False) + "\n")
+            scheduler.step()
+            epoch_duration = time.time() - epoch_start
 
-        if is_best:
-            best_score = score
-            best_state = {
-                "state_dict": model.state_dict(),
-                "class_values": list(range(10)),
-                "input_size": args.input_size,
-                "version": args.version,
-                "arch": args.arch,
-                "best_score": best_score,
+            current_lr = optimizer.param_groups[0]["lr"]
+            epoch_metrics = {
+                "val_loss": val_metrics["loss"],
+                "val_accuracy": val_metrics["accuracy"],
+                "val_macro_f1": val_metrics["macro_f1_digits"],
+                "val_blank_precision": val_metrics["blank_precision"],
+                "score": score,
+                "lr": current_lr,
+                "epoch_duration_sec": epoch_duration,
             }
-            epochs_no_improve = 0
-        else:
-            epochs_no_improve += 1
+            for digit, f1_val in val_metrics.get("per_digit_f1", {}).items():
+                epoch_metrics[f"f1_digit_{digit}"] = f1_val
+            mlflow.log_metrics(epoch_metrics, step=epoch)
 
-        scheduler.step()
+            if is_best:
+                best_score = score
+                best_state = {
+                    "state_dict": model.state_dict(),
+                    "class_values": list(range(10)),
+                    "input_size": args.input_size,
+                    "version": args.version,
+                    "arch": args.arch,
+                    "best_score": best_score,
+                }
+                best_confusion = val_metrics.get("confusion", [])
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1
 
-        if epochs_no_improve >= args.patience:
-            print(f"Early stop triggered at epoch={epoch}")
-            break
+            if epochs_no_improve >= args.patience:
+                print(f"Early stop triggered at epoch={epoch}")
+                break
 
-    if best_state is None:
-        raise RuntimeError("No valid checkpoint produced")
+        if best_state is None:
+            raise RuntimeError("No valid checkpoint produced")
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(best_state, args.output)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pt_path = Path(tmpdir) / f"sudoku_digit_cnn_v{args.version}.pt"
+            torch.save(best_state, pt_path)
+            mlflow.log_artifact(str(pt_path))
 
-    meta = {
-        "version": args.version,
-        "class_values": list(range(10)),
-        "input_size": args.input_size,
-        "arch": args.arch,
-        "best_score": best_score,
-    }
-    meta_path = args.output.with_suffix(".meta.json")
-    with meta_path.open("w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
+            # Save confusion matrix as PNG artifact
+            try:
+                import matplotlib
+                matplotlib.use("Agg")
+                import matplotlib.pyplot as plt
 
-    print(f"Saved checkpoint: {args.output}")
-    print(f"Saved metadata: {meta_path}")
+                fig, ax = plt.subplots(figsize=(8, 8))
+                confusion = best_confusion
+                im = ax.imshow(confusion, cmap="Blues")
+                ax.set_xlabel("Predicted")
+                ax.set_ylabel("True")
+                ax.set_title("Confusion Matrix (best epoch)")
+                ax.set_xticks(range(10))
+                ax.set_yticks(range(10))
+                for i in range(10):
+                    for j in range(10):
+                        ax.text(j, i, str(confusion[i][j]), ha="center", va="center",
+                                color="white" if confusion[i][j] > max(max(row) for row in confusion) / 2 else "black",
+                                fontsize=8)
+                fig.colorbar(im)
+                fig.tight_layout()
+                cm_path = Path(tmpdir) / "confusion_matrix.png"
+                fig.savefig(cm_path, dpi=100)
+                plt.close(fig)
+                mlflow.log_artifact(str(cm_path))
+            except ImportError:
+                pass  # matplotlib not available, skip confusion matrix image
+
+        print(f"Run ID: {run.info.run_id}")
+        print(f"Best score: {best_score:.4f}")
+
     return 0
 
 
