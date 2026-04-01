@@ -15,7 +15,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from ..cv.cell_extractor import extract_cells
 from ..cv.detector import ChainDetector, warp_grid
 from ..cv.opencv_detector import OpenCVGridDetector
-from ..cv.yolo_detector import YoloGridDetector
+from ..cv.corner_cnn_detector import CornerCnnDetector
 from ..models.schemas import (
     HealthResponse,
     RecognizeResponse,
@@ -51,22 +51,21 @@ def image_to_base64(image: np.ndarray) -> str:
 
 
 def _get_detector() -> ChainDetector:
-    """Lazy-init the detector chain: YOLO (preferred) → OpenCV (fallback)."""
+    """Lazy-init the detector chain: CornerCNN (preferred) → OpenCV (fallback)."""
     global _DETECTOR
     if _DETECTOR is not None:
         return _DETECTOR
 
     detectors = []
 
-    yolo = YoloGridDetector(
-        model_path=os.getenv("YOLO_MODEL_PATH"),
-        num_keypoints=16,
+    corner_cnn = CornerCnnDetector(
+        model_path=os.getenv("CORNER_CNN_MODEL_PATH"),
     )
-    if yolo.is_ready:
-        detectors.append(yolo)
-        _LOGGER.info("YOLO grid detector ready")
+    if corner_cnn.is_ready:
+        detectors.append(corner_cnn)
+        _LOGGER.info("Corner CNN grid detector ready")
     else:
-        _LOGGER.info("YOLO unavailable: %s", yolo.load_error)
+        _LOGGER.info("Corner CNN unavailable: %s", corner_cnn.load_error)
 
     detectors.append(OpenCVGridDetector())
     _LOGGER.info("OpenCV grid detector ready (fallback)")
