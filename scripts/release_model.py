@@ -2,14 +2,13 @@
 
 Usage:
     uv run python scripts/release_model.py cnn --run-id <id> --version <YYYYMMDD.N>
-    uv run python scripts/release_model.py yolo --run-id <id> --version <YYYYMMDD.N>
+    uv run python scripts/release_model.py corner-cnn --run-id <id> --version <YYYYMMDD.N>
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -120,53 +119,58 @@ def release_cnn(run_id: str, release_version: str) -> int:
     return 0
 
 
-def release_yolo(run_id: str, release_version: str) -> int:
+def release_corner_cnn(run_id: str, release_version: str) -> int:
     client = MlflowClient()
     run = client.get_run(run_id)
 
-    mAP = run.data.metrics.get("metrics/mAP50B", 0.0)
+    warp_iou = run.data.metrics.get("warp_iou", 0.0)
 
-    print(f"YOLO Release")
-    print(f"  Run ID:  {run_id}")
-    print(f"  mAP50:   {mAP:.4f}")
+    print("Corner CNN Release")
+    print(f"  Run ID:    {run_id}")
+    print(f"  warp_iou:  {warp_iou:.4f}")
+    print(f"  Version:   {release_version}")
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        client = MlflowClient()
-        local_path = client.download_artifacts(run_id, "weights/best.pt", tmpdir)
+        artifacts = client.list_artifacts(run_id)
+        pt_artifacts = [a.path for a in artifacts if a.path.endswith(".pt")]
+        if not pt_artifacts:
+            raise SystemExit(f"No .pt artifact found in run {run_id}")
+
+        local_path = client.download_artifacts(run_id, pt_artifacts[0], tmpdir)
         pt_path = Path(local_path)
 
-        try:
-            from ultralytics import YOLO
-        except ImportError:
-            raise SystemExit("ultralytics required. Run: uv sync --extra ml")
+        output_path = RELEASES_DIR / f"sudoku_corner_cnn_{release_version}.onnx"
+        result = subprocess.run(
+            [
+                sys.executable, str(REPO_ROOT / "scripts" / "export_corner_cnn_onnx.py"),
+                "--checkpoint", str(pt_path),
+                "--output", str(output_path),
+            ],
+            cwd=str(REPO_ROOT),
+        )
+        if result.returncode != 0:
+            raise SystemExit(f"ONNX export failed with code {result.returncode}")
 
-        model = YOLO(str(pt_path))
-        onnx_path = model.export(format="onnx", imgsz=640, simplify=True)
-
-        dst = RELEASES_DIR / f"yolo_grid_detect_{release_version}.onnx"
-        RELEASES_DIR.mkdir(exist_ok=True)
-        shutil.copy2(onnx_path, dst)
-
-        canonical = RELEASES_DIR / "yolo_grid_detect.onnx"
+        canonical = RELEASES_DIR / "sudoku_corner_cnn.onnx"
         canonical.unlink(missing_ok=True)
-        canonical.symlink_to(dst.name)
+        canonical.symlink_to(output_path.name)
 
         _write_release_metadata(
-            artifact_path=dst,
-            model_type="yolo",
+            artifact_path=output_path,
+            model_type="corner_cnn",
             model_version=release_version,
             run=run,
-            metric_name="metrics/mAP50B",
-            metric_value=mAP,
+            metric_name="warp_iou",
+            metric_value=warp_iou,
         )
 
-    print(f"  Output:  {dst}")
+    print(f"  Output:  {output_path}")
     return 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Release model from MLflow")
-    parser.add_argument("model", choices=["cnn", "yolo"], help="Model type to release")
+    parser.add_argument("model", choices=["cnn", "corner-cnn"], help="Model type to release")
     parser.add_argument(
         "--version",
         required=True,
@@ -179,7 +183,7 @@ def main() -> int:
     if args.model == "cnn":
         return release_cnn(args.run_id, args.version)
     else:
-        return release_yolo(args.run_id, args.version)
+        return release_corner_cnn(args.run_id, args.version)
 
 
 if __name__ == "__main__":
