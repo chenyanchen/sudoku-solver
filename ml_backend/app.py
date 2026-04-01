@@ -1,8 +1,8 @@
 """FastAPI ML Backend implementing Label Studio's ML Backend protocol.
 
 Serves both project types:
-  - Keypoints: YOLO grid corner detection
-  - OCR: YOLO warp → CNN digit recognition → solve verification
+  - Keypoints: Corner CNN grid corner detection (4 corners)
+  - OCR: Corner CNN warp → CNN digit recognition → solve verification
 
 Endpoints:
   GET  /health  - health check
@@ -35,18 +35,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s
 # ---------------------------------------------------------------------------
 # Release configuration
 # ---------------------------------------------------------------------------
-_yolo = None
+_corner_cnn = None
 _cnn = None
 
 _CNN_ENV = "CNN_MODEL_PATH"
-_YOLO_ENV = "YOLO_MODEL"
+_CORNER_CNN_ENV = "CORNER_CNN_MODEL"
 
 
 def _validate_backend_model_env() -> tuple[Path, Path]:
     cnn_path = os.getenv(_CNN_ENV)
-    yolo_path = os.getenv(_YOLO_ENV)
+    corner_cnn_path = os.getenv(_CORNER_CNN_ENV)
 
-    missing = [name for name, value in ((_CNN_ENV, cnn_path), (_YOLO_ENV, yolo_path)) if not value]
+    missing = [name for name, value in ((_CNN_ENV, cnn_path), (_CORNER_CNN_ENV, corner_cnn_path)) if not value]
     if missing:
         raise RuntimeError(
             "ML Backend requires explicit release model paths: "
@@ -54,15 +54,15 @@ def _validate_backend_model_env() -> tuple[Path, Path]:
         )
 
     cnn = Path(cnn_path)
-    yolo = Path(yolo_path)
-    for path, env_name in ((cnn, _CNN_ENV), (yolo, _YOLO_ENV)):
+    corner_cnn = Path(corner_cnn_path)
+    for path, env_name in ((cnn, _CNN_ENV), (corner_cnn, _CORNER_CNN_ENV)):
         if not path.exists():
             raise RuntimeError(f"{env_name} points to a missing file: {path}")
         meta_path = path.with_suffix(".meta.json")
         if not meta_path.exists():
             raise RuntimeError(f"Release metadata file is missing for {env_name}: {meta_path}")
 
-    return cnn, yolo
+    return cnn, corner_cnn
 
 
 def _read_release_metadata(model_path: Path) -> dict[str, Any]:
@@ -82,39 +82,37 @@ def _read_release_metadata(model_path: Path) -> dict[str, Any]:
 
 
 def _current_release_versions() -> tuple[str, str]:
-    cnn_path, yolo_path = _validate_backend_model_env()
+    cnn_path, corner_cnn_path = _validate_backend_model_env()
     cnn_version = _read_release_metadata(cnn_path)["model_version"]
-    yolo_version = _read_release_metadata(yolo_path)["model_version"]
-    return cnn_version, yolo_version
+    corner_cnn_version = _read_release_metadata(corner_cnn_path)["model_version"]
+    return cnn_version, corner_cnn_version
 
 
 def _response_model_version(label_config: str) -> str:
-    cnn_version, yolo_version = _current_release_versions()
+    cnn_version, corner_cnn_version = _current_release_versions()
     if _is_keypoints_project(label_config):
-        return yolo_version
-    return f"{cnn_version}+{yolo_version}"
+        return corner_cnn_version
+    return f"{cnn_version}+{corner_cnn_version}"
 
 
-def _get_yolo():
-    global _yolo
-    if _yolo is None:
-        _, yolo_path = _validate_backend_model_env()
-        from backend.cv.yolo_detector import YoloGridDetector
-        _yolo = YoloGridDetector(
-            model_path=yolo_path,
-            num_keypoints=16,
+def _get_corner_cnn():
+    global _corner_cnn
+    if _corner_cnn is None:
+        from backend.cv.corner_cnn_detector import CornerCnnDetector
+        _corner_cnn = CornerCnnDetector(
+            model_path=os.getenv("CORNER_CNN_MODEL"),
         )
-        if _yolo.is_ready:
-            logger.info("YOLO loaded (16-kpt)")
+        if _corner_cnn.is_ready:
+            logger.info("Corner CNN loaded")
         else:
-            logger.error("YOLO failed: %s", _yolo.load_error)
-    return _yolo
+            logger.error("Corner CNN failed: %s", _corner_cnn.load_error)
+    return _corner_cnn
 
 
 def _get_cnn():
     global _cnn
     if _cnn is None:
-        cnn_path, _ = _validate_backend_model_env()
+        cnn_path, _corner_cnn_path = _validate_backend_model_env()
         from backend.ocr.cnn_digit_reader import CnnDigitReader
         _cnn = CnnDigitReader(model_path=cnn_path, strict=False)
         if _cnn.is_ready:
@@ -127,10 +125,10 @@ def _get_cnn():
 @asynccontextmanager
 async def _app_lifespan(_: FastAPI):
     _validate_backend_model_env()
-    yolo = _get_yolo()
+    corner_cnn = _get_corner_cnn()
     cnn = _get_cnn()
-    if not yolo.is_ready:
-        raise RuntimeError(f"Failed to load YOLO model at startup: {yolo.load_error}")
+    if not corner_cnn.is_ready:
+        raise RuntimeError(f"Failed to load Corner CNN model at startup: {corner_cnn.load_error}")
     if not cnn.is_ready:
         raise RuntimeError(f"Failed to load CNN model at startup: {cnn.load_error}")
     yield
@@ -194,52 +192,46 @@ def _is_keypoints_project(label_config: str) -> bool:
 # /predict
 # ---------------------------------------------------------------------------
 
-# 16-keypoint labels: 4x4 grid, row-major.  P{row}{col}.
-_KPT_LABELS_16 = [f"P{r}{c}" for r in range(4) for c in range(4)]
+_CORNER_LABELS = ["TL", "TR", "BR", "BL"]
 
 
-def _predict_keypoints(image: np.ndarray) -> tuple[list[dict], float]:
-    yolo = _get_yolo()
-    if not yolo.is_ready:
+def _predict_corners(image: np.ndarray) -> tuple[list[dict], float]:
+    detector = _get_corner_cnn()
+    if not detector.is_ready:
         return [], 0.0
-    det = yolo.detect(image)
+    det = detector.detect(image)
     if det is None:
         return [], 0.0
 
-    if det.keypoints is None or det.keypoints.shape != (16, 2):
-        logger.warning("predict/keypoints: detector returned invalid keypoints shape: %s", None if det.keypoints is None else det.keypoints.shape)
-        return [], 0.0
-
-    conf = yolo.last_confidence
     h, w = image.shape[:2]
-    keypoints = det.keypoints
+    corners = det.corners  # (4, 2) pixel coords
 
     result = []
-    for i, label in enumerate(_KPT_LABELS_16):
+    for i, label in enumerate(_CORNER_LABELS):
         result.append({
             "from_name": "corners",
             "to_name": "image",
             "type": "keypointlabels",
             "value": {
-                "x": round(float(keypoints[i][0]) / w * 100, 4),
-                "y": round(float(keypoints[i][1]) / h * 100, 4),
+                "x": round(float(corners[i, 0]) / w * 100, 4),
+                "y": round(float(corners[i, 1]) / h * 100, 4),
                 "width": 0.3,
                 "keypointlabels": [label],
             },
-            "score": round(float(conf), 4),
+            "score": round(detector.last_confidence, 4),
         })
-    return result, float(conf)
+    return result, detector.last_confidence
 
 
 def _predict_ocr(image: np.ndarray) -> tuple[list[dict], float]:
-    yolo = _get_yolo()
+    corner_cnn = _get_corner_cnn()
     cnn = _get_cnn()
     if not cnn.is_ready:
         return [], 0.0
 
-    # Try YOLO warp first (raw photo). If it fails, treat as already warped.
-    if yolo.is_ready:
-        det = yolo.detect(image)
+    # Try Corner CNN warp first (raw photo). If it fails, treat as already warped.
+    if corner_cnn.is_ready:
+        det = corner_cnn.detect(image)
     else:
         det = None
 
@@ -275,55 +267,78 @@ def _predict_ocr(image: np.ndarray) -> tuple[list[dict], float]:
 # /fit
 # ---------------------------------------------------------------------------
 
-def _fit_keypoints(annotation: dict, task: dict) -> None:
-    """Save corrected 16 keypoints to YOLO pose label format."""
-    from scripts.auto_label_yolo import keypoints_16_to_yolo_pose
+def _fit_corners(annotation: dict, task: dict) -> None:
+    """Save corrected 4 corners to corner_cnn CSV format."""
+    import csv
+    import shutil
 
     filename = _extract_filename(task)
     src_image = REPO_ROOT / "data" / "raw" / "images" / filename
     if not src_image.exists():
-        logger.warning("fit/keypoints: source image not found: %s", filename)
+        logger.warning("fit/corners: source image not found: %s", filename)
         return
 
-    image = cv2.imread(str(src_image))
-    if image is None:
-        return
-    h, w = image.shape[:2]
-
-    # Parse 16 keypoints from annotation (labels: P00..P33).
-    kpt_map: dict[str, tuple[float, float]] = {}
-    seen_labels: list[str] = []
+    corner_map: dict[str, tuple[float, float]] = {}
     for r in annotation.get("result", []):
         if r.get("type") != "keypointlabels":
             continue
         labels = r["value"].get("keypointlabels", [])
         if not labels:
             continue
-        x_abs = r["value"]["x"] / 100.0 * w
-        y_abs = r["value"]["y"] / 100.0 * h
-        label = labels[0]
-        seen_labels.append(label)
-        kpt_map[label] = (x_abs, y_abs)
+        x_norm = r["value"]["x"] / 100.0
+        y_norm = r["value"]["y"] / 100.0
+        corner_map[labels[0]] = (x_norm, y_norm)
 
-    missing = [label for label in _KPT_LABELS_16 if label not in kpt_map]
-    duplicates = sorted({label for label in seen_labels if seen_labels.count(label) > 1})
-    if missing or duplicates:
-        logger.warning(
-            "fit/keypoints: invalid keypoint labels for %s missing=%s duplicates=%s",
-            filename,
-            missing,
-            duplicates,
-        )
+    expected = ["TL", "TR", "BR", "BL"]
+    missing = [c for c in expected if c not in corner_map]
+    if missing:
+        logger.warning("fit/corners: missing corners %s for %s", missing, filename)
         return
 
-    keypoints = np.array([kpt_map[label] for label in _KPT_LABELS_16], dtype=np.float32)
+    # Copy image
+    dst_dir = REPO_ROOT / "data" / "corner_cnn" / "images"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst_img = dst_dir / Path(filename).name
+    if not dst_img.exists():
+        shutil.copy2(src_image, dst_img)
 
-    label_line = keypoints_16_to_yolo_pose(keypoints, w, h)
+    # Write/update CSV
+    csv_path = REPO_ROOT / "data" / "corner_cnn" / "labels.csv"
+    fieldnames = ["image", "x_tl", "y_tl", "x_tr", "y_tr", "x_br", "y_br", "x_bl", "y_bl"]
 
-    lbl_dir = REPO_ROOT / "data" / "yolo_grid" / "labels" / "train"
-    lbl_dir.mkdir(parents=True, exist_ok=True)
-    (lbl_dir / f"{Path(filename).stem}.txt").write_text(label_line + "\n")
-    logger.info("fit/keypoints: saved %s (16-kpt)", filename)
+    row_data = {
+        "image": Path(filename).name,
+        "x_tl": f"{corner_map['TL'][0]:.6f}", "y_tl": f"{corner_map['TL'][1]:.6f}",
+        "x_tr": f"{corner_map['TR'][0]:.6f}", "y_tr": f"{corner_map['TR'][1]:.6f}",
+        "x_br": f"{corner_map['BR'][0]:.6f}", "y_br": f"{corner_map['BR'][1]:.6f}",
+        "x_bl": f"{corner_map['BL'][0]:.6f}", "y_bl": f"{corner_map['BL'][1]:.6f}",
+    }
+
+    existing_rows = []
+    found = False
+    if csv_path.exists():
+        with csv_path.open("r", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if row["image"] == Path(filename).name:
+                    existing_rows.append(row_data)
+                    found = True
+                else:
+                    existing_rows.append(row)
+
+    if found:
+        with csv_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(existing_rows)
+    else:
+        write_header = not csv_path.exists()
+        with csv_path.open("a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row_data)
+
+    logger.info("fit/corners: saved %s", filename)
 
 
 def _fit_ocr(annotation: dict, task: dict) -> None:
@@ -375,7 +390,7 @@ def health() -> dict:
 @app.post("/setup")
 def setup(payload: dict[str, Any] = {}) -> dict:
     # Warm up models.
-    _get_yolo()
+    _get_corner_cnn()
     _get_cnn()
     return {"model_version": _response_model_version(payload.get("label_config", ""))}
 
@@ -409,7 +424,7 @@ def predict(payload: dict[str, Any] = {}) -> dict:
             continue
 
         if is_keypoints:
-            result, score = _predict_keypoints(image)
+            result, score = _predict_corners(image)
         else:
             result, score = _predict_ocr(image)
 
@@ -440,7 +455,7 @@ def fit(payload: dict[str, Any] = {}) -> dict:
         label_config = "KeyPointLabels" if has_keypoints else ""
 
     if _is_keypoints_project(label_config):
-        _fit_keypoints(annotation, task)
+        _fit_corners(annotation, task)
     else:
         _fit_ocr(annotation, task)
 
