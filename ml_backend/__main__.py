@@ -1,7 +1,8 @@
 """Entry point: uv run python -m ml_backend [--port 9090]."""
 
 import argparse
-import uvicorn
+
+from .app import app
 
 
 def main() -> None:
@@ -9,7 +10,7 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9090)
     args = parser.parse_args()
-    uvicorn.run("ml_backend.app:app", host=args.host, port=args.port, reload=True)
+    app.run(host=args.host, port=args.port, debug=False, use_reloader=False)
 
 
 if __name__ == "__main__":

@@ -85,19 +85,71 @@ class CornerCnnDetector:
         corners_norm = raw.reshape(4, 2)
 
         # Map from letterbox space back to original image coords
+        corners_raw = np.zeros((4, 2), dtype=np.float32)
         corners = np.zeros((4, 2), dtype=np.float32)
         for i in range(4):
             lbx = corners_norm[i, 0] * INPUT_SIZE
             lby = corners_norm[i, 1] * INPUT_SIZE
-            corners[i, 0] = max(0.0, min((lbx - pad_x) / scale, w_orig - 1))
-            corners[i, 1] = max(0.0, min((lby - pad_y) / scale, h_orig - 1))
+            corners_raw[i, 0] = (lbx - pad_x) / scale
+            corners_raw[i, 1] = (lby - pad_y) / scale
+            corners[i, 0] = max(0.0, min(corners_raw[i, 0], w_orig - 1))
+            corners[i, 1] = max(0.0, min(corners_raw[i, 1], h_orig - 1))
 
-        self.last_confidence = 1.0  # regression model has no confidence score
+        self.last_confidence = self._geometric_confidence(corners_raw, corners, w_orig, h_orig)
 
         return DetectionResult(
             corners=corners,
             detector_name="corner_cnn",
         )
+
+    @staticmethod
+    def _geometric_confidence(
+        corners_raw: np.ndarray, corners_clipped: np.ndarray, img_w: int, img_h: int
+    ) -> float:
+        """Derive a [0, 1] ranking score from geometric sanity of predicted corners.
+
+        This is not a calibrated confidence. It is only a sorting signal for
+        active learning: out-of-bounds, non-convex, and border-hugging quads
+        should rank lower for manual review.
+        """
+        n = len(corners_clipped)
+        cross_signs = []
+        for i in range(n):
+            p0 = corners_clipped[i]
+            p1 = corners_clipped[(i + 1) % n]
+            p2 = corners_clipped[(i + 2) % n]
+            a = p1 - p0
+            b = p2 - p1
+            cross_signs.append(float(a[0] * b[1] - a[1] * b[0]))
+        is_convex = all(c > 0 for c in cross_signs) or all(c < 0 for c in cross_signs)
+        if not is_convex:
+            return 0.0
+
+        width = max(float(img_w), 1.0)
+        height = max(float(img_h), 1.0)
+
+        overshoot = np.column_stack(
+            [
+                np.maximum(-corners_raw[:, 0], 0.0) + np.maximum(corners_raw[:, 0] - (img_w - 1), 0.0),
+                np.maximum(-corners_raw[:, 1], 0.0) + np.maximum(corners_raw[:, 1] - (img_h - 1), 0.0),
+            ]
+        )
+        overshoot_norm = overshoot / np.array([width, height], dtype=np.float32)
+        in_bounds_score = max(0.0, 1.0 - float(np.mean(np.linalg.norm(overshoot_norm, axis=1))) / 0.10)
+
+        min_border_dist = np.minimum.reduce(
+            [
+                corners_clipped[:, 0],
+                corners_clipped[:, 1],
+                (img_w - 1) - corners_clipped[:, 0],
+                (img_h - 1) - corners_clipped[:, 1],
+            ]
+        )
+        min_dim = max(min(width, height), 1.0)
+        edge_margin = float(np.min(min_border_dist)) / min_dim
+        edge_margin_score = float(np.clip(edge_margin / 0.05, 0.0, 1.0))
+
+        return round(float(0.45 * in_bounds_score + 0.35 * 1.0 + 0.20 * edge_margin_score), 4)
 
     def _preprocess(
         self, image: np.ndarray

@@ -1,0 +1,11 @@
+{
+  "model_type": "cnn",
+  "model_version": "20260402.1",
+  "source_run_id": "862796eafc5941da9ffa8e43907832aa",
+  "source_experiment_id": "245550406113532618",
+  "source_metric_name": "score",
+  "source_metric_value": 0.042775163506873326,
+  "source_git_commit": "b519c1fff3443cdd5a3661b699b05dbfdd864454",
+  "released_at_utc": "2026-04-02T03:28:00.162220+00:00",
+  "training_version": "3.4.0"
+}

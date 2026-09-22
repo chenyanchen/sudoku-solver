@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from ml_backend.app import _extract_filename
+from ml_backend.schema import extract_filename as _extract_filename
 from scripts.auto_label_yolo import keypoints_16_to_yolo_pose
 
 

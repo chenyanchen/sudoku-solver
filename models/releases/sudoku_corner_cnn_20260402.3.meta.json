@@ -1,0 +1,10 @@
+{
+  "model_type": "corner_cnn",
+  "model_version": "20260402.3",
+  "source_run_id": "f31eeaf2ac0c44d9b7c4aab6bae45e56",
+  "source_experiment_id": "316961318942125732",
+  "source_metric_name": "warp_iou",
+  "source_metric_value": 0.5915717498871269,
+  "source_git_commit": "b519c1fff3443cdd5a3661b699b05dbfdd864454",
+  "released_at_utc": "2026-04-02T09:25:02.343181+00:00"
+}
