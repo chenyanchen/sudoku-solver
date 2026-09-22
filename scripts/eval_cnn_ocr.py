@@ -3,21 +3,27 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import sys
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts._paths import resolve_image_path
+from scripts._paths import DEFAULT_CORNERS, load_corner_labels, resolve_image_path
 
 from backend.api.routes import detect_grid_image, prepare_grid_for_ocr
 from backend.cv.cell_extractor import extract_cells
-from backend.ocr.cnn_digit_reader import CnnDigitReader
+from backend.ocr.cnn_digit_reader import CnnDigitReader, DEFAULT_CNN_MODEL
+from backend.cv.detector import warp_grid
+from backend.cv.opencv_detector import OpenCVGridDetector
+from backend.cv.corner_cnn_detector import CornerCnnDetector
+from backend.solver.backtracking import SudokuSolver
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cnn-model",
         type=Path,
-        default=REPO_ROOT / "models" / "releases" / "sudoku_digit_cnn_v3.2.onnx",
+        default=DEFAULT_CNN_MODEL,
         help="ONNX model path",
     )
     parser.add_argument(
@@ -40,17 +46,31 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional output JSON path for aggregate metrics",
     )
+    parser.add_argument("--detector", choices=["auto", "gt", "opencv", "corner"], default="auto")
+    parser.add_argument("--image-pattern", nargs="+", default=["*"], help="Filename globs, e.g. 'IMG_86*.jpg' 'IMG_870[0-8].jpg'")
+    parser.add_argument("--corners", type=Path, default=DEFAULT_CORNERS)
+    parser.add_argument("--strict", action="store_true", help="Exit nonzero unless every grid is exact and solved correctly")
     return parser.parse_args()
 
 
-def load_cells_for_image(image_path: Path):
+def load_cells_for_image(image_path: Path, detector=None, corners=None):
     image = cv2.imread(str(image_path))
     if image is None:
         raise FileNotFoundError(f"Cannot load image: {image_path}")
 
-    grid_image = detect_grid_image(image)
-    if grid_image is None:
-        raise ValueError(f"Failed to detect Sudoku grid: {image_path}")
+    if corners is not None:
+        h, w = image.shape[:2]
+        grid_image = warp_grid(image, corners * np.array([w, h]))
+    elif detector is not None:
+        detection = detector.detect(image)
+        if detection is None:
+            raise ValueError(f"Failed to detect Sudoku grid: {image_path}")
+        grid_image = warp_grid(image, detection.corners)
+    else:
+        result = detect_grid_image(image)
+        if result is None:
+            raise ValueError(f"Failed to detect Sudoku grid: {image_path}")
+        grid_image, _ = result
 
     ocr_grid = prepare_grid_for_ocr(grid_image)
     return extract_cells(ocr_grid)
@@ -80,6 +100,7 @@ def evaluate_single_grid(pred, truth):
                     fp_blank += 1
 
     return {
+        "grid_exact": pred == truth,
         "givens_total": total,
         "givens_hit": matched,
         "givens_recall": (matched / total) if total else 0.0,
@@ -91,17 +112,19 @@ def evaluate_single_grid(pred, truth):
 
 
 def merge_metrics(all_metrics):
-    agg = {
+    agg: dict[str, int | float] = {
         "givens_total": 0,
         "givens_hit": 0,
         "digit9_total": 0,
         "digit9_hit": 0,
         "false_positive_blank": 0,
+        "grid_exact": 0,
+        "solution_exact": 0,
     }
 
     for m in all_metrics:
         for k in agg:
-            agg[k] += m[k]
+            agg[k] += m.get(k, 0)
 
     agg["givens_recall"] = (
         agg["givens_hit"] / agg["givens_total"] if agg["givens_total"] else 0.0
@@ -109,6 +132,8 @@ def merge_metrics(all_metrics):
     agg["digit9_recall"] = (
         agg["digit9_hit"] / agg["digit9_total"] if agg["digit9_total"] else 0.0
     )
+    agg["images"] = len(all_metrics)
+    agg["grid_exact_rate"] = agg["grid_exact"] / len(all_metrics) if all_metrics else 0.0
     return agg
 
 
@@ -122,16 +147,35 @@ def main() -> int:
     if not cnn_reader.is_ready:
         raise RuntimeError(cnn_reader.load_error or "CNN model not ready")
 
+    labels = {name: grid for name, grid in labels.items() if any(fnmatch.fnmatch(name, pattern) for pattern in args.image_pattern)}
+    if not labels:
+        raise ValueError("No labeled images match --image-pattern")
+    detector = {"opencv": OpenCVGridDetector, "corner": CornerCnnDetector}.get(args.detector)
+    detector = detector() if detector else None
+    corners_by_name = {}
+    if args.detector == "gt":
+        corners_by_name = load_corner_labels(args.corners)
     cnn_metrics = []
+    per_image = {}
+    solver = SudokuSolver()
 
     for image_name, truth in labels.items():
-        image_path = resolve_image_path(image_name, args.labels)
-        cells = load_cells_for_image(image_path)
-
-        cnn_grid = cnn_reader.recognize_grid(cells)
-        cnn_m = evaluate_single_grid(cnn_grid, truth)
+        try:
+            image_path = resolve_image_path(image_name, args.labels)
+            corners = corners_by_name[image_path.name] if args.detector == "gt" else None
+            cells = load_cells_for_image(image_path, detector, corners)
+            cnn_grid = cnn_reader.recognize_grid(cells)
+            cnn_m = evaluate_single_grid(cnn_grid, truth)
+            solution = solver.solve(cnn_grid)
+            expected = solver.solve(truth)
+            cnn_m["solution_exact"] = solution is not None and expected is not None and solution == expected
+            cnn_m["predicted"] = cnn_grid
+        except (ValueError, FileNotFoundError, KeyError) as exc:
+            cnn_m = evaluate_single_grid([[0] * 9 for _ in range(9)], truth)
+            cnn_m.update(grid_exact=False, solution_exact=False, error=str(exc))
         cnn_metrics.append(cnn_m)
-        print(f"[CNN] {image_name}: {cnn_m}")
+        per_image[image_name] = cnn_m
+        print(f"[CNN/{args.detector}] {image_name}: " + str({k: v for k, v in cnn_m.items() if k != "predicted"}))
 
     print("\n=== Aggregate ===")
     aggregate = merge_metrics(cnn_metrics)
@@ -140,10 +184,10 @@ def main() -> int:
     if args.output_json is not None:
         args.output_json.parent.mkdir(parents=True, exist_ok=True)
         with args.output_json.open("w", encoding="utf-8") as f:
-            json.dump({"cnn": aggregate}, f, ensure_ascii=False, indent=2)
+            json.dump({"model": str(args.cnn_model.resolve()), "detector": args.detector, "cnn": aggregate, "per_image": per_image}, f, ensure_ascii=False, indent=2)
         print(f"Saved metrics JSON: {args.output_json}")
 
-    return 0
+    return int(args.strict and (aggregate["grid_exact"] != len(labels) or aggregate["solution_exact"] != len(labels)))
 
 
 if __name__ == "__main__":

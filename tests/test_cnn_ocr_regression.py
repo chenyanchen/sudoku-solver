@@ -52,7 +52,7 @@ def _recognize_sample_grid(reader: CnnDigitReader, image_name: str) -> list[list
     if grid_image is None:
         raise ValueError(f"Failed to detect Sudoku grid from: {image_path}")
 
-    ocr_grid = prepare_grid_for_ocr(grid_image)
+    ocr_grid = prepare_grid_for_ocr(grid_image[0])
     cells = extract_cells(ocr_grid)
     return reader.recognize_grid(cells)
 
@@ -128,7 +128,7 @@ def test_sudoku_20_framed_grid_detected():
     grid_image = detect_grid_image(image)
     assert grid_image is not None, "detect_grid_image returned None for sudoku_20"
 
-    gray = cv2.cvtColor(grid_image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(grid_image[0], cv2.COLOR_BGR2GRAY)
     assert _has_regular_grid_lines(gray), (
         "Warped grid from sudoku_20 does not have regular grid lines — "
         "likely detected the decorative border instead of the inner grid"

@@ -2,10 +2,30 @@
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
+
+import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_IMAGE_DIR = REPO_ROOT / "data" / "raw" / "images"
+DEFAULT_CORNERS = REPO_ROOT / "data" / "labels" / "sudoku_corners.csv"
+
+
+def load_corner_labels(path: Path) -> dict[str, np.ndarray]:
+    """Read normalized TL/TR/BR/BL labels without relying on ignored image copies."""
+    result = {}
+    with path.open(newline="", encoding="utf-8") as stream:
+        for row in csv.DictReader(stream):
+            name = row["image"]
+            corners = np.array([
+                [float(row[f"x_{corner}"]), float(row[f"y_{corner}"])]
+                for corner in ("tl", "tr", "br", "bl")
+            ], dtype=np.float32)
+            if name in result or not np.isfinite(corners).all() or np.any((corners < 0) | (corners > 1)):
+                raise ValueError(f"Duplicate or invalid corner label: {name}")
+            result[name] = corners
+    return result
 
 
 def resolve_image_path(image_ref: str, labels_path: Path) -> Path:

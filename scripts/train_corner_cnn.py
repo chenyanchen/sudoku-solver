@@ -408,7 +408,7 @@ def main() -> int:
             if metrics["warp_iou"] > best_warp_iou:
                 best_warp_iou = metrics["warp_iou"]
                 best_state = {
-                    "state_dict": {k: v.cpu() for k, v in model.state_dict().items()},
+                    "state_dict": {k: v.detach().cpu().clone() for k, v in model.state_dict().items()},
                     "version": args.version,
                     "input_size": INPUT_SIZE,
                     "best_warp_iou": best_warp_iou,

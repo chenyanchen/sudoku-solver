@@ -89,13 +89,14 @@ def prepare_grid_for_ocr(grid_img: np.ndarray) -> np.ndarray:
         if len(grid_img.shape) == 3
         else grid_img
     )
-    clahe = cv2.createCLAHE(clipLimit=5.0, tileGridSize=(2, 2))
-    enhanced = clahe.apply(gray)
-
-    if np.mean(enhanced) <= 128:
-        enhanced = cv2.bitwise_not(enhanced)
-
-    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+    if np.mean(gray) <= 128:
+        gray = cv2.bitwise_not(gray)
+    # Threshold against local lighting before cell-level Otsu can amplify shadows.
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+    binary = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 8,
+    )
+    return cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
 
 
 def _ocr_engine() -> str:

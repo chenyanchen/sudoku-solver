@@ -39,7 +39,7 @@ case "${1:-help}" in
     echo "=== Training CNN OCR ==="
     uv run python scripts/train_cnn_ocr.py \
       --labels data/labels/sudoku_labels.json \
-      --use-yolo --version 3.4.0
+      --corners data/labels/sudoku_corners.csv --version 3.5.2
     ;;
 
   release)
