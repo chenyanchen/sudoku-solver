@@ -7,6 +7,8 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+import onnxruntime as ort
 import torch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -61,13 +63,19 @@ def main() -> int:
 
     torch.onnx.export(
         model,
-        dummy,
+        (dummy,),
         str(args.output),
         input_names=["input"],
         output_names=["logits"],
         dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
         opset_version=args.opset,
     )
+
+    session = ort.InferenceSession(str(args.output), providers=["CPUExecutionProvider"])
+    with torch.no_grad():
+        expected = model(dummy).numpy()
+    actual = np.asarray(session.run(None, {"input": dummy.numpy()})[0])
+    np.testing.assert_allclose(actual, expected, rtol=1e-4, atol=1e-5)
 
     if args.quantize:
         from onnxruntime.quantization import QuantType, quantize_dynamic
@@ -85,6 +93,7 @@ def main() -> int:
         "class_values": class_values,
         "input_size": input_size,
         "arch": arch,
+        "best_score": payload.get("best_score"),
     }
     sidecar_path = args.output.with_suffix(".meta.json")
     with sidecar_path.open("w", encoding="utf-8") as f:

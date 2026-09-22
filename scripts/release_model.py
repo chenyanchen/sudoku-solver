@@ -15,7 +15,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-import mlflow
+from mlflow.entities import Run
 from mlflow.tracking import MlflowClient
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -43,12 +43,15 @@ def _write_release_metadata(
     artifact_path: Path,
     model_type: str,
     model_version: str,
-    run: mlflow.entities.Run,
+    run: Run,
     metric_name: str,
     metric_value: float,
     extra: dict[str, object] | None = None,
 ) -> None:
-    payload: dict[str, object] = {
+    meta_path = artifact_path.with_suffix(".meta.json")
+    # Preserve exporter metadata: class order, input size and training version.
+    payload: dict[str, object] = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    payload.update({
         "model_type": model_type,
         "model_version": model_version,
         "source_run_id": run.info.run_id,
@@ -57,7 +60,7 @@ def _write_release_metadata(
         "source_metric_value": metric_value,
         "source_git_commit": run.data.tags.get("git_commit"),
         "released_at_utc": datetime.now(UTC).isoformat(),
-    }
+    })
     if extra:
         payload.update(extra)
     artifact_path.with_suffix(".meta.json").write_text(
@@ -68,10 +71,11 @@ def release_cnn(run_id: str, release_version: str) -> int:
     client = MlflowClient()
     run = client.get_run(run_id)
 
-    score = run.data.metrics.get("score", 0.0)
+    history = client.get_metric_history(run_id, "score")
+    score = max((metric.value for metric in history), default=0.0)
     training_version = run.data.params.get("version")
 
-    print(f"CNN Release")
+    print("CNN Release")
     print(f"  Run ID:  {run_id}")
     print(f"  Score:   {score:.4f}")
     print(f"  Version: {release_version}")
@@ -89,6 +93,8 @@ def release_cnn(run_id: str, release_version: str) -> int:
 
         # Run export
         output_path = RELEASES_DIR / f"sudoku_digit_cnn_{release_version}.onnx"
+        if output_path.exists():
+            raise SystemExit(f"Release already exists: {output_path}")
         result = subprocess.run(
             [
                 sys.executable, str(REPO_ROOT / "scripts" / "export_cnn_onnx.py"),
@@ -100,10 +106,14 @@ def release_cnn(run_id: str, release_version: str) -> int:
         if result.returncode != 0:
             raise SystemExit(f"ONNX export failed with code {result.returncode}")
 
-        # Update canonical symlink (matches YOLO's yolo_grid_detect.onnx pattern)
-        canonical = RELEASES_DIR / "sudoku_digit_cnn.onnx"
-        canonical.unlink(missing_ok=True)
-        canonical.symlink_to(output_path.name)
+        # Release gate uses original photos through the production detector chain.
+        # A solvable but incorrectly recognized board must not pass.
+        subprocess.run([
+            sys.executable, str(REPO_ROOT / "scripts" / "eval_cnn_ocr.py"),
+            "--cnn-model", str(output_path), "--strict",
+            "--image-pattern", "IMG_86*.jpg", "IMG_870[0-8].jpg",
+            "sudoku_2.jpg", "sudoku_3.jpg",
+        ], cwd=REPO_ROOT, check=True)
 
         _write_release_metadata(
             artifact_path=output_path,
@@ -112,8 +122,11 @@ def release_cnn(run_id: str, release_version: str) -> int:
             run=run,
             metric_name="score",
             metric_value=score,
-            extra={"training_version": training_version},
+            extra={"training_version": training_version, "preprocessing": "local_adaptive_v1"},
         )
+        canonical = RELEASES_DIR / "sudoku_digit_cnn.onnx"
+        canonical.unlink(missing_ok=True)
+        canonical.symlink_to(output_path.name)
 
     print(f"  Output:  {output_path}")
     return 0

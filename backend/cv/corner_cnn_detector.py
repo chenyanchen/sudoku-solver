@@ -9,7 +9,8 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from .detector import DetectionResult
+from .detector import DetectionResult, warp_grid
+from .grid_detector import _has_regular_grid_lines
 
 LOGGER = logging.getLogger(__name__)
 
@@ -71,14 +72,14 @@ class CornerCnnDetector:
             self._load_error = str(exc)
 
     def detect(self, image: np.ndarray) -> DetectionResult | None:
-        if not self.is_ready:
+        if self._session is None:
             return None
 
         h_orig, w_orig = image.shape[:2]
         blob, scale, pad_x, pad_y = self._preprocess(image)
 
         outputs = self._session.run(None, {self._input_name: blob})
-        raw = outputs[0][0]  # shape: (8,)
+        raw = np.asarray(outputs[0])[0]  # shape: (8,)
 
         # raw is [x_tl, y_tl, x_tr, y_tr, x_br, y_br, x_bl, y_bl] in [0, 1]
         # relative to the 256x256 letterboxed input
@@ -96,6 +97,12 @@ class CornerCnnDetector:
             corners[i, 1] = max(0.0, min(corners_raw[i, 1], h_orig - 1))
 
         self.last_confidence = self._geometric_confidence(corners_raw, corners, w_orig, h_orig)
+        if not np.isfinite(corners_raw).all() or not cv2.isContourConvex(corners):
+            return None
+        # A plausible quadrilateral is not evidence of a Sudoku grid.
+        gray = cv2.cvtColor(warp_grid(image, corners), cv2.COLOR_BGR2GRAY)
+        if not _has_regular_grid_lines(gray):
+            return None
 
         return DetectionResult(
             corners=corners,

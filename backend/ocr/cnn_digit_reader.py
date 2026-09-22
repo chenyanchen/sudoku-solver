@@ -118,7 +118,7 @@ class CnnDigitReader:
         for idx in range(81):
             probs = all_probs[idx]
             candidates = self._top_digit_candidates(probs)
-            value, conf = self._select_value(probs)
+            value, conf = self._select_value(probs, digit_threshold)
 
             if 1 <= value <= 9 and conf >= digit_threshold:
                 cell_digits.append(value)
@@ -145,7 +145,7 @@ class CnnDigitReader:
             for j, idx in enumerate(recheck_indices):
                 probs_r = recheck_probs[j]
                 cands_r = self._top_digit_candidates(probs_r)
-                val_r, conf_r = self._select_value(probs_r)
+                val_r, conf_r = self._select_value(probs_r, digit_threshold)
 
                 primary_value = cell_digits[idx]
                 primary_conf = cell_confidences[idx]
@@ -281,7 +281,7 @@ class CnnDigitReader:
             self._class_values = list(range(10))
 
     def _load_metadata_sidecar(self) -> None:
-        meta_path = self.model_path.with_suffix(".meta.json")
+        meta_path = self.model_path.resolve().with_suffix(".meta.json")
         if not meta_path.exists():
             return
 
@@ -289,7 +289,7 @@ class CnnDigitReader:
             with meta_path.open("r", encoding="utf-8") as f:
                 meta = json.load(f)
 
-            version = meta.get("version")
+            version = meta.get("model_version") or meta.get("version")
             if isinstance(version, str) and version.strip():
                 self._model_version = version.strip()
 
@@ -321,7 +321,7 @@ class CnnDigitReader:
 
         probs_primary = self._predict_probs(normalized)
         candidates_primary = self._top_digit_candidates(probs_primary)
-        primary_value, primary_conf = self._select_value(probs_primary)
+        primary_value, primary_conf = self._select_value(probs_primary, digit_threshold)
 
         # Non-blank prediction with enough confidence.
         if 1 <= primary_value <= 9 and primary_conf >= digit_threshold:
@@ -335,7 +335,7 @@ class CnnDigitReader:
         recheck = self._make_blank_recheck_variant(normalized)
         probs_recheck = self._predict_probs(recheck)
         candidates_recheck = self._top_digit_candidates(probs_recheck)
-        recheck_value, recheck_conf = self._select_value(probs_recheck)
+        recheck_value, recheck_conf = self._select_value(probs_recheck, digit_threshold)
 
         if 1 <= recheck_value <= 9 and recheck_conf >= digit_threshold:
             return recheck_value, recheck_conf, candidates_recheck
@@ -350,6 +350,7 @@ class CnnDigitReader:
         return 0, primary_conf, candidates_primary
 
     def _predict_probs(self, image: np.ndarray) -> np.ndarray:
+        assert self._session is not None, "CNN model is not ready"
         tensor = self._to_tensor(image)
         outputs = self._session.run([self._output_name], {self._input_name: tensor})
         logits = np.asarray(outputs[0], dtype=np.float32)
@@ -363,6 +364,7 @@ class CnnDigitReader:
 
     def _predict_probs_batch(self, images: list[np.ndarray]) -> np.ndarray:
         """Batch inference: return (N, num_classes) probability matrix."""
+        assert self._session is not None, "CNN model is not ready"
         tensors = [self._to_tensor(img) for img in images]
         batch = np.concatenate(tensors, axis=0)  # (N, 1, H, W) or (N, H, W, 1)
         outputs = self._session.run([self._output_name], {self._input_name: batch})
@@ -392,7 +394,7 @@ class CnnDigitReader:
             tensor = image_f[None, None, :, :]
         return tensor.astype(np.float32)
 
-    def _select_value(self, probs: np.ndarray) -> tuple[int, float]:
+    def _select_value(self, probs: np.ndarray, digit_threshold: float) -> tuple[int, float]:
         index = int(np.argmax(probs))
         conf = float(probs[index])
 
@@ -402,6 +404,9 @@ class CnnDigitReader:
         value = self._class_values[index]
         if value == -1:
             return 0, conf
+        if value != 0 and conf < digit_threshold:
+            # Unknown digit is not a given; retain the actual blank probability.
+            return 0, float(probs[self._class_values.index(0)])
         return value, conf
 
     def _top_digit_candidates(self, probs: np.ndarray) -> list[tuple[int, float]]:

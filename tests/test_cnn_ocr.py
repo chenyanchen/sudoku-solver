@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from backend.api import routes
@@ -44,6 +45,20 @@ def test_constraint_rerank_resolves_low_conflict():
 
     assert reranked[0][0] == 5
     assert reranked[0][1] == 3
+
+
+def test_uncertain_digit_is_not_promoted_by_recheck(monkeypatch):
+    reader = CnnDigitReader(model_path="missing.onnx")
+    reader._class_values = list(range(10))
+    probs = np.array([0.30, 0.40] + [0.30 / 8] * 8, dtype=np.float32)
+    monkeypatch.setattr(reader, "_ensure_ready", lambda: None)
+    monkeypatch.setattr(reader, "_predict_probs", lambda image: probs)
+    monkeypatch.setattr(reader, "_predict_probs_batch", lambda images: np.tile(probs, (len(images), 1)))
+    cell = np.full((48, 48), 255, dtype=np.uint8)
+    assert reader.predict_cell(cell)[0] is None
+    assert reader.recognize_grid([cell] * 81) == [[0] * 9 for _ in range(9)]
+    # The call-specific threshold must still be honored.
+    assert reader.recognize_grid([cell] * 81, threshold=0.35)[0][0] == 1
 
 
 def test_is_valid_placement_checks_row_col_box():

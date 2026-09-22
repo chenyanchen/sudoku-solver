@@ -217,6 +217,7 @@ __marimo__/
 
 # Debug cell images
 debug_cells_*/
+tmp/photo-diagnosis/
 
 # ML training artifacts
 models/checkpoints/

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import copy
+import hashlib
 import json
 import random
 import subprocess
@@ -19,10 +21,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts._paths import resolve_image_path
+from scripts._paths import DEFAULT_CORNERS, load_corner_labels, resolve_image_path
 
-from backend.api.routes import detect_grid_image, prepare_grid_for_ocr
+from backend.api.routes import prepare_grid_for_ocr
 from backend.cv.cell_extractor import clean_cell, extract_cells
+from backend.cv.detector import warp_grid
 from backend.ocr.model_arch import create_model
 
 import mlflow
@@ -54,6 +57,7 @@ def _import_torch():
 class CellSample:
     image: np.ndarray
     label: int
+    source: str  # Same givens share a split, including duplicate source images.
 
 
 class SudokuCellDataset:
@@ -116,20 +120,12 @@ def apply_augmentations(image: np.ndarray) -> np.ndarray:
 def build_samples(
     labels_path: Path,
     input_size: int,
-    use_yolo: bool = False,
-    yolo_model_path: str | None = None,
+    corners_path: Path = DEFAULT_CORNERS,
 ) -> list[CellSample]:
     with labels_path.open("r", encoding="utf-8") as f:
         labels_data = json.load(f)
 
-    yolo_detector = None
-    if use_yolo:
-        from backend.cv.yolo_detector import YoloGridDetector
-        yolo_detector = YoloGridDetector(model_path=yolo_model_path)
-        if not yolo_detector.is_ready:
-            raise RuntimeError(
-                f"YOLO detector failed to load: {yolo_detector.load_error}"
-            )
+    corners_by_name = load_corner_labels(corners_path)
 
     samples: list[CellSample] = []
 
@@ -139,17 +135,12 @@ def build_samples(
         if image is None:
             raise FileNotFoundError(f"Image not found or unreadable: {image_path}")
 
-        if yolo_detector is not None:
-            det = yolo_detector.detect(image)
-            if det is None:
-                raise ValueError(f"YOLO could not detect grid in {image_path}")
-            from backend.cv.detector import warp_grid
-            warped = warp_grid(image, det.corners)
-        else:
-            result = detect_grid_image(image)
-            if result is None:
-                raise ValueError(f"Could not detect Sudoku grid in image: {image_path}")
-            warped = result[0]
+        corners = corners_by_name.get(image_path.name)
+        if corners is None:
+            raise ValueError(f"Missing ground-truth corners for {image_name}")
+        h, w = image.shape[:2]
+        warped = warp_grid(image, corners * np.array([w, h]))
+        source = json.dumps(grid)
 
         ocr_grid = prepare_grid_for_ocr(warped)
         cells = extract_cells(ocr_grid)
@@ -161,32 +152,25 @@ def build_samples(
                 label = int(grid[row][col])
                 cell = cells[row * 9 + col]
                 cleaned = clean_cell(cell, cell_size=input_size)
-                samples.append(CellSample(image=cleaned, label=label))
+                samples.append(CellSample(image=cleaned, label=label, source=source))
 
     return samples
 
 
-def stratified_split(
+def grouped_split(
     samples: list[CellSample], val_ratio: float, seed: int
 ) -> tuple[list[CellSample], list[CellSample]]:
-    random.seed(seed)
-
-    grouped: dict[int, list[CellSample]] = {}
-    for sample in samples:
-        grouped.setdefault(sample.label, []).append(sample)
-
-    train: list[CellSample] = []
-    val: list[CellSample] = []
-
-    for label, group in grouped.items():
-        random.shuffle(group)
-        val_count = max(1, int(len(group) * val_ratio))
-        val.extend(group[:val_count])
-        train.extend(group[val_count:])
-
-    random.shuffle(train)
-    random.shuffle(val)
-    return train, val
+    """Keep every cell of a puzzle (including duplicate images) in one split."""
+    sources = sorted({sample.source for sample in samples})
+    if not 0 < val_ratio < 1 or len(sources) < 2:
+        raise ValueError("Need at least two puzzles and 0 < val_ratio < 1")
+    random.Random(seed).shuffle(sources)
+    val_count = min(len(sources) - 1, max(1, round(len(sources) * val_ratio)))
+    val_sources = set(sources[:val_count])
+    return (
+        [sample for sample in samples if sample.source not in val_sources],
+        [sample for sample in samples if sample.source in val_sources],
+    )
 
 
 def compute_metrics(logits, labels):
@@ -291,15 +275,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--patience", type=int, default=12)
     parser.add_argument("--version", type=str, default="1.0.0")
     parser.add_argument(
-        "--use-yolo",
-        action="store_true",
-        help="Use YOLO detector for grid extraction instead of OpenCV",
-    )
-    parser.add_argument(
-        "--yolo-model",
-        type=str,
-        default=None,
-        help="Path to YOLO ONNX model (default: models/releases/yolo_grid_detect.onnx)",
+        "--corners", type=Path, default=DEFAULT_CORNERS,
+        help="Reviewed corner CSV; never train on predicted crops",
     )
     return parser.parse_args()
 
@@ -316,14 +293,14 @@ def main() -> int:
 
     samples = build_samples(
         args.labels, args.input_size,
-        use_yolo=args.use_yolo, yolo_model_path=args.yolo_model,
+        corners_path=args.corners,
     )
     if len(samples) < 50:
         raise RuntimeError(
             "Training dataset is too small. Add more labeled Sudoku images first."
         )
 
-    train_samples, val_samples = stratified_split(samples, args.val_ratio, args.seed)
+    train_samples, val_samples = grouped_split(samples, args.val_ratio, args.seed)
     train_dataset = SudokuCellDataset(train_samples, augment=True).impl
     val_dataset = SudokuCellDataset(val_samples, augment=False).impl
 
@@ -374,9 +351,19 @@ def main() -> int:
             "scheduler": "CosineAnnealingLR",
             "num_train_samples": len(train_samples),
             "num_val_samples": len(val_samples),
-            "use_yolo": args.use_yolo,
+            "crop_source": "ground_truth",
+            "split": "puzzle_group",
+            "corners": str(args.corners),
         })
         mlflow.set_tag("git_commit", _git_commit_hash())
+        mlflow.set_tag("labels_sha256", hashlib.sha256(args.labels.read_bytes()).hexdigest())
+        mlflow.set_tag("corners_sha256", hashlib.sha256(args.corners.read_bytes()).hexdigest())
+        labels_by_image = json.loads(args.labels.read_text())
+        val_sources = {sample.source for sample in val_samples}
+        mlflow.log_dict({
+            "train": [name for name, grid in labels_by_image.items() if json.dumps(grid) not in val_sources],
+            "val": [name for name, grid in labels_by_image.items() if json.dumps(grid) in val_sources],
+        }, "split.json")
 
         best_score = -1.0
         best_state = None
@@ -444,7 +431,7 @@ def main() -> int:
             if is_best:
                 best_score = score
                 best_state = {
-                    "state_dict": model.state_dict(),
+                    "state_dict": copy.deepcopy(model.state_dict()),
                     "class_values": list(range(10)),
                     "input_size": args.input_size,
                     "version": args.version,

@@ -4,6 +4,25 @@ import pytest
 import numpy as np
 
 from backend.cv.corner_cnn_detector import CornerCnnDetector
+from backend.cv.detector import ChainDetector, DetectionResult
+
+
+def test_bad_corner_prediction_does_not_block_fallback(monkeypatch):
+    detector = CornerCnnDetector.__new__(CornerCnnDetector)
+    detector._input_name = "image"
+
+    class Session:
+        def run(self, *args):
+            return [np.array([[0.1, 0.1, 0.9, 0.1, 0.9, 0.9, 0.1, 0.9]], dtype=np.float32)]
+
+    monkeypatch.setattr(detector, "_session", Session(), raising=False)
+    expected = DetectionResult(np.zeros((4, 2), dtype=np.float32), "fallback")
+
+    class Fallback:
+        def detect(self, image):
+            return expected
+
+    assert ChainDetector([detector, Fallback()]).detect(np.full((450, 450, 3), 255, dtype=np.uint8)) is expected
 
 
 def test_geometric_confidence_prefers_valid_perspective_quad():
