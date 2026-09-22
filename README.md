@@ -2,6 +2,23 @@
 
 A universal Sudoku solver — from web uploads to real-time screen overlays, with a roadmap toward mobile and wearable devices.
 
+## Photo baseline
+
+Release `20260922.2` passes all 14 ordinary-photo regressions (`IMG_8695`–`IMG_8708`): exact recognition of all 81 cells and the correct solution through the Web API. These are known photographed-screen samples, not an independent generalization benchmark. Animated/decorative borders are not yet supported reliably.
+
+```bash
+CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_20260922.2.onnx \
+  uv run uvicorn backend.main:app --reload
+```
+
+Open http://localhost:8000 and upload a photo. Regression check:
+
+```bash
+uv run --extra dev pytest tests/test_photo_solver.py -q
+```
+
+See [photo solver progress](docs/photo-solver-progress.md) for corrected labels, root causes, evaluation commands and remaining limitations.
+
 ## Roadmap
 
 - [x] **Image solver** — Upload a photo, detect grid (OpenCV), recognize digits (Tesseract), solve (backtracking)
