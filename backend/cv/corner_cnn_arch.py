@@ -19,14 +19,15 @@ def create_corner_model():
     backbone = timm.create_model(
         "mobilenetv3_small_100",
         pretrained=True,
-        num_classes=0,  # remove classifier, return features
+        num_classes=0,
     )
-    feature_dim = backbone.num_features  # 576 for mobilenetv3_small
+    feature_dim = backbone.num_features
 
     class CornerRegressionCNN(nn.Module):
         def __init__(self):
             super().__init__()
             self.backbone = backbone
+            self.pool = nn.AdaptiveAvgPool2d(1)
             self.head = nn.Sequential(
                 nn.Linear(feature_dim, 64),
                 nn.ReLU(inplace=True),
@@ -36,7 +37,8 @@ def create_corner_model():
             )
 
         def forward(self, x):
-            features = self.backbone(x)
+            features = self.backbone.forward_features(x)
+            features = self.pool(features).flatten(1)
             return self.head(features)
 
     return CornerRegressionCNN()
