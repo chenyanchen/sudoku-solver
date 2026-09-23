@@ -23,7 +23,7 @@ from ..models.schemas import (
     SolveResponse,
 )
 from ..ocr.cnn_digit_reader import CnnDigitReader
-from ..solver.backtracking import SudokuSolver, is_valid_grid
+from ..solver.backtracking import SudokuSolver, is_valid_grid, is_valid_placement
 
 router = APIRouter()
 _CNN_READER: CnnDigitReader | None = None
@@ -196,6 +196,62 @@ async def solve_sudoku(request: SolveRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def recognize_with_border_retry(
+    reader: CnnDigitReader, ocr_grid: np.ndarray, cells: list[np.ndarray]
+) -> tuple[list[list[int]], dict]:
+    """Retry weak OCR on the cell centers, then accept only an unambiguous puzzle."""
+    grid, metadata = reader.recognize_grid_with_metadata(cells)
+    if sum(value != 0 for row in grid for value in row) >= 17:
+        return grid, metadata
+
+    # Thick screen grid lines survive the normal 1px cell border crop.
+    centered = [
+        ocr_grid[
+            r * 50 + 10 : (r + 1) * 50 - 10,
+            c * 50 + 10 : (c + 1) * 50 - 10,
+        ]
+        for r in range(9) for c in range(9)
+    ]
+    retry, retry_meta = reader.recognize_grid_with_metadata(centered, threshold=0.3)
+    retry_givens = sum(value != 0 for row in retry for value in row)
+    if retry_givens < 17 or retry_givens <= sum(
+        value != 0 for row in grid for value in row
+    ):
+        return grid, metadata
+
+    solver = SudokuSolver()
+    solutions = solver.count_solutions(retry, max_count=2)
+    if solutions == 1:
+        return retry, retry_meta
+    if solutions != 0:
+        return grid, metadata
+
+    # One uncertain glyph may be wrong even when all other cells are legible.
+    corrections = []
+    for pred in retry_meta["cell_predictions"]:
+        row, col = pred["row"], pred["col"]
+        old = retry[row][col]
+        if old == 0 or pred["confidence"] >= 0.8:
+            continue
+        for digit, prob in pred["candidates"]:
+            if (digit == old or prob < 0.15
+                    or not is_valid_placement(retry, row, col, digit)):
+                continue
+            retry[row][col] = digit
+            if solver.count_solutions(retry, max_count=2) == 1:
+                corrections.append((row, col, digit, prob))
+            retry[row][col] = old
+            if len(corrections) > 1:
+                return grid, metadata
+    if len(corrections) != 1:
+        return grid, metadata
+    row, col, digit, prob = corrections[0]
+    retry[row][col] = digit
+    prediction = retry_meta["cell_predictions"][row * 9 + col]
+    prediction["value"], prediction["confidence"] = digit, prob
+    return retry, retry_meta
+
+
 @router.post(
     "/api/v1/sudoku:recognize",
     response_model=RecognizeResponse,
@@ -241,7 +297,7 @@ async def recognize_sudoku(image: UploadFile = File(...)):
             )
 
         ocr_start = time.perf_counter()
-        grid, metadata = reader.recognize_grid_with_metadata(cells, threshold=None)
+        grid, metadata = recognize_with_border_retry(reader, ocr_grid, cells)
         ocr_latency_ms = (time.perf_counter() - ocr_start) * 1000.0
 
         given_cells = sum(1 for row in grid for cell in row if cell != 0)
