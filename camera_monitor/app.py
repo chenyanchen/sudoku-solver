@@ -11,30 +11,19 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 import cv2
-import numpy as np
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
 from backend.cv.detector import warp_grid
 from backend.ocr.cnn_digit_reader import CnnDigitReader
+from backend.ocr.pipeline import recognize
 from screen_monitor.renderer import compute_hint_positions
-from screen_monitor.solver_pipeline import ocr_grid_from_warped, solve_from_grid
 
 from . import ProcessingResult
 from .widget import CameraWidget
 from .yolo_detector import YoloGridDetector
 
 LOGGER = logging.getLogger("camera_monitor")
-
-
-def _prepare_grid_for_camera_ocr(grid_img: np.ndarray) -> np.ndarray:
-    """Camera-optimized preprocessing: apply CLAHE for uneven lighting."""
-    gray = cv2.cvtColor(grid_img, cv2.COLOR_BGR2GRAY) if len(grid_img.shape) == 3 else grid_img
-    clahe = cv2.createCLAHE(clipLimit=5.0, tileGridSize=(2, 2))
-    enhanced = clahe.apply(gray)
-    if np.mean(enhanced) <= 128:
-        enhanced = cv2.bitwise_not(enhanced)
-    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
 
 
 @dataclass
@@ -94,49 +83,36 @@ def _processing_loop(
             warped = warp_grid(frame, corners)
             LOGGER.info("YOLO: conf=%.2f detector=%s", detector.last_confidence, det.detector_name)
 
-            # OCR (camera needs CLAHE for uneven lighting).
-            ocr_result, reason, givens = ocr_grid_from_warped(
-                warped, reader, config.min_givens,
-                prepare_fn=_prepare_grid_for_camera_ocr,
-            )
-            if ocr_result is None:
-                LOGGER.info("OCR failed: reason=%s givens=%d", reason, givens)
+            result = recognize(reader, warped)
+            givens = result.givens
+            avg_conf = result.metadata.get("average_confidence")
+            if givens < config.min_givens or (
+                avg_conf is not None and avg_conf < config.min_confidence
+            ):
+                LOGGER.info("OCR rejected: givens=%d avg_conf=%s", givens, avg_conf)
                 result_holder.set(ProcessingResult(
                     corners=corners, warped=warped, givens=givens,
                 ))
                 continue
 
-            # Gate: reject low-confidence OCR results.
-            avg_conf = ocr_result.get("metadata", {}).get("average_confidence")
-            if avg_conf is not None and avg_conf < config.min_confidence:
-                LOGGER.info("OCR rejected: avg_conf=%.2f < %.2f",
-                            avg_conf, config.min_confidence)
-                result_holder.set(ProcessingResult(
-                    corners=corners, warped=warped, givens=givens,
-                ))
-                continue
-
-            # Solve.
-            payload, solve_reason = solve_from_grid(ocr_result)
-            if payload is None:
-                LOGGER.info("Solve failed: reason=%s givens=%d", solve_reason, givens)
+            if result.solution is None:
+                LOGGER.info("Solve failed: status=%s givens=%d", result.status, givens)
                 result_holder.set(ProcessingResult(
                     corners=corners, warped=warped,
-                    original_grid=ocr_result["original_grid"],
+                    original_grid=result.grid,
                     givens=givens,
                 ))
                 continue
 
-            hints = payload["hints"]
             positioned = compute_hint_positions(
-                corners, hints, (0.0, 0.0), (1.0, 1.0),
+                corners, result.hints, (0.0, 0.0), (1.0, 1.0),
             )
 
             result_holder.set(ProcessingResult(
                 corners=corners,
                 warped=warped,
-                original_grid=payload["original_grid"],
-                solved_grid=payload["solved_grid"],
+                original_grid=result.grid,
+                solved_grid=result.solution,
                 hints=positioned,
                 givens=givens,
             ))

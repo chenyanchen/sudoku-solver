@@ -101,17 +101,12 @@ def predict_ocr(
     else:
         warped = cv2.resize(image, (450, 450))
 
-    from screen_monitor.solver_pipeline import ocr_grid_from_warped
-    from backend.solver.backtracking import SudokuSolver
+    from backend.ocr.pipeline import recognize
 
-    ocr_result, _reason, _givens = ocr_grid_from_warped(warped, cnn, min_givens=0)
-    if ocr_result is None:
-        return [], 0.0
-
-    grid = ocr_result["original_grid"]
-    avg_conf = ocr_result.get("metadata", {}).get("average_confidence", 0.0) or 0.0
-    solved = SudokuSolver().solve(grid) is not None
-    score = float(avg_conf) if solved else 0.0
+    result = recognize(cnn, warped)
+    grid = result.grid
+    avg_conf = result.metadata.get("average_confidence") or 0.0
+    score = float(avg_conf) if result.solution is not None else 0.0
     from_name, to_name = extract_textarea_binding(parsed_label_config)
     result = [
         {

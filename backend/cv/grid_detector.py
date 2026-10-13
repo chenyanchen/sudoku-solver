@@ -674,7 +674,7 @@ def find_grid_with_debug(
 
         # Build 9×9 cells montage.
         try:
-            from backend.api.routes import prepare_grid_for_ocr
+            from backend.ocr.pipeline import prepare_grid_for_ocr
             from backend.cv.cell_extractor import extract_cells
 
             ocr_grid = prepare_grid_for_ocr(warped)

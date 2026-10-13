@@ -12,7 +12,6 @@ import cv2
 import numpy as np
 
 from ..cv.cell_extractor import clean_cell
-from ..solver.backtracking import is_valid_placement
 
 DEFAULT_CNN_MODEL = (
     Path(__file__).resolve().parents[2]
@@ -35,7 +34,6 @@ class CnnDigitReader:
         model_path: str | os.PathLike[str] | None = None,
         blank_threshold: float = 0.75,
         digit_threshold: float = 0.55,
-        rerank_confidence: float = 0.80,
         top_k_candidates: int = 4,
         strict: bool = False,
     ):
@@ -43,7 +41,6 @@ class CnnDigitReader:
         self.model_path = Path(resolved)
         self.blank_threshold = blank_threshold
         self.digit_threshold = digit_threshold
-        self.rerank_confidence = rerank_confidence
         self.top_k_candidates = max(1, top_k_candidates)
         self.strict = strict
 
@@ -162,7 +159,6 @@ class CnnDigitReader:
                     cell_candidates[idx] = cands_r
 
         grid = [cell_digits[i * 9 : (i + 1) * 9] for i in range(9)]
-        grid = self._rerank_with_constraints(grid, cell_confidences, cell_candidates)
 
         recognized_confidences = [
             cell_confidences[i]
@@ -179,13 +175,6 @@ class CnnDigitReader:
         for idx in range(81):
             value = int(flat_grid[idx])
             confidence = float(cell_confidences[idx])
-            # If rerank changed value, use candidate prob when available.
-            if value != int(cell_digits[idx]):
-                for digit, prob in cell_candidates[idx]:
-                    if int(digit) == value:
-                        confidence = float(prob)
-                        break
-
             cell_predictions.append(
                 {
                     "index": idx,
@@ -425,66 +414,6 @@ class CnnDigitReader:
                 break
 
         return out
-
-    def _rerank_with_constraints(
-        self,
-        grid: list[list[int]],
-        confidences: list[float],
-        candidates: list[list[tuple[int, float]]],
-    ) -> list[list[int]]:
-        """Apply lightweight Sudoku-constraint rerank on uncertain cells."""
-        reranked = [row[:] for row in grid]
-
-        # Remember which cells were originally blank — never fill these.
-        originally_blank: set[int] = set()
-        for row in range(9):
-            for col in range(9):
-                if reranked[row][col] == 0:
-                    originally_blank.add(row * 9 + col)
-
-        # Drop obviously invalid low-confidence digits first.
-        for row in range(9):
-            for col in range(9):
-                idx = row * 9 + col
-                val = reranked[row][col]
-                if val == 0:
-                    continue
-                if confidences[idx] >= self.rerank_confidence:
-                    continue
-                if not is_valid_placement(reranked, row, col, val):
-                    reranked[row][col] = 0
-
-        unresolved = []
-        for row in range(9):
-            for col in range(9):
-                idx = row * 9 + col
-                if idx in originally_blank:
-                    continue  # Never fill originally blank cells
-                if reranked[row][col] == 0 or confidences[idx] < self.rerank_confidence:
-                    unresolved.append((row, col, idx))
-
-        unresolved.sort(key=lambda item: confidences[item[2]])
-
-        for _ in range(2):
-            changed = False
-            for row, col, idx in unresolved:
-                current = reranked[row][col]
-
-                if current != 0 and is_valid_placement(reranked, row, col, current):
-                    continue
-
-                for digit, prob in candidates[idx]:
-                    if prob < 0.15:
-                        continue
-                    if is_valid_placement(reranked, row, col, digit):
-                        if current != digit:
-                            reranked[row][col] = digit
-                            changed = True
-                        break
-            if not changed:
-                break
-
-        return reranked
 
     def _make_blank_recheck_variant(self, image: np.ndarray) -> np.ndarray:
         blurred = cv2.GaussianBlur(image, (3, 3), 0)

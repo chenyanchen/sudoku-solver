@@ -7,7 +7,8 @@ import os
 import cv2
 import pytest
 
-from backend.api.routes import detect_grid_image, prepare_grid_for_ocr
+from backend.api.routes import detect_grid_image
+from backend.ocr.pipeline import prepare_grid_for_ocr
 from backend.cv.cell_extractor import extract_cells
 from backend.cv.grid_detector import _has_regular_grid_lines
 from backend.ocr.cnn_digit_reader import CnnDigitReader

@@ -342,47 +342,6 @@ def test_grid_signature_differs_for_different_digits():
     assert sig_blank != sig_digit
 
 
-# ---------------------------------------------------------------------------
-# Fix 2: puzzle_cache (solver not re-called for same digits)
-# ---------------------------------------------------------------------------
-
-
-def test_puzzle_cache_prevents_redundant_solve():
-    """When puzzle_signature matches, solver should not be called again."""
-    from unittest.mock import MagicMock, patch
-    from screen_monitor.solver_pipeline import solve_from_grid
-
-    grid = [[0]*9 for _ in range(9)]
-    grid[0][0] = 5
-    grid[0][1] = 3
-
-    ocr_result = {
-        "original_grid": grid,
-        "metadata": {},
-        "givens": 2,
-        "_timing": {"extract_cells_ms": 1.0, "ocr_ms": 2.0},
-    }
-
-    # First call: solver runs.
-    with patch("screen_monitor.solver_pipeline.SudokuSolver") as MockSolver:
-        mock_instance = MagicMock()
-        mock_instance.solve.return_value = None  # unsolvable
-        MockSolver.return_value = mock_instance
-        solve_from_grid(ocr_result)
-        assert mock_instance.solve.call_count == 1
-
-    # Verify puzzle_signature is deterministic for same grid.
-    sig1 = puzzle_signature(grid)
-    sig2 = puzzle_signature(grid)
-    assert sig1 == sig2
-
-    # Different grid → different signature.
-    grid2 = [row[:] for row in grid]
-    grid2[0][0] = 7
-    sig3 = puzzle_signature(grid2)
-    assert sig1 != sig3
-
-
 def test_prepare_frame_reports_changed_regions_against_previous_thumb():
     from screen_monitor.agent import _prepare_frame
 

@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from backend.ocr.cnn_digit_reader import CnnDigitReader
 from camera_monitor.yolo_detector import YoloGridDetector
-from screen_monitor.solver_pipeline import solve_hints_from_warped
+from backend.ocr.pipeline import recognize
 
 
 def main() -> int:
@@ -54,20 +54,20 @@ def main() -> int:
         print(f"CNN model error: {reader.load_error}")
         return 1
 
-    payload, reason, givens = solve_hints_from_warped(warped, reader, min_givens=17)
-    print(f"  OCR: {reason}, givens={givens}")
+    result = recognize(reader, warped)
+    print(f"  OCR: {result.status}, givens={result.givens}")
 
-    if payload is None:
+    if result.solution is None:
         print("  Solve failed")
         return 1
 
-    print(f"  Solved! {len(payload['hints'])} hints")
+    print(f"  Solved! {len(result.hints)} hints")
     print("\n  Original grid:")
-    for row in payload["original_grid"]:
+    for row in result.grid:
         print("   ", " ".join(str(d) if d else "." for d in row))
 
     print("\n  Solution:")
-    for row in payload["solved_grid"]:
+    for row in result.solution:
         print("   ", " ".join(str(d) for d in row))
 
     # Draw result.

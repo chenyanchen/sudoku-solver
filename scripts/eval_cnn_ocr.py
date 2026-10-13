@@ -17,7 +17,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts._paths import DEFAULT_CORNERS, load_corner_labels, resolve_image_path
 
-from backend.api.routes import detect_grid_image, prepare_grid_for_ocr
+from backend.api.routes import detect_grid_image
+from backend.ocr.pipeline import prepare_grid_for_ocr
 from backend.cv.cell_extractor import extract_cells
 from backend.ocr.cnn_digit_reader import CnnDigitReader, DEFAULT_CNN_MODEL
 from backend.cv.detector import warp_grid
