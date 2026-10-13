@@ -201,7 +201,10 @@ def recognize_with_border_retry(
 ) -> tuple[list[list[int]], dict]:
     """Retry weak OCR on the cell centers, then accept only an unambiguous puzzle."""
     grid, metadata = reader.recognize_grid_with_metadata(cells)
-    if sum(value != 0 for row in grid for value in row) >= 17:
+    solver = SudokuSolver()
+    # Missed givens leave a valid but ambiguous puzzle; only a unique one is trusted.
+    if (sum(value != 0 for row in grid for value in row) >= 17
+            and solver.count_solutions(grid, max_count=2) == 1):
         return grid, metadata
 
     # Thick screen grid lines survive the normal 1px cell border crop.
@@ -219,7 +222,6 @@ def recognize_with_border_retry(
     ):
         return grid, metadata
 
-    solver = SudokuSolver()
     solutions = solver.count_solutions(retry, max_count=2)
     if solutions == 1:
         return retry, retry_meta
