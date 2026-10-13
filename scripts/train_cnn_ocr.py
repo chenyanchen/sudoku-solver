@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import argparse
 import copy
-import hashlib
 import json
 import random
-import subprocess
 import sys
 import tempfile
 import time
@@ -22,6 +20,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts._paths import DEFAULT_CORNERS, load_corner_labels, resolve_image_path
+from scripts._provenance import file_sha256, git_state
 
 from backend.ocr.pipeline import ocr_cells, prepare_grid_for_ocr
 from backend.cv.cell_extractor import clean_cell
@@ -29,15 +28,6 @@ from backend.cv.detector import warp_grid
 from backend.ocr.model_arch import create_model
 
 import mlflow
-
-
-def _git_commit_hash() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True
-        ).strip()
-    except Exception:
-        return "unknown"
 
 
 def _import_torch():
@@ -272,6 +262,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--patience", type=int, default=12)
     parser.add_argument("--version", type=str, default="1.0.0")
     parser.add_argument(
+        "--allow-dirty", action="store_true",
+        help="Train with uncommitted changes; the diff is logged as git_diff.patch",
+    )
+    parser.add_argument(
         "--corners", type=Path, default=DEFAULT_CORNERS,
         help="Reviewed corner CSV; never train on predicted crops",
     )
@@ -282,6 +276,7 @@ def main() -> int:
     torch, _, DataLoader, _ = _import_torch()
 
     args = parse_args()
+    git_tags, git_diff = git_state(args.allow_dirty)
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -352,9 +347,13 @@ def main() -> int:
             "split": "puzzle_group",
             "corners": str(args.corners),
         })
-        mlflow.set_tag("git_commit", _git_commit_hash())
-        mlflow.set_tag("labels_sha256", hashlib.sha256(args.labels.read_bytes()).hexdigest())
-        mlflow.set_tag("corners_sha256", hashlib.sha256(args.corners.read_bytes()).hexdigest())
+        mlflow.set_tags({
+            **git_tags,
+            "labels_sha256": file_sha256(args.labels),
+            "corners_sha256": file_sha256(args.corners),
+        })
+        if git_diff:
+            mlflow.log_text(git_diff, "git_diff.patch")
         labels_by_image = json.loads(args.labels.read_text())
         val_sources = {sample.source for sample in val_samples}
         mlflow.log_dict({
