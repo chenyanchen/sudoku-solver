@@ -106,4 +106,3 @@ Key runtime configuration:
 
 - `CNN_MODEL_PATH` — **required**, path to CNN ONNX model (no default; must be set for backend/tests)
 - `CNN_BLANK_THRESHOLD`, `CNN_DIGIT_THRESHOLD`, `CNN_TOPK_CANDIDATES`
-- `OCR_ENGINE` — only `cnn` is supported (others fallback to cnn)

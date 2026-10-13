@@ -6,6 +6,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -49,10 +50,7 @@ def main() -> int:
     print("  warped saved to /tmp/yolo_warped.png")
 
     # OCR + solve.
-    reader = CnnDigitReader()
-    if not reader.is_ready:
-        print(f"CNN model error: {reader.load_error}")
-        return 1
+    reader = CnnDigitReader(os.environ["CNN_MODEL_PATH"])
 
     result = recognize(reader, warped)
     print(f"  OCR: {result.status}, givens={result.givens}")

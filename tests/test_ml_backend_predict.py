@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
 
 from ml_backend.predictors import decode_image
 from ml_backend.schema import extract_image_ref

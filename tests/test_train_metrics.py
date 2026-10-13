@@ -1,6 +1,5 @@
 """Tests for compute_metrics extended return values (per_digit_f1, confusion)."""
 
-import numpy as np
 import pytest
 
 

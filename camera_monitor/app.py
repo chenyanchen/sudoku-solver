@@ -148,10 +148,6 @@ def run_camera(config: CameraConfig) -> int:
 
     # Load OCR model.
     reader = CnnDigitReader(model_path=config.model_path)
-    if not reader.is_ready:
-        LOGGER.error("CNN model failed to load: %s", reader.load_error)
-        cap.release()
-        return 1
     LOGGER.info("CNN model loaded: %s", reader.model_version)
 
     widget = CameraWidget(debug=config.debug)

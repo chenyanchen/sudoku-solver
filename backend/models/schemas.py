@@ -5,14 +5,6 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
-class SudokuCell(BaseModel):
-    """A single Sudoku cell."""
-
-    value: int = Field(ge=0, le=9, description="Cell value (0 for empty)")
-    row: int = Field(ge=0, le=8, description="Row index (0-8)")
-    col: int = Field(ge=0, le=8, description="Column index (0-8)")
-
-
 class SudokuGrid(BaseModel):
     """A Sudoku grid."""
 
@@ -77,13 +69,6 @@ class RecognizeResponse(BaseModel):
     )
 
 
-class ErrorResponse(BaseModel):
-    """Error response."""
-
-    error: str = Field(description="Error message")
-    detail: str | None = Field(description="Detailed error information")
-
-
 class HealthResponse(BaseModel):
     """Health check response."""
 
@@ -93,23 +78,4 @@ class HealthResponse(BaseModel):
     )
     cnn_model_version: str | None = Field(
         default=None, description="Loaded CNN OCR model version"
-    )
-
-
-class GridDetectionInfo(BaseModel):
-    """Information about grid detection."""
-
-    found: bool = Field(description="Whether a grid was found")
-    corners: list[list[int]] | None = Field(description="Corner points of the grid")
-    confidence: float | None = Field(description="Detection confidence")
-
-
-class OCRInfo(BaseModel):
-    """Information about OCR processing."""
-
-    total_cells: int = Field(description="Total cells processed")
-    recognized_cells: int = Field(description="Number of cells with recognized digits")
-    empty_cells: int = Field(description="Number of empty cells")
-    average_confidence: float | None = Field(
-        description="Average recognition confidence"
     )

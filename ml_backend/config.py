@@ -107,5 +107,5 @@ def get_cnn():
         cnn_path, _corner_cnn_path = validate_backend_model_env()
         from backend.ocr.cnn_digit_reader import CnnDigitReader
 
-        _cnn = CnnDigitReader(model_path=cnn_path, strict=False)
+        _cnn = CnnDigitReader(model_path=cnn_path)
     return _cnn

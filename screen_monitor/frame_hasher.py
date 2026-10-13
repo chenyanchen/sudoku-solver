@@ -17,7 +17,8 @@ def make_thumbnail(
     frame_bgr: np.ndarray,
     size: tuple[int, int] = (160, 90),
 ) -> np.ndarray:
-    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    code = cv2.COLOR_BGRA2GRAY if frame_bgr.shape[2] == 4 else cv2.COLOR_BGR2GRAY
+    gray = cv2.cvtColor(frame_bgr, code)
     return cv2.resize(gray, size, interpolation=cv2.INTER_AREA)
 
 

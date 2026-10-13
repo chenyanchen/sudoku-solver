@@ -1,6 +1,5 @@
 """Tests for Sudoku solver."""
 
-import pytest
 from backend.solver.backtracking import SudokuSolver, solve, is_valid_grid
 
 

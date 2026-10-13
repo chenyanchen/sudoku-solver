@@ -9,7 +9,7 @@ import pytest
 
 from backend.api.routes import detect_grid_image
 from backend.ocr.pipeline import read_grid
-from backend.cv.grid_detector import _has_regular_grid_lines
+from backend.cv.grid_detector import has_regular_grid_lines
 from backend.ocr.cnn_digit_reader import CnnDigitReader
 
 
@@ -63,9 +63,7 @@ def sample_grids() -> dict[str, list[list[int]]]:
     if not Path(model_path).exists():
         pytest.skip(f"CNN model file is missing: {model_path}")
 
-    reader = CnnDigitReader(model_path=model_path, strict=False)
-    if not reader.is_ready:
-        pytest.skip(f"CNN model not ready: {reader.load_error}")
+    reader = CnnDigitReader(model_path=model_path)
 
     return {
         image_name: _recognize_sample_grid(reader, image_name)
@@ -127,7 +125,7 @@ def test_sudoku_20_framed_grid_detected():
     assert grid_image is not None, "detect_grid_image returned None for sudoku_20"
 
     gray = cv2.cvtColor(grid_image[0], cv2.COLOR_BGR2GRAY)
-    assert _has_regular_grid_lines(gray), (
+    assert has_regular_grid_lines(gray), (
         "Warped grid from sudoku_20 does not have regular grid lines — "
         "likely detected the decorative border instead of the inner grid"
     )

@@ -142,9 +142,7 @@ def main() -> int:
     with args.labels.open("r", encoding="utf-8") as f:
         labels = json.load(f)
 
-    cnn_reader = CnnDigitReader(model_path=args.cnn_model, strict=False)
-    if not cnn_reader.is_ready:
-        raise RuntimeError(cnn_reader.load_error or "CNN model not ready")
+    cnn_reader = CnnDigitReader(model_path=args.cnn_model)
 
     labels = {name: grid for name, grid in labels.items() if any(fnmatch.fnmatch(name, pattern) for pattern in args.image_pattern)}
     if not labels:

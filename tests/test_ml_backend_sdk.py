@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 
 from ml_backend import app as ml_app
 from ml_backend.fitters import fit_corners

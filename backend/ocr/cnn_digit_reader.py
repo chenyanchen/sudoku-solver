@@ -10,6 +10,7 @@ from typing import Any
 
 import cv2
 import numpy as np
+import onnxruntime as ort
 
 from ..cv.cell_extractor import clean_cell
 
@@ -20,89 +21,58 @@ DEFAULT_CNN_MODEL = (
     / "sudoku_digit_cnn.onnx"
 )
 
-try:
-    import onnxruntime as ort
-except Exception:  # pragma: no cover - environment dependent
-    ort = None
-
 
 class CnnDigitReader:
     """Read Sudoku digits with a self-trained CNN model exported to ONNX."""
 
     def __init__(
         self,
-        model_path: str | os.PathLike[str] | None = None,
-        blank_threshold: float = 0.75,
+        model_path: str | os.PathLike[str],
+        blank_threshold: float = 0.65,
         digit_threshold: float = 0.55,
         top_k_candidates: int = 4,
-        strict: bool = False,
     ):
-        resolved = model_path or os.getenv("CNN_MODEL_PATH") or DEFAULT_CNN_MODEL
-        self.model_path = Path(resolved)
+        self.model_path = Path(model_path)
         self.blank_threshold = blank_threshold
         self.digit_threshold = digit_threshold
-        self.top_k_candidates = max(1, top_k_candidates)
-        self.strict = strict
+        self.top_k_candidates = top_k_candidates
 
-        self._session = None
-        self._input_name = ""
-        self._output_name = ""
-        self._input_size = 48
-        self._nhwc_input = False
-        self._class_values: list[int] = []
+        if not self.model_path.exists():
+            raise FileNotFoundError(f"CNN model not found: {self.model_path}")
+        sess_options = ort.SessionOptions()
+        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        self._session = ort.InferenceSession(
+            str(self.model_path), sess_options=sess_options, providers=["CPUExecutionProvider"],
+        )
+        input_meta = self._session.get_inputs()[0]
+        self._input_name = input_meta.name
+        self._output_name = self._session.get_outputs()[0].name
+        self._input_size = int(input_meta.shape[2])  # NCHW
+
         self._model_version = self.model_path.stem
-        self._load_error: str | None = None
-
-        self._load_model()
-
-        if self.strict and not self.is_ready:
-            raise RuntimeError(self._load_error or "CNN OCR model is not ready")
-
-    @property
-    def is_ready(self) -> bool:
-        """Whether ONNX model session is ready."""
-        return self._session is not None
-
-    @property
-    def load_error(self) -> str | None:
-        """Reason if model failed to load."""
-        return self._load_error
+        self._class_values = list(range(10))
+        meta_path = self.model_path.resolve().with_suffix(".meta.json")
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            self._model_version = meta.get("model_version") or meta.get("version") or self._model_version
+            self._class_values = meta.get("class_values") or self._class_values
 
     @property
     def model_version(self) -> str:
         """Model version string."""
         return self._model_version
 
-    def recognize_grid(
-        self, cells: list[np.ndarray], threshold: float | None = None
-    ) -> list[list[int]]:
-        """Recognize a 9x9 Sudoku grid from 81 cells."""
-        grid, _ = self.recognize_grid_with_metadata(cells, threshold)
-        return grid
-
     def recognize_grid_with_metadata(
         self, cells: list[np.ndarray], threshold: float | None = None
     ) -> tuple[list[list[int]], dict[str, Any]]:
         """Recognize a full Sudoku grid and return OCR metadata."""
-        if len(cells) != 81:
-            raise ValueError(f"Expected 81 cells, got {len(cells)}")
-        self._ensure_ready()
-
         digit_threshold = threshold if threshold is not None else self.digit_threshold
 
         start = time.perf_counter()
 
         # Phase 0: clean all cells and check blank likelihood (pure OpenCV).
-        cleaned: list[np.ndarray] = []
-        likely_blanks: list[bool] = []
-        for cell in cells:
-            if cell is None or cell.size == 0:
-                cleaned.append(np.zeros((self._input_size, self._input_size), dtype=np.uint8))
-                likely_blanks.append(True)
-            else:
-                norm = clean_cell(cell, cell_size=self._input_size)
-                cleaned.append(norm)
-                likely_blanks.append(self._is_likely_blank(norm))
+        cleaned = [clean_cell(cell, cell_size=self._input_size) for cell in cells]
+        likely_blanks = [self._is_likely_blank(cell) for cell in cleaned]
 
         # Phase 1: batch inference on all 81 cells.
         all_probs = self._predict_probs_batch(cleaned)
@@ -197,223 +167,29 @@ class CnnDigitReader:
         }
         return grid, metadata
 
-    def predict_cell(self, cell_image: np.ndarray) -> tuple[int | None, float]:
-        """Predict a single cell: return (digit or None, confidence)."""
-        digit, confidence, _ = self._predict_cell_with_candidates(
-            cell_image, self.digit_threshold
-        )
-        return (digit if digit != 0 else None), confidence
-
-    def _load_model(self) -> None:
-        if ort is None:
-            self._load_error = (
-                "onnxruntime is not installed. Install with: uv sync --extra ml"
-            )
-            return
-
-        if not self.model_path.exists():
-            self._load_error = (
-                f"CNN model not found: {self.model_path}. "
-                "Train and export model first (scripts/train_cnn_ocr.py + scripts/export_cnn_onnx.py)."
-            )
-            return
-
-        try:
-            providers = ["CPUExecutionProvider"]
-            sess_options = ort.SessionOptions()
-            sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            session = ort.InferenceSession(
-                str(self.model_path),
-                sess_options=sess_options,
-                providers=providers,
-            )
-
-            inputs = session.get_inputs()
-            outputs = session.get_outputs()
-            if not inputs or not outputs:
-                raise RuntimeError("Invalid ONNX model I/O metadata")
-
-            input_meta = inputs[0]
-            output_meta = outputs[0]
-            self._input_name = input_meta.name
-            self._output_name = output_meta.name
-            self._session = session
-
-            shape = input_meta.shape
-            if len(shape) == 4:
-                h, w = shape[2], shape[3]
-                if isinstance(h, int) and isinstance(w, int) and h > 0 and w > 0:
-                    self._input_size = int(h)
-
-                if shape[-1] == 1 and shape[1] != 1:
-                    self._nhwc_input = True
-
-            self._load_class_values(output_meta)
-            self._load_metadata_sidecar()
-
-        except Exception as exc:  # pragma: no cover - depends on runtime environment
-            self._session = None
-            self._load_error = f"Failed to load CNN OCR model: {exc}"
-
-    def _load_class_values(self, output_meta: Any) -> None:
-        output_shape = output_meta.shape
-        class_count = None
-        if len(output_shape) >= 2 and isinstance(output_shape[-1], int):
-            class_count = output_shape[-1]
-
-        if class_count == 10:
-            self._class_values = list(range(10))
-        elif class_count == 11:
-            self._class_values = list(range(10)) + [-1]
-        else:
-            # Default map (0 blank + digits 1..9)
-            self._class_values = list(range(10))
-
-    def _load_metadata_sidecar(self) -> None:
-        meta_path = self.model_path.resolve().with_suffix(".meta.json")
-        if not meta_path.exists():
-            return
-
-        try:
-            with meta_path.open("r", encoding="utf-8") as f:
-                meta = json.load(f)
-
-            version = meta.get("model_version") or meta.get("version")
-            if isinstance(version, str) and version.strip():
-                self._model_version = version.strip()
-
-            class_values = meta.get("class_values")
-            if (
-                isinstance(class_values, list)
-                and class_values
-                and all(isinstance(x, int) for x in class_values)
-            ):
-                self._class_values = class_values
-        except Exception:
-            # Sidecar is optional; ignore parse errors.
-            return
-
-    def _ensure_ready(self) -> None:
-        if not self.is_ready:
-            raise RuntimeError(self._load_error or "CNN OCR model is not ready")
-
-    def _predict_cell_with_candidates(
-        self, cell_image: np.ndarray, digit_threshold: float
-    ) -> tuple[int, float, list[tuple[int, float]]]:
-        self._ensure_ready()
-
-        if cell_image is None or cell_image.size == 0:
-            return 0, 1.0, []
-
-        normalized = clean_cell(cell_image, cell_size=self._input_size)
-        likely_blank = self._is_likely_blank(normalized)
-
-        probs_primary = self._predict_probs(normalized)
-        candidates_primary = self._top_digit_candidates(probs_primary)
-        primary_value, primary_conf = self._select_value(probs_primary, digit_threshold)
-
-        # Non-blank prediction with enough confidence.
-        if 1 <= primary_value <= 9 and primary_conf >= digit_threshold:
-            return primary_value, primary_conf, candidates_primary
-
-        # Blank prediction with high confidence and blank-like appearance.
-        if primary_value == 0 and primary_conf >= self.blank_threshold and likely_blank:
-            return 0, primary_conf, candidates_primary
-
-        # Blank recheck: reprocess once to recover thin anti-aliased digits.
-        recheck = self._make_blank_recheck_variant(normalized)
-        probs_recheck = self._predict_probs(recheck)
-        candidates_recheck = self._top_digit_candidates(probs_recheck)
-        recheck_value, recheck_conf = self._select_value(probs_recheck, digit_threshold)
-
-        if 1 <= recheck_value <= 9 and recheck_conf >= digit_threshold:
-            return recheck_value, recheck_conf, candidates_recheck
-
-        if 1 <= primary_value <= 9:
-            return primary_value, primary_conf, candidates_primary
-
-        # Keep blank when both attempts are inconclusive.
-        if recheck_value == 0 and recheck_conf >= primary_conf:
-            return 0, recheck_conf, candidates_recheck
-
-        return 0, primary_conf, candidates_primary
-
-    def _predict_probs(self, image: np.ndarray) -> np.ndarray:
-        assert self._session is not None, "CNN model is not ready"
-        tensor = self._to_tensor(image)
-        outputs = self._session.run([self._output_name], {self._input_name: tensor})
-        logits = np.asarray(outputs[0], dtype=np.float32)
-
-        if logits.ndim == 1:
-            logits = logits[None, :]
-        elif logits.ndim > 2:
-            logits = logits.reshape(logits.shape[0], -1)
-
-        return self._softmax(logits[0])
-
     def _predict_probs_batch(self, images: list[np.ndarray]) -> np.ndarray:
-        """Batch inference: return (N, num_classes) probability matrix."""
-        assert self._session is not None, "CNN model is not ready"
-        tensors = [self._to_tensor(img) for img in images]
-        batch = np.concatenate(tensors, axis=0)  # (N, 1, H, W) or (N, H, W, 1)
-        outputs = self._session.run([self._output_name], {self._input_name: batch})
-        logits = np.asarray(outputs[0], dtype=np.float32)
-
-        if logits.ndim == 1:
-            logits = logits[None, :]
-        elif logits.ndim > 2:
-            logits = logits.reshape(logits.shape[0], -1)
-
-        # Vectorized softmax over rows.
-        shifted = logits - logits.max(axis=1, keepdims=True)
-        exp = np.exp(shifted)
+        """Batch inference on cleaned gray cells: (N, num_classes) probabilities."""
+        batch = np.stack(images).astype(np.float32)[:, None] / 255.0
+        logits = self._session.run([self._output_name], {self._input_name: batch})[0]
+        exp = np.exp(logits - logits.max(axis=1, keepdims=True))
         return exp / exp.sum(axis=1, keepdims=True)
-
-    def _to_tensor(self, image: np.ndarray) -> np.ndarray:
-        if len(image.shape) == 3:
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-        if image.shape[:2] != (self._input_size, self._input_size):
-            image = cv2.resize(image, (self._input_size, self._input_size))
-
-        image_f = image.astype(np.float32) / 255.0
-        if self._nhwc_input:
-            tensor = image_f[None, :, :, None]
-        else:
-            tensor = image_f[None, None, :, :]
-        return tensor.astype(np.float32)
 
     def _select_value(self, probs: np.ndarray, digit_threshold: float) -> tuple[int, float]:
         index = int(np.argmax(probs))
         conf = float(probs[index])
-
-        if index >= len(self._class_values):
-            return 0, conf
-
         value = self._class_values[index]
-        if value == -1:
-            return 0, conf
         if value != 0 and conf < digit_threshold:
             # Unknown digit is not a given; retain the actual blank probability.
             return 0, float(probs[self._class_values.index(0)])
         return value, conf
 
     def _top_digit_candidates(self, probs: np.ndarray) -> list[tuple[int, float]]:
-        ranked_indices = np.argsort(probs)[::-1]
-        out: list[tuple[int, float]] = []
-
-        for idx in ranked_indices:
-            i = int(idx)
-            if i >= len(self._class_values):
-                continue
-            value = self._class_values[i]
-            if not (1 <= value <= 9):
-                continue
-            out.append((value, float(probs[i])))
-            if len(out) >= self.top_k_candidates:
-                break
-
-        return out
+        ranked = [
+            (self._class_values[i], float(probs[i]))
+            for i in np.argsort(probs)[::-1]
+            if self._class_values[i] != 0
+        ]
+        return ranked[: self.top_k_candidates]
 
     def _make_blank_recheck_variant(self, image: np.ndarray) -> np.ndarray:
         blurred = cv2.GaussianBlur(image, (3, 3), 0)
@@ -429,27 +205,8 @@ class CnnDigitReader:
         return cv2.erode(adaptive, kernel, iterations=1)
 
     def _is_likely_blank(self, cell_image: np.ndarray) -> bool:
-        if cell_image is None or cell_image.size == 0:
-            return True
-
-        if len(cell_image.shape) == 3:
-            gray = cv2.cvtColor(cell_image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = cell_image
-
-        small = cv2.resize(gray, (24, 24)) if gray.shape[:2] != (24, 24) else gray
-
+        small = cv2.resize(cell_image, (24, 24))
         if float(np.std(small)) < 4.0:
             return True
-
-        _, binary = cv2.threshold(
-            small, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
-        )
-        ink_ratio = float(np.mean(binary > 0))
-        return ink_ratio < 0.025
-
-    @staticmethod
-    def _softmax(values: np.ndarray) -> np.ndarray:
-        shifted = values - np.max(values)
-        exp = np.exp(shifted)
-        return exp / np.sum(exp)
+        _, binary = cv2.threshold(small, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        return float(np.mean(binary > 0)) < 0.025

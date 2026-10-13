@@ -29,15 +29,9 @@ def run_visualize(
 
     reader = None
     if model_path:
-        try:
-            from backend.ocr.cnn_digit_reader import CnnDigitReader
+        from backend.ocr.cnn_digit_reader import CnnDigitReader
 
-            reader = CnnDigitReader(model_path=model_path, strict=False)
-            if not reader.is_ready:
-                LOGGER.warning("CNN model failed to load, skipping OCR annotation")
-                reader = None
-        except Exception:
-            LOGGER.warning("Could not load CNN reader, skipping OCR annotation")
+        reader = CnnDigitReader(model_path=model_path)
 
     debug = find_grid_with_debug(img, reader=reader)
 
