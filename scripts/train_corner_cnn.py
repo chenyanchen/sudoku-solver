@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import csv
 import random
-import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -22,6 +21,8 @@ import sys
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts._provenance import file_sha256, git_state
+
 
 def _import_torch():
     try:
@@ -30,15 +31,6 @@ def _import_torch():
         return torch, DataLoader, Dataset
     except ImportError as exc:
         raise RuntimeError("PyTorch required. Run: uv sync --extra ml") from exc
-
-
-def _git_commit_hash() -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True
-        ).strip()
-    except Exception:
-        return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +260,10 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--patience", type=int, default=15)
     parser.add_argument("--version", type=str, default="1.0.0")
+    parser.add_argument(
+        "--allow-dirty", action="store_true",
+        help="Train with uncommitted changes; the diff is logged as git_diff.patch",
+    )
     return parser.parse_args()
 
 
@@ -277,6 +273,7 @@ def main() -> int:
     torch, DataLoader, _ = _import_torch()
 
     args = parse_args()
+    git_tags, git_diff = git_state(args.allow_dirty)
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -332,7 +329,9 @@ def main() -> int:
             "num_val": len(val_samples),
             "input_size": INPUT_SIZE,
         })
-        mlflow.set_tag("git_commit", _git_commit_hash())
+        mlflow.set_tags({**git_tags, "labels_sha256": file_sha256(csv_path)})
+        if git_diff:
+            mlflow.log_text(git_diff, "git_diff.patch")
 
         best_warp_iou = -1.0
         best_state = None

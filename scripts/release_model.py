@@ -19,7 +19,14 @@ from mlflow.entities import Run
 from mlflow.tracking import MlflowClient
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts._provenance import git_state  # noqa: E402
+
 RELEASES_DIR = REPO_ROOT / "models" / "releases"
+# Photos the OCR release gate must read exactly through the production pipeline.
+CNN_GATE_IMAGES = ("IMG_86*.jpg", "IMG_870[0-8].jpg", "sudoku_2.jpg", "sudoku_3.jpg")
 
 
 def _validate_release_version(value: str) -> str:
@@ -46,8 +53,11 @@ def _write_release_metadata(
     run: Run,
     metric_name: str,
     metric_value: float,
+    release_git: dict[str, str],
     extra: dict[str, object] | None = None,
 ) -> None:
+    """Write a sidecar that explains the release without access to mlruns/."""
+    tags = run.data.tags
     meta_path = artifact_path.with_suffix(".meta.json")
     # Preserve exporter metadata: class order, input size and training version.
     payload: dict[str, object] = json.loads(meta_path.read_text()) if meta_path.exists() else {}
@@ -58,7 +68,17 @@ def _write_release_metadata(
         "source_experiment_id": run.info.experiment_id,
         "source_metric_name": metric_name,
         "source_metric_value": metric_value,
-        "source_git_commit": run.data.tags.get("git_commit"),
+        "source_git_commit": tags.get("git_commit"),
+        "source_git_dirty": tags.get("git_dirty"),
+        "source_git_diff_sha256": tags.get("git_diff_sha256"),
+        "training_data_sha256": {
+            key.removesuffix("_sha256"): value
+            for key, value in tags.items()
+            if key.endswith("_sha256") and key != "git_diff_sha256"
+        },
+        "training_params": dict(run.data.params),
+        "release_git_commit": release_git.get("git_commit"),
+        "release_git_dirty": release_git.get("git_dirty"),
         "released_at_utc": datetime.now(UTC).isoformat(),
     })
     if extra:
@@ -67,7 +87,7 @@ def _write_release_metadata(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-def release_cnn(run_id: str, release_version: str) -> int:
+def release_cnn(run_id: str, release_version: str, release_git: dict[str, str]) -> int:
     client = MlflowClient()
     run = client.get_run(run_id)
 
@@ -108,12 +128,17 @@ def release_cnn(run_id: str, release_version: str) -> int:
 
         # Release gate uses original photos through the production detector chain.
         # A solvable but incorrectly recognized board must not pass.
+        gate_json = Path(tmpdir) / "gate.json"
         subprocess.run([
             sys.executable, str(REPO_ROOT / "scripts" / "eval_cnn_ocr.py"),
             "--cnn-model", str(output_path), "--strict",
-            "--image-pattern", "IMG_86*.jpg", "IMG_870[0-8].jpg",
-            "sudoku_2.jpg", "sudoku_3.jpg",
+            "--output-json", str(gate_json),
+            "--image-pattern", *CNN_GATE_IMAGES,
         ], cwd=REPO_ROOT, check=True)
+        gate = json.loads(gate_json.read_text())["cnn"]
+
+        split_path = Path(client.download_artifacts(run_id, "split.json", tmpdir))
+        val_images = json.loads(split_path.read_text())["val"]
 
         _write_release_metadata(
             artifact_path=output_path,
@@ -122,7 +147,17 @@ def release_cnn(run_id: str, release_version: str) -> int:
             run=run,
             metric_name="score",
             metric_value=score,
-            extra={"training_version": training_version, "preprocessing": "local_adaptive_v1"},
+            release_git=release_git,
+            extra={
+                "training_version": training_version,
+                "preprocessing": "local_adaptive_v1",
+                "val_images": val_images,
+                "release_gate": {
+                    "images": list(CNN_GATE_IMAGES),
+                    **{k: gate[k] for k in ("pipeline_exact", "solution_exact", "grid_exact", "false_positive_blank")},
+                    "total": gate["images"],
+                },
+            },
         )
         canonical = RELEASES_DIR / "sudoku_digit_cnn.onnx"
         canonical.unlink(missing_ok=True)
@@ -132,7 +167,7 @@ def release_cnn(run_id: str, release_version: str) -> int:
     return 0
 
 
-def release_corner_cnn(run_id: str, release_version: str) -> int:
+def release_corner_cnn(run_id: str, release_version: str, release_git: dict[str, str]) -> int:
     client = MlflowClient()
     run = client.get_run(run_id)
 
@@ -175,6 +210,7 @@ def release_corner_cnn(run_id: str, release_version: str) -> int:
             run=run,
             metric_name="warp_iou",
             metric_value=warp_iou,
+            release_git=release_git,
         )
 
     print(f"  Output:  {output_path}")
@@ -191,12 +227,16 @@ def main() -> int:
         help="Unified release version in YYYYMMDD.N format",
     )
     parser.add_argument("--run-id", required=True, help="MLflow run ID to release")
+    parser.add_argument(
+        "--allow-dirty", action="store_true",
+        help="Release with uncommitted changes (the gate then ran on uncommitted code)",
+    )
     args = parser.parse_args()
 
+    release_git, _ = git_state(args.allow_dirty)
     if args.model == "cnn":
-        return release_cnn(args.run_id, args.version)
-    else:
-        return release_corner_cnn(args.run_id, args.version)
+        return release_cnn(args.run_id, args.version, release_git)
+    return release_corner_cnn(args.run_id, args.version, release_git)
 
 
 if __name__ == "__main__":

@@ -24,5 +24,11 @@
   "source_git_commit": "aafa0d080acbfd69975e2f266dc92f65383e7188",
   "released_at_utc": "2026-10-13T15:03:51.345877+00:00",
   "training_version": "3.6.0",
-  "preprocessing": "local_adaptive_v1"
+  "preprocessing": "local_adaptive_v1",
+  "source_git_dirty": "true",
+  "source_git_note": "Trained on aafa0d0 plus the uncommitted checkpoint-selection fix later committed as 812f75d; aafa0d0 alone does not reproduce this model.",
+  "training_data_sha256": {
+    "labels": "c48236fd9288de37ac23214bc19397401d92d3e94f00e449c15bd2bef85d5148",
+    "corners": "b03d337e2a9f80a9d83ef4db4c664d1a1f0aff16875270ab4ed22bec549ef50d"
+  }
 }

@@ -28,7 +28,7 @@ uv run python scripts/eval_cnn_ocr.py --cnn-model <candidate.onnx>      # all la
 MLFLOW_TRACKING_URI="file://$PWD/mlruns" uv run --extra ml python scripts/release_model.py cnn --run-id <id> --version <YYYYMMDD.N>
 ```
 
-Release only if the candidate is no worse than the current release on both evals and `pytest` passes; the validation score saturates at 1.0 and is not a release signal. Training version: MAJOR = architecture, MINOR = data/hyperparameters. Release version: `YYYYMMDD.N`; `models/releases/sudoku_digit_cnn.onnx` is a symlink to the current release, with a `.meta.json` sidecar (version, class order).
+Release only if the candidate is no worse than the current release on both evals and `pytest` passes; the validation score saturates at 1.0 and is not a release signal. Training and release refuse uncommitted changes (`--allow-dirty` records the diff), so the sidecar's commit reproduces the model; the sidecar also records data hashes, params, the val split and gate results, so it stands alone without `mlruns/`. Training version: MAJOR = architecture, MINOR = data/hyperparameters. Release version: `YYYYMMDD.N`; `models/releases/sudoku_digit_cnn.onnx` is a symlink to the current release, with a `.meta.json` sidecar (version, class order).
 
 ## Architecture
 
