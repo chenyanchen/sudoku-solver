@@ -154,11 +154,8 @@ Notes:
 ### Runtime configuration
 
 ```bash
-# OCR engine is fixed to CNN (non-cnn values fallback to cnn)
-export OCR_ENGINE=cnn
-
-# CNN model and thresholds
-export CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_v3.2.onnx
+# CNN model (required) and optional threshold overrides
+export CNN_MODEL_PATH=models/releases/sudoku_digit_cnn.onnx
 export CNN_BLANK_THRESHOLD=0.65
 export CNN_DIGIT_THRESHOLD=0.55
 export CNN_TOPK_CANDIDATES=4

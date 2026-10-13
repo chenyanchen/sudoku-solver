@@ -8,16 +8,12 @@ from typing import Optional
 
 import cv2
 import numpy as np
+import onnxruntime as ort
 
 from .detector import DetectionResult, warp_grid
-from .grid_detector import _has_regular_grid_lines
+from .grid_detector import has_regular_grid_lines
 
 LOGGER = logging.getLogger(__name__)
-
-try:
-    import onnxruntime as ort
-except ImportError:
-    ort = None
 
 DEFAULT_CORNER_CNN_MODEL = (
     Path(__file__).resolve().parents[2]
@@ -56,25 +52,16 @@ class CornerCnnDetector:
         return self._load_error
 
     def _load_model(self, path: Path) -> None:
-        if ort is None:
-            self._load_error = "onnxruntime not installed"
-            return
         if not path.exists():
             self._load_error = f"Corner CNN model not found: {path}"
             return
-        try:
-            self._session = ort.InferenceSession(
-                str(path), providers=["CPUExecutionProvider"]
-            )
-            self._input_name = self._session.get_inputs()[0].name
-            LOGGER.info("Corner CNN detector loaded: %s", path.name)
-        except Exception as exc:
-            self._load_error = str(exc)
+        self._session = ort.InferenceSession(
+            str(path), providers=["CPUExecutionProvider"]
+        )
+        self._input_name = self._session.get_inputs()[0].name
+        LOGGER.info("Corner CNN detector loaded: %s", path.name)
 
     def detect(self, image: np.ndarray) -> DetectionResult | None:
-        if self._session is None:
-            return None
-
         h_orig, w_orig = image.shape[:2]
         blob, scale, pad_x, pad_y = self._preprocess(image)
 
@@ -96,12 +83,12 @@ class CornerCnnDetector:
             corners[i, 0] = max(0.0, min(corners_raw[i, 0], w_orig - 1))
             corners[i, 1] = max(0.0, min(corners_raw[i, 1], h_orig - 1))
 
-        self.last_confidence = self._geometric_confidence(corners_raw, corners, w_orig, h_orig)
         if not np.isfinite(corners_raw).all() or not cv2.isContourConvex(corners):
             return None
+        self.last_confidence = self._geometric_confidence(corners_raw, corners, w_orig, h_orig)
         # A plausible quadrilateral is not evidence of a Sudoku grid.
         gray = cv2.cvtColor(warp_grid(image, corners), cv2.COLOR_BGR2GRAY)
-        if not _has_regular_grid_lines(gray):
+        if not has_regular_grid_lines(gray):
             return None
 
         return DetectionResult(
@@ -116,22 +103,9 @@ class CornerCnnDetector:
         """Derive a [0, 1] ranking score from geometric sanity of predicted corners.
 
         This is not a calibrated confidence. It is only a sorting signal for
-        active learning: out-of-bounds, non-convex, and border-hugging quads
-        should rank lower for manual review.
+        active learning: out-of-bounds and border-hugging quads should rank
+        lower for manual review.  Callers reject non-convex quads beforehand.
         """
-        n = len(corners_clipped)
-        cross_signs = []
-        for i in range(n):
-            p0 = corners_clipped[i]
-            p1 = corners_clipped[(i + 1) % n]
-            p2 = corners_clipped[(i + 2) % n]
-            a = p1 - p0
-            b = p2 - p1
-            cross_signs.append(float(a[0] * b[1] - a[1] * b[0]))
-        is_convex = all(c > 0 for c in cross_signs) or all(c < 0 for c in cross_signs)
-        if not is_convex:
-            return 0.0
-
         width = max(float(img_w), 1.0)
         height = max(float(img_h), 1.0)
 
@@ -156,7 +130,7 @@ class CornerCnnDetector:
         edge_margin = float(np.min(min_border_dist)) / min_dim
         edge_margin_score = float(np.clip(edge_margin / 0.05, 0.0, 1.0))
 
-        return round(float(0.45 * in_bounds_score + 0.35 * 1.0 + 0.20 * edge_margin_score), 4)
+        return round(float(0.45 * in_bounds_score + 0.35 + 0.20 * edge_margin_score), 4)
 
     def _preprocess(
         self, image: np.ndarray

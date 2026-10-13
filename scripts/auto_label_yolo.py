@@ -28,7 +28,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from backend.cv.grid_detector import (
-    _has_regular_grid_lines,
+    has_regular_grid_lines,
     find_grid_with_corners,
     find_grids_with_corners,
 )
@@ -118,7 +118,7 @@ def keypoints_16_to_yolo_pose(keypoints: np.ndarray, img_w: int, img_h: int) -> 
 def _validate_warped_grid(warped: np.ndarray) -> bool:
     """Check if the warped image contains a regular grid pattern."""
     gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY) if len(warped.shape) == 3 else warped
-    return _has_regular_grid_lines(gray)
+    return has_regular_grid_lines(gray)
 
 
 def _find_best_grid(image: np.ndarray) -> Optional[tuple[np.ndarray, np.ndarray]]:

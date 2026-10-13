@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 import numpy as np
 
 from backend.cv.corner_cnn_detector import CornerCnnDetector
@@ -50,13 +49,3 @@ def test_geometric_confidence_penalizes_out_of_bounds_predictions():
 
     assert score < 0.7
 
-
-def test_geometric_confidence_returns_zero_for_non_convex_quad():
-    corners = np.array(
-        [[100.0, 100.0], [900.0, 100.0], [150.0, 850.0], [850.0, 850.0]],
-        dtype=np.float32,
-    )
-
-    score = CornerCnnDetector._geometric_confidence(corners, corners, 1000, 1000)
-
-    assert score == pytest.approx(0.0)

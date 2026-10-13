@@ -85,10 +85,7 @@ def run_monitor(config: MonitorConfig) -> int:
     # FIX #2: worker crash triggers app exit instead of zombie overlay.
     signals.error_signal.connect(app.quit)
 
-    reader = CnnDigitReader(model_path=config.model_path, strict=False)
-    if not reader.is_ready:
-        LOGGER.critical("CNN model failed to load: %s", reader.load_error)
-        return 1
+    reader = CnnDigitReader(model_path=config.model_path)
 
     stop_event = threading.Event()
     app.aboutToQuit.connect(stop_event.set)
@@ -137,8 +134,8 @@ def _match_qt_screen(
     (logical points), but the enumeration *order* can differ between the
     two APIs.  Matching by position avoids index-order mismatches.
     """
-    mss_x = int(mss_monitor.get("left", 0))
-    mss_y = int(mss_monitor.get("top", 0))
+    mss_x = int(mss_monitor["left"])
+    mss_y = int(mss_monitor["top"])
 
     best_screen = fallback
     best_dist = float("inf")
@@ -197,30 +194,20 @@ def _capture_loop(
         monitor_meta: dict[int, dict[str, Any]] = {}
         for mid in monitor_ids:
             monitor = monitors[mid]
-            screen = _match_qt_screen(monitor, screens, primary_screen)
-            if screen is not None:
-                geometry = screen.geometry()
-                logical_offset = (float(geometry.x()), float(geometry.y()))
-                monitor_w = max(1.0, float(monitor["width"]))
-                monitor_h = max(1.0, float(monitor["height"]))
-                scale_x = float(geometry.width()) / monitor_w
-                scale_y = float(geometry.height()) / monitor_h
-            else:
-                logical_offset = (0.0, 0.0)
-                scale_x, scale_y = 1.0, 1.0
+            geometry = _match_qt_screen(monitor, screens, primary_screen).geometry()
+            logical_offset = (float(geometry.x()), float(geometry.y()))
+            scale_x = geometry.width() / monitor["width"]
+            scale_y = geometry.height() / monitor["height"]
 
             LOGGER.debug(
                 "monitor %d matched Qt screen at (%s), "
                 "mss pos=(%d,%d) scale=(%.3f,%.3f)",
                 mid, logical_offset,
-                monitor.get("left", 0), monitor.get("top", 0),
+                monitor["left"], monitor["top"],
                 scale_x, scale_y,
             )
 
-            screen_geo = (
-                (geometry.x(), geometry.y(), geometry.width(), geometry.height())
-                if screen is not None else (0, 0, 1920, 1080)
-            )
+            screen_geo = (geometry.x(), geometry.y(), geometry.width(), geometry.height())
 
             monitor_meta[mid] = {
                 "monitor": monitor,
@@ -250,18 +237,16 @@ def _capture_loop(
 
             # --- Grab all monitors ---
             t_capture_start = time.perf_counter()
-            frames: list[tuple[int, np.ndarray, np.ndarray, np.ndarray, list, float]] = []
+            grabs: list[tuple[int, np.ndarray, np.ndarray, list]] = []
             any_changed = False
             for mid in monitor_ids:
-                monitor = monitor_meta[mid]["monitor"]
-                frame_raw = np.array(sct.grab(monitor), dtype=np.uint8)
-                frame_bgr = frame_raw[:, :, :3].copy()  # BGRA → BGR without cvtColor
-                thumb, changed, changed_regions, detect_frame, ds = _prepare_frame(
-                    frame_bgr, prev_thumbs.get(mid), config.frame_change_threshold,
+                frame_bgra = np.asarray(sct.grab(monitor_meta[mid]["monitor"]))
+                thumb, changed, changed_regions = _diff_frame(
+                    frame_bgra, prev_thumbs.get(mid), config.frame_change_threshold,
                 )
                 prev_thumbs[mid] = thumb
                 any_changed = any_changed or changed
-                frames.append((mid, frame_bgr, detect_frame, thumb, changed_regions, ds))
+                grabs.append((mid, frame_bgra, thumb, changed_regions))
             capture_ms = (time.perf_counter() - t_capture_start) * 1000.0
 
             # --- FIX #1: skip when no change regardless of overlay state ---
@@ -283,6 +268,10 @@ def _capture_loop(
 
             # --- Detect + solve ---
             t_pipeline_start = time.perf_counter()
+            frames = []
+            for mid, frame_bgra, thumb, changed_regions in grabs:
+                frame_bgr, detect_frame, ds = _detection_frames(frame_bgra)
+                frames.append((mid, frame_bgr, detect_frame, thumb, changed_regions, ds))
             selected = _select_best_candidate(
                 frames, config, reader, detect_cache, solve_cache, monitor_meta,
                 last_known_grid_bbox=last_known_grid_bbox,
@@ -325,7 +314,8 @@ def _capture_loop(
 
             stable = tracker.on_grid(sel_sig, sel_bbox, config)
             state = "stable" if stable >= config.stable_frames else "active"
-            timing = sel_payload.get("_timing", {})
+            # A cache hit spent no OCR/solve time this frame.
+            timing = {} if sel_payload["_solve_cache_hit"] else sel_payload["_timing"]
 
             telemetry_ring.push(FrameTelemetry(
                 fps=target_fps,
@@ -412,23 +402,30 @@ def _rewarp_from_original(
     return cv2.warpPerspective(original_bgr, matrix, (450, 450))
 
 
-def _prepare_frame(
-    frame_bgr: np.ndarray, prev_thumb: Optional[np.ndarray], change_threshold: float,
-) -> tuple[np.ndarray, bool, list, np.ndarray, float]:
-    """Return (thumb, changed, changed_regions, detect_frame, downscale)."""
-    thumb = make_thumbnail(frame_bgr)
+def _diff_frame(
+    frame: np.ndarray, prev_thumb: Optional[np.ndarray], change_threshold: float,
+) -> tuple[np.ndarray, bool, list]:
+    """Return (thumb, changed, changed_regions) against the previous thumbnail."""
+    thumb = make_thumbnail(frame)
     changed = is_frame_changed(prev_thumb, thumb, change_threshold)
     changed_regions = (
         find_changed_regions(prev_thumb, thumb)
         if changed and prev_thumb is not None else []
     )
-    # Downscale wide frames for faster detection.
-    # OCR always re-warps from the original frame_bgr.
+    return thumb, changed, changed_regions
+
+
+def _detection_frames(frame_bgra: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+    """Return (full-res BGR, detection frame, downscale).
+
+    Detection runs on a downscaled frame; OCR re-warps from the full-res one.
+    """
+    frame_bgr = cv2.cvtColor(frame_bgra, cv2.COLOR_BGRA2BGR)
     if frame_bgr.shape[1] <= _MAX_DETECT_WIDTH:
-        return thumb, changed, changed_regions, frame_bgr, 1.0
+        return frame_bgr, frame_bgr, 1.0
     ds = _MAX_DETECT_WIDTH / frame_bgr.shape[1]
     detect_frame = cv2.resize(frame_bgr, None, fx=ds, fy=ds, interpolation=cv2.INTER_AREA)
-    return thumb, changed, changed_regions, detect_frame, ds
+    return frame_bgr, detect_frame, ds
 
 
 def _payload(result: Recognition, min_givens: int) -> Optional[dict[str, Any]]:
@@ -489,9 +486,9 @@ def _select_best_candidate(
 
         for _warped_detect, corners in candidates:
             bbox = bbox_from_corners(corners)
-            bbox_area = max(1, (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]))
-            frame_area = max(1, detect_frame.shape[0] * detect_frame.shape[1])
-            if bbox_area / float(frame_area) < config.min_bbox_area_ratio:
+            bbox_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            frame_area = detect_frame.shape[0] * detect_frame.shape[1]
+            if bbox_area / frame_area < config.min_bbox_area_ratio:
                 continue
 
             # Scale corners back to original frame coordinates.

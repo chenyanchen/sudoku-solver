@@ -13,6 +13,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from backend.ocr.cnn_digit_reader import DEFAULT_CNN_MODEL
+
 from .agent import run_monitor
 from .types import MonitorConfig
 
@@ -23,7 +25,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        default=os.getenv("CNN_MODEL_PATH"),
+        default=os.getenv("CNN_MODEL_PATH", str(DEFAULT_CNN_MODEL)),
         help="CNN model path (fallback to CNN_MODEL_PATH env or default model)",
     )
     parser.add_argument("--idle-fps", type=float, default=2.0)

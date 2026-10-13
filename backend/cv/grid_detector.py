@@ -25,24 +25,6 @@ class GridDetectionDebug:
     error: Optional[str] = None
 
 
-def find_grid(image: np.ndarray, debug: bool = False) -> Optional[np.ndarray]:
-    """
-    Find and extract the Sudoku grid from an image.
-
-    Args:
-        image: Input image (BGR format)
-        debug: If True, return debug information
-
-    Returns:
-        Warped 450x450px grid image, or None if not found
-    """
-    result = find_grid_with_corners(image)
-    if result is None:
-        return None
-    warped, _ = result
-    return warped
-
-
 def find_grid_with_corners(
     image: np.ndarray,
 ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
@@ -53,71 +35,12 @@ def find_grid_with_corners(
     one whose warped result has the most regular grid-line spacing.  This
     handles decorative borders that are larger than the actual grid.
 
-    Args:
-        image: Input image (BGR format)
-
     Returns:
         Tuple of (warped_450x450_grid, ordered_corners_4x2_float32),
         or None if no valid grid is found.
     """
-    try:
-        processed = preprocess(image)
-        thresh = morphological_operations(processed["thresh"])
-
-        # RETR_LIST finds all contours including nested ones, so we can
-        # skip decorative borders and find the actual grid inside.
-        contours, _ = cv2.findContours(
-            thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
-        )
-
-        if not contours:
-            return None
-
-        # Collect all quadrilateral candidates, sorted by area (largest first).
-        quads = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area < 10000:
-                continue
-            perimeter = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
-            if len(approx) == 4:
-                quads.append((area, approx))
-
-        quads.sort(key=lambda x: x[0], reverse=True)
-
-        # Try each candidate: the first one with regular grid lines wins.
-        fallback = None
-        for _, contour in quads:
-            corners = get_corner_points(contour)
-            if corners is None:
-                continue
-
-            ordered = order_corners(corners)
-            warped = perspective_transform(processed["original"], ordered, (450, 450))
-
-            if not validate_grid(warped):
-                continue
-
-            gray_check = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-            if _has_regular_grid_lines(gray_check):
-                return warped, ordered
-
-            if fallback is None:
-                fallback = (warped, ordered)
-
-        # No candidate passed regularity.  Try line-based refinement on the
-        # best fallback (likely a decorative-border warp).
-        if fallback is not None:
-            refined = _try_refine_grid_bounds(
-                fallback[0], processed["original"], fallback[1]
-            )
-            if refined is not None:
-                return refined
-
-        return fallback
-    except Exception:
-        return None
+    grids = _find_grids(image, max_grids=1, min_area=10000.0, max_quads=None)
+    return grids[0] if grids else None
 
 
 def find_grids_with_corners(
@@ -136,119 +59,66 @@ def find_grids_with_corners(
     Returns:
         List of (warped_grid, ordered_corners)
     """
-    try:
-        processed = preprocess(image)
-        thresh = morphological_operations(processed["thresh"])
-
-        # RETR_LIST to find nested grids inside decorative borders.
-        contours, _ = cv2.findContours(
-            thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
-        )
-
-        if not contours:
-            return []
-
-        image_h, image_w = processed["original"].shape[:2]
-        image_area = float(image_h * image_w)
-        min_area = max(10000.0, image_area * float(min_area_ratio))
-
-        # Find all quadrilateral contours and sort by area.
-        quads = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area < min_area:
-                continue
-
-            perimeter = cv2.arcLength(contour, True)
-            approximation = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
-            if len(approximation) == 4:
-                quads.append((area, approximation))
-
-        quads.sort(key=lambda x: x[0], reverse=True)
-
-        grids: List[Tuple[np.ndarray, np.ndarray]] = []
-        fallbacks: List[Tuple[np.ndarray, np.ndarray]] = []
-        for _, contour in quads[: max_grids * 4]:
-            corners = get_corner_points(contour)
-            if corners is None:
-                continue
-
-            ordered = order_corners(corners)
-            warped = perspective_transform(processed["original"], ordered, (450, 450))
-            if not validate_grid(warped):
-                continue
-
-            gray_check = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-            if _has_regular_grid_lines(gray_check):
-                grids.append((warped, ordered))
-                if len(grids) >= max_grids:
-                    break
-            elif len(fallbacks) < max_grids:
-                fallbacks.append((warped, ordered))
-
-        if grids:
-            return grids
-
-        # Try line-based refinement on fallbacks.
-        for warped, ordered in fallbacks:
-            refined = _try_refine_grid_bounds(warped, processed["original"], ordered)
-            if refined is not None:
-                grids.append(refined)
-                if len(grids) >= max_grids:
-                    break
-        return grids if grids else fallbacks
-    except Exception:
-        return []
+    image_h, image_w = image.shape[:2]
+    min_area = max(10000.0, float(image_h * image_w) * float(min_area_ratio))
+    return _find_grids(image, max_grids, min_area, max_quads=max_grids * 4)
 
 
-def find_largest_quadrilateral(contours: List[np.ndarray]) -> Optional[np.ndarray]:
+def _find_grids(
+    image: np.ndarray,
+    max_grids: int,
+    min_area: float,
+    max_quads: Optional[int],
+) -> List[Tuple[np.ndarray, np.ndarray]]:
+    """Warp quadrilateral candidates (largest first); prefer regular grids.
+
+    Candidates that fail the regularity check are kept as fallbacks and
+    get one chance at line-based refinement (decorative borders).
     """
-    Find the largest 4-sided contour.
+    thresh = morphological_operations(preprocess(image)["thresh"])
+    # RETR_LIST finds nested contours, so we can skip decorative borders
+    # and find the actual grid inside.
+    contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
-    Args:
-        contours: List of contours
-
-    Returns:
-        Largest quadrilateral contour or None
-    """
-    best_contour = None
-    best_area = 0
-
-    for contour in contours:
-        area = cv2.contourArea(contour)
-
-        # Skip contours that are too small.
-        if area < 10000:
+    grids: List[Tuple[np.ndarray, np.ndarray]] = []
+    fallbacks: List[Tuple[np.ndarray, np.ndarray]] = []
+    for ordered in _quad_corners(contours, min_area)[:max_quads]:
+        warped = perspective_transform(image, ordered, (450, 450))
+        if not validate_grid(warped):
             continue
 
-        # Approximate contour to a polygon.
+        if has_regular_grid_lines(cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)):
+            grids.append((warped, ordered))
+            if len(grids) >= max_grids:
+                break
+        elif len(fallbacks) < max_grids:
+            fallbacks.append((warped, ordered))
+
+    if grids:
+        return grids
+
+    for warped, ordered in fallbacks:
+        refined = _try_refine_grid_bounds(warped, image, ordered)
+        if refined is not None:
+            grids.append(refined)
+            if len(grids) >= max_grids:
+                break
+    return grids if grids else fallbacks
+
+
+def _quad_corners(contours, min_area: float) -> List[np.ndarray]:
+    """Ordered corners of every 4-vertex contour >= *min_area*, largest first."""
+    quads = []
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area < min_area:
+            continue
         perimeter = cv2.arcLength(contour, True)
-        approximation = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
-
-        # We want a quadrilateral (4 vertices).
-        if len(approximation) == 4 and area > best_area:
-            best_area = area
-            best_contour = approximation
-
-    return best_contour
-
-
-def get_corner_points(contour: np.ndarray) -> Optional[np.ndarray]:
-    """
-    Extract corner points from a quadrilateral contour.
-
-    Args:
-        contour: 4-point contour
-
-    Returns:
-        Array of 4 corner points
-    """
-    if contour is None or len(contour) != 4:
-        return None
-
-    # Reshape to (4, 2).
-    corners = contour.reshape(4, 2).astype(np.float32)
-    return corners
+        approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
+        if len(approx) == 4:
+            quads.append((area, order_corners(approx.reshape(4, 2).astype(np.float32))))
+    quads.sort(key=lambda x: x[0], reverse=True)
+    return [corners for _, corners in quads]
 
 
 def order_corners(corners: np.ndarray) -> np.ndarray:
@@ -322,9 +192,6 @@ def validate_grid(image: np.ndarray) -> bool:
     Returns:
         True if likely a valid Sudoku grid
     """
-    if image is None or image.shape[0] < 100 or image.shape[1] < 100:
-        return False
-
     # Check for grid lines by looking for horizontal and vertical edges.
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, 50, 150)
@@ -416,9 +283,7 @@ def _direction_is_regular(
     return span >= dim_size * min_span
 
 
-def _has_regular_grid_lines(
-    gray: np.ndarray, min_lines: int = 8, max_cv: float = 0.25
-) -> bool:
+def has_regular_grid_lines(gray: np.ndarray, max_cv: float = 0.25) -> bool:
     """Check whether the warped image contains equally-spaced grid lines.
 
     A correctly warped 450x450 Sudoku grid has 10 horizontal + 10 vertical
@@ -433,7 +298,6 @@ def _has_regular_grid_lines(
 
     Args:
         gray: Grayscale warped image (expected 450x450).
-        min_lines: Minimum number of line peaks required in each direction.
         max_cv: Maximum coefficient of variation for the peak spacing.
 
     Returns:
@@ -475,7 +339,7 @@ def _try_refine_grid_bounds(
     handles decorative borders where the inner grid doesn't form a separate
     contour but its grid lines are visible in the initial warp.
     """
-    gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY) if len(warped.shape) == 3 else warped
+    gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
     h, w = gray.shape[:2]
 
     h_peaks, v_peaks, h_lines_mask = _detect_grid_lines(gray)
@@ -579,8 +443,7 @@ def _try_refine_grid_bounds(
     refined = perspective_transform(original, inner_in_orig, (w, h))
 
     # Accept if the refined warp passes the regularity check.
-    ref_gray = cv2.cvtColor(refined, cv2.COLOR_BGR2GRAY) if len(refined.shape) == 3 else refined
-    if not _has_regular_grid_lines(ref_gray):
+    if not has_regular_grid_lines(cv2.cvtColor(refined, cv2.COLOR_BGR2GRAY)):
         return None
 
     return refined, inner_in_orig
@@ -588,14 +451,6 @@ def _try_refine_grid_bounds(
 
 def _select_best_consecutive(peaks: np.ndarray, n: int = 10) -> Optional[np.ndarray]:
     """Select the *n* consecutive peaks with the most regular spacing."""
-    if len(peaks) < n:
-        return None
-    if len(peaks) == n:
-        gaps = np.diff(peaks).astype(float)
-        if gaps.mean() > 0 and gaps.std() / gaps.mean() < 0.25:
-            return peaks
-        return None
-
     best: Optional[np.ndarray] = None
     best_cv = float("inf")
     for start in range(len(peaks) - n + 1):
@@ -621,153 +476,75 @@ def find_grid_with_debug(
     cells montage with OCR predictions.
     """
     debug = GridDetectionDebug()
+    debug.original = image.copy()
 
-    try:
-        debug.original = image.copy()
+    processed = preprocess(image)
+    debug.gray = processed["gray"]
+    debug.thresh = processed["thresh"]
 
-        processed = preprocess(image)
-        debug.gray = processed["gray"]
-        debug.thresh = processed["thresh"]
+    morphed = morphological_operations(processed["thresh"])
+    debug.morphed = morphed
 
-        morphed = morphological_operations(processed["thresh"])
-        debug.morphed = morphed
+    contours, _ = cv2.findContours(
+        morphed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE,
+    )
+    if not contours:
+        debug.error = "no contours found"
+        return debug
 
-        contours, _ = cv2.findContours(
-            morphed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE,
-        )
-        if not contours:
-            debug.error = "no contours found"
-            return debug
+    # Draw all contours on a copy of the original.
+    contours_vis = debug.original.copy()
+    cv2.drawContours(contours_vis, contours, -1, (0, 255, 0), 2)
+    debug.contours_image = contours_vis
 
-        # Draw all contours on a copy of the original.
-        contours_vis = debug.original.copy()
-        cv2.drawContours(contours_vis, contours, -1, (0, 255, 0), 2)
-        debug.contours_image = contours_vis
+    quads = _quad_corners(contours, 10000.0)
+    if not quads:
+        debug.error = "no quadrilateral found"
+        return debug
 
-        grid_contour = find_largest_quadrilateral(contours)
-        if grid_contour is None:
-            debug.error = "no quadrilateral found"
-            return debug
+    ordered = quads[0]
+    debug.corners = ordered
 
-        corners = get_corner_points(grid_contour)
-        if corners is None:
-            debug.error = "could not extract corners"
-            return debug
+    # Quad visualisation.
+    quad_vis = debug.original.copy()
+    pts = ordered.astype(np.int32).reshape((-1, 1, 2))
+    cv2.polylines(quad_vis, [pts], True, (0, 0, 255), 2)
+    for pt in ordered:
+        cv2.circle(quad_vis, (int(pt[0]), int(pt[1])), 8, (255, 0, 0), -1)
+    debug.quad_image = quad_vis
 
-        ordered = order_corners(corners)
-        debug.corners = ordered
+    warped = perspective_transform(image, ordered, (450, 450))
+    debug.warped = warped
 
-        # Quad visualisation.
-        quad_vis = debug.original.copy()
-        pts = ordered.astype(np.int32).reshape((-1, 1, 2))
-        cv2.polylines(quad_vis, [pts], True, (0, 0, 255), 2)
-        for pt in ordered:
-            cv2.circle(quad_vis, (int(pt[0]), int(pt[1])), 8, (255, 0, 0), -1)
-        debug.quad_image = quad_vis
+    if not validate_grid(warped):
+        debug.error = "grid validation failed"
+        return debug
 
-        warped = perspective_transform(processed["original"], ordered, (450, 450))
-        debug.warped = warped
+    # Build 9×9 cells montage.
+    from backend.ocr.pipeline import prepare_grid_for_ocr
+    from backend.cv.cell_extractor import extract_cells
 
-        if not validate_grid(warped):
-            debug.error = "grid validation failed"
-            return debug
+    ocr_grid = prepare_grid_for_ocr(warped)
+    cells = extract_cells(ocr_grid)
 
-        # Build 9×9 cells montage.
-        try:
-            from backend.ocr.pipeline import prepare_grid_for_ocr
-            from backend.cv.cell_extractor import extract_cells
+    cell_h, cell_w = cells[0].shape[:2]
+    montage_bgr = np.full((cell_h * 9, cell_w * 9, 3), 255, dtype=np.uint8)
+    for idx, cell in enumerate(cells):
+        r, c = divmod(idx, 9)
+        montage_bgr[r * cell_h:(r + 1) * cell_h, c * cell_w:(c + 1) * cell_w] = cell
 
-            ocr_grid = prepare_grid_for_ocr(warped)
-            cells = extract_cells(ocr_grid)
-
-            cell_h, cell_w = cells[0].shape[:2] if cells else (50, 50)
-            montage = np.ones((cell_h * 9, cell_w * 9), dtype=np.uint8) * 255
-            for idx, cell in enumerate(cells[:81]):
-                r, c = divmod(idx, 9)
-                montage[r * cell_h:(r + 1) * cell_h, c * cell_w:(c + 1) * cell_w] = cell
-
-            # Convert to colour for annotation.
-            montage_bgr = cv2.cvtColor(montage, cv2.COLOR_GRAY2BGR)
-
-            if reader is not None and hasattr(reader, "recognize_grid_with_metadata"):
-                _, metadata = reader.recognize_grid_with_metadata(cells, threshold=None)
-                preds = metadata.get("cell_predictions", [])
-                for pred in preds:
-                    r_idx = int(pred["row"])
-                    c_idx = int(pred["col"])
-                    val = int(pred.get("value", 0))
-                    conf = float(pred.get("confidence", 0.0))
-                    if val != 0:
-                        cx = c_idx * cell_w + cell_w // 2
-                        cy = r_idx * cell_h + cell_h // 2
-                        text = f"{val}:{conf:.0%}"
-                        cv2.putText(
-                            montage_bgr, text,
-                            (cx - 15, cy + 5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 200), 1,
-                        )
-
-            debug.cells_montage = montage_bgr
-        except Exception:
-            pass  # cells montage is best-effort
-
-    except Exception as exc:
-        debug.error = str(exc)
-
-    return debug
-
-
-def find_grids_multiple(image: np.ndarray, max_grids: int = 5) -> List[np.ndarray]:
-    """
-    Find multiple potential Sudoku grids in an image.
-
-    Args:
-        image: Input image
-        max_grids: Maximum number of grids to return
-
-    Returns:
-        List of warped grid images
-    """
-    try:
-        processed = preprocess(image)
-        thresh = morphological_operations(processed["thresh"])
-
-        contours, _ = cv2.findContours(
-            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-
-        if not contours:
-            return []
-
-        # Find all quadrilateral contours and sort by area.
-        quads = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area < 10000:
-                continue
-
-            perimeter = cv2.arcLength(contour, True)
-            approximation = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
-
-            if len(approximation) == 4:
-                quads.append((area, approximation))
-
-        # Sort by area (largest first) and take top candidates.
-        quads.sort(key=lambda x: x[0], reverse=True)
-        quads = quads[:max_grids]
-
-        grids = []
-        for _, contour in quads:
-            corners = get_corner_points(contour)
-            if corners is not None:
-                corners = order_corners(corners)
-                warped = perspective_transform(
-                    processed["original"], corners, (450, 450)
+    if reader is not None:
+        _, metadata = reader.recognize_grid_with_metadata(cells, threshold=None)
+        for pred in metadata["cell_predictions"]:
+            val = int(pred["value"])
+            if val != 0:
+                cx = int(pred["col"]) * cell_w + cell_w // 2
+                cy = int(pred["row"]) * cell_h + cell_h // 2
+                cv2.putText(
+                    montage_bgr, f"{val}:{float(pred['confidence']):.0%}",
+                    (cx - 15, cy + 5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 200), 1,
                 )
-                if validate_grid(warped):
-                    grids.append(warped)
 
-        return grids
-
-    except Exception:
-        return []
+    debug.cells_montage = montage_bgr
+    return debug

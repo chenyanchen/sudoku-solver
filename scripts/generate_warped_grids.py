@@ -44,10 +44,7 @@ def main() -> int:
     if args.cnn_model is None:
         print("CNN_MODEL_PATH not set and --cnn-model not provided", file=sys.stderr)
         return 1
-    reader = CnnDigitReader(model_path=args.cnn_model, strict=False)
-    if not reader.is_ready:
-        print(f"CNN model not ready: {reader.load_error}", file=sys.stderr)
-        return 1
+    reader = CnnDigitReader(model_path=args.cnn_model)
 
     images = []
     for ext in ("*.jpg", "*.jpeg", "*.png"):

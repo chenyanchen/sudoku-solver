@@ -8,15 +8,11 @@ from typing import Optional
 
 import cv2
 import numpy as np
+import onnxruntime as ort
 
 from .detector import DetectionResult
 
 LOGGER = logging.getLogger(__name__)
-
-try:
-    import onnxruntime as ort
-except ImportError:
-    ort = None
 
 DEFAULT_YOLO_MODEL = (
     Path(__file__).resolve().parents[2]
@@ -82,9 +78,6 @@ class YoloGridDetector:
         Returns:
             DetectionResult with 4 corner coordinates, or None.
         """
-        if not self.is_ready:
-            return None
-
         h_orig, w_orig = image.shape[:2]
         img_input, scale, pad_x, pad_y = self._preprocess(image)
 
@@ -111,23 +104,17 @@ class YoloGridDetector:
         return DetectionResult(corners=corners, detector_name="yolo", keypoints=keypoints)
 
     def _load_model(self, path: Path) -> None:
-        if ort is None:
-            self._load_error = "onnxruntime not installed"
-            return
         if not path.exists():
             self._load_error = f"YOLO model not found: {path}"
             return
-        try:
-            opts = ort.SessionOptions()
-            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            self._session = ort.InferenceSession(
-                str(path), opts, providers=["CPUExecutionProvider"],
-            )
-            self._input_name = self._session.get_inputs()[0].name
-            self._output_names = [o.name for o in self._session.get_outputs()]
-            LOGGER.info("YOLO grid detector loaded: %s", path.name)
-        except Exception as e:
-            self._load_error = f"Failed to load YOLO model: {e}"
+        opts = ort.SessionOptions()
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        self._session = ort.InferenceSession(
+            str(path), opts, providers=["CPUExecutionProvider"],
+        )
+        self._input_name = self._session.get_inputs()[0].name
+        self._output_names = [o.name for o in self._session.get_outputs()]
+        LOGGER.info("YOLO grid detector loaded: %s", path.name)
 
     def _preprocess(
         self, image: np.ndarray,
@@ -188,27 +175,12 @@ class YoloGridDetector:
         if raw.ndim != 2 or raw.shape[1] < non_nms_min_cols:
             return None
 
-        # Columns: cx, cy, w, h, conf (or class scores), kx1, ky1, ...
-        # For single-class pose: [cx, cy, w, h, cls_score, kx1, ky1, kx2, ky2, ...]
-        # Some exports: [cx, cy, w, h, obj_conf, cls_conf, kx1, ky1, ...]
-        ncols = raw.shape[1]
-
         # End-to-end NMS format:
         #   [x1, y1, x2, y2, conf, class_id, kx1, ky1, ...]
         # Non-NMS format (transposed to (N, C)):
         #   [cx, cy, w, h, cls_score, kx1, ky1, ...]
-        if ncols >= nms_min_cols:
-            # End-to-end NMS: conf at col 4, class at col 5, kpts at col 6+
-            conf = raw[:, 4]
-            kpt_start = 6
-            kpt_stride = 2
-        elif ncols >= non_nms_min_cols:
-            # Non-NMS: cls_score at col 4, kpts at col 5+
-            conf = raw[:, 4]
-            kpt_start = 5
-            kpt_stride = 2
-        else:
-            return None
+        conf = raw[:, 4]
+        kpt_start = 6 if raw.shape[1] >= nms_min_cols else 5
 
         # Filter by confidence.
         mask = conf >= self._conf_threshold
@@ -223,8 +195,8 @@ class YoloGridDetector:
         # Extract keypoints.
         kpts = []
         for i in range(n_kpt):
-            kx = float(raw[best_idx, kpt_start + i * kpt_stride])
-            ky = float(raw[best_idx, kpt_start + i * kpt_stride + 1])
+            kx = float(raw[best_idx, kpt_start + i * 2])
+            ky = float(raw[best_idx, kpt_start + i * 2 + 1])
             # Map back from letterbox to original image coords.
             orig_x = (kx - pad_x) / scale
             orig_y = (ky - pad_y) / scale

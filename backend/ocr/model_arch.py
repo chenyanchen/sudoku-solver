@@ -4,13 +4,7 @@ from __future__ import annotations
 
 
 def create_model(arch: str, num_classes: int):
-    try:
-        import torch
-        import torch.nn as nn
-    except Exception as exc:
-        raise RuntimeError(
-            "PyTorch is required. Install ML stack first: uv sync --extra ml"
-        ) from exc
+    import torch.nn as nn
 
     if arch == "timm_mobilenetv3":
         try:

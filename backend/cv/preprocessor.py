@@ -14,13 +14,8 @@ def preprocess(image: np.ndarray) -> dict:
     Returns:
         Dictionary containing:
             - gray: Grayscale image
-            - blurred: Gaussian blurred image
             - thresh: Thresholded binary image
-            - original: Original image (copy)
     """
-    if image is None or len(image) == 0:
-        raise ValueError("Invalid input image")
-
     # Convert to grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -38,41 +33,7 @@ def preprocess(image: np.ndarray) -> dict:
         2,  # Constant subtracted from mean
     )
 
-    return {
-        "gray": gray,
-        "blurred": blurred,
-        "thresh": thresh,
-        "original": image.copy(),
-    }
-
-
-def enhance_contrast(image: np.ndarray) -> np.ndarray:
-    """
-    Enhance image contrast using CLAHE.
-
-    Args:
-        image: Grayscale input image
-
-    Returns:
-        Contrast-enhanced image
-    """
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    return clahe.apply(image)
-
-
-def denoise(image: np.ndarray) -> np.ndarray:
-    """
-    Remove noise from image using non-local means denoising.
-
-    Args:
-        image: Input image (grayscale)
-
-    Returns:
-        Denoised image
-    """
-    return cv2.fastNlMeansDenoising(
-        image, None, h=10, templateWindowSize=7, searchWindowSize=21
-    )
+    return {"gray": gray, "thresh": thresh}
 
 
 def morphological_operations(thresh: np.ndarray, kernel_size: int = 3) -> np.ndarray:
@@ -98,16 +59,3 @@ def morphological_operations(thresh: np.ndarray, kernel_size: int = 3) -> np.nda
     dilated = cv2.dilate(opened, kernel, iterations=1)
 
     return dilated
-
-
-def invert_image(image: np.ndarray) -> np.ndarray:
-    """
-    Invert a grayscale image.
-
-    Args:
-        image: Input image
-
-    Returns:
-        Inverted image
-    """
-    return cv2.bitwise_not(image)

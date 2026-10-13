@@ -90,9 +90,6 @@ def predict_ocr(
     corner_cnn,
     cnn,
 ) -> tuple[list[dict[str, Any]], float]:
-    if not cnn.is_ready:
-        return [], 0.0
-
     det = corner_cnn.detect(image) if corner_cnn.is_ready else None
     if det is not None:
         from backend.cv.detector import warp_grid
