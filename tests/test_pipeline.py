@@ -88,3 +88,26 @@ def test_unrepairable_grids_report_why():
     result = decode(broken, _metadata(broken))
     assert result.status == UNSOLVABLE
     assert result.solution is None
+
+
+def _grid_with_digits(scale):
+    import cv2
+    import numpy as np
+
+    img = np.full((450, 450, 3), 255, np.uint8)
+    for r in range(9):
+        for c in range(9):
+            if (r + c) % 3 == 0:
+                org = (c * 50 + 25 - int(10 * scale), r * 50 + 25 + int(12 * scale))
+                cv2.putText(img, "8", org, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 2)
+    return img
+
+
+def test_ocr_cells_zooms_only_when_digits_are_small():
+    from backend.ocr.pipeline import ocr_cells
+
+    normal, zoomed = ocr_cells(_grid_with_digits(1.0))
+    assert not zoomed and normal[0].shape[:2] == (48, 48)
+
+    small, zoomed = ocr_cells(_grid_with_digits(0.6))
+    assert zoomed and small[0].shape[0] < 48
