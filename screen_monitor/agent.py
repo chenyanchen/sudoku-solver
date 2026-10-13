@@ -251,30 +251,18 @@ def _capture_loop(
 
             # --- Grab all monitors ---
             t_capture_start = time.perf_counter()
-            frames: list[tuple[int, np.ndarray, np.ndarray, np.ndarray, bool, float]] = []
+            frames: list[tuple[int, np.ndarray, np.ndarray, np.ndarray, list, float]] = []
             any_changed = False
             for mid in monitor_ids:
                 monitor = monitor_meta[mid]["monitor"]
                 frame_raw = np.array(sct.grab(monitor), dtype=np.uint8)
                 frame_bgr = frame_raw[:, :, :3].copy()  # BGRA → BGR without cvtColor
-                thumb = make_thumbnail(frame_bgr)
-                changed = is_frame_changed(
-                    prev_thumbs.get(mid), thumb, config.frame_change_threshold,
+                thumb, changed, changed_regions, detect_frame, ds = _prepare_frame(
+                    frame_bgr, prev_thumbs.get(mid), config.frame_change_threshold,
                 )
                 prev_thumbs[mid] = thumb
                 any_changed = any_changed or changed
-                # Downscale wide frames for faster detection.
-                # OCR always re-warps from the original frame_bgr.
-                if frame_bgr.shape[1] > _MAX_DETECT_WIDTH:
-                    ds = _MAX_DETECT_WIDTH / frame_bgr.shape[1]
-                    detect_frame = cv2.resize(
-                        frame_bgr, None, fx=ds, fy=ds,
-                        interpolation=cv2.INTER_AREA,
-                    )
-                else:
-                    ds = 1.0
-                    detect_frame = frame_bgr
-                frames.append((mid, frame_bgr, detect_frame, thumb, changed, ds))
+                frames.append((mid, frame_bgr, detect_frame, thumb, changed_regions, ds))
             capture_ms = (time.perf_counter() - t_capture_start) * 1000.0
 
             # --- FIX #1: skip when no change regardless of overlay state ---
@@ -299,7 +287,6 @@ def _capture_loop(
             selected = _select_best_candidate(
                 frames, config, reader, detect_cache, solve_cache,
                 puzzle_cache, monitor_meta,
-                prev_thumbs=prev_thumbs,
                 last_known_grid_bbox=last_known_grid_bbox,
             )
             pipeline_ms = (time.perf_counter() - t_pipeline_start) * 1000.0
@@ -332,7 +319,7 @@ def _capture_loop(
 
             # Store grid bbox as fractional ROI for future ROI detection.
             # sel_bbox is in original (pre-downscale) coordinates.
-            fh, fw = frames[0][1].shape[:2]  # original frame dimensions
+            fh, fw = next(f[1] for f in frames if f[0] == sel_mid).shape[:2]
             last_known_grid_bbox[sel_mid] = (
                 sel_bbox[0] / fw, sel_bbox[1] / fh,
                 (sel_bbox[2] - sel_bbox[0]) / fw, (sel_bbox[3] - sel_bbox[1]) / fh,
@@ -427,16 +414,34 @@ def _rewarp_from_original(
     return cv2.warpPerspective(original_bgr, matrix, (450, 450))
 
 
+def _prepare_frame(
+    frame_bgr: np.ndarray, prev_thumb: Optional[np.ndarray], change_threshold: float,
+) -> tuple[np.ndarray, bool, list, np.ndarray, float]:
+    """Return (thumb, changed, changed_regions, detect_frame, downscale)."""
+    thumb = make_thumbnail(frame_bgr)
+    changed = is_frame_changed(prev_thumb, thumb, change_threshold)
+    changed_regions = (
+        find_changed_regions(prev_thumb, thumb)
+        if changed and prev_thumb is not None else []
+    )
+    # Downscale wide frames for faster detection.
+    # OCR always re-warps from the original frame_bgr.
+    if frame_bgr.shape[1] <= _MAX_DETECT_WIDTH:
+        return thumb, changed, changed_regions, frame_bgr, 1.0
+    ds = _MAX_DETECT_WIDTH / frame_bgr.shape[1]
+    detect_frame = cv2.resize(frame_bgr, None, fx=ds, fy=ds, interpolation=cv2.INTER_AREA)
+    return thumb, changed, changed_regions, detect_frame, ds
+
+
 def _select_best_candidate(
-    frames: list[tuple[int, np.ndarray, np.ndarray, np.ndarray, bool, float]],
+    frames: list[tuple[int, np.ndarray, np.ndarray, np.ndarray, list, float]],
     config: MonitorConfig,
     reader: CnnDigitReader,
     detect_cache: LruCache,
     solve_cache: LruCache,
     puzzle_cache: LruCache,
     monitor_meta: dict[int, dict[str, Any]],
-    prev_thumbs: Optional[dict[int, np.ndarray]] = None,
-    last_known_grid_bbox: Optional[dict[int, tuple[float, float, float, float]]] = None,
+    last_known_grid_bbox: dict[int, tuple[float, float, float, float]],
 ) -> Optional[tuple]:
     """Find the best solvable grid across all monitors/frames.
 
@@ -453,22 +458,19 @@ def _select_best_candidate(
     best_givens = -1
     best: Optional[tuple] = None
 
-    for mid, original_bgr, detect_frame, thumb, changed, downscale in frames:
+    for mid, original_bgr, detect_frame, thumb, changed_regions, downscale in frames:
         frame_key = f"m{mid}:{thumbnail_hash(thumb)}"
         candidates = detect_cache.get(frame_key)
         detect_hit = candidates is not None
         if candidates is None:
-            # Try ROI detection first when we have previous thumbnails.
+            # Try ROI detection first: changed regions plus the last grid bbox.
             roi_candidates = None
-            if changed and prev_thumbs and mid in prev_thumbs:
-                regions = find_changed_regions(prev_thumbs[mid], thumb)
-                # Always include last known grid bbox as an extra ROI.
-                if last_known_grid_bbox and mid in last_known_grid_bbox:
-                    grid_roi = last_known_grid_bbox[mid]
-                    if grid_roi not in regions:
-                        regions.append(grid_roi)
-                if regions:
-                    roi_candidates = detect_candidates_in_regions(detect_frame, regions)
+            if changed_regions:
+                regions = list(changed_regions)
+                grid_roi = last_known_grid_bbox.get(mid)
+                if grid_roi is not None and grid_roi not in regions:
+                    regions.append(grid_roi)
+                roi_candidates = detect_candidates_in_regions(detect_frame, regions)
 
             if roi_candidates:
                 candidates = roi_candidates

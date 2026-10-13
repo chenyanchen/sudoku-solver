@@ -381,3 +381,19 @@ def test_puzzle_cache_prevents_redundant_solve():
     grid2[0][0] = 7
     sig3 = puzzle_signature(grid2)
     assert sig1 != sig3
+
+
+def test_prepare_frame_reports_changed_regions_against_previous_thumb():
+    from screen_monitor.agent import _prepare_frame
+
+    prev = np.zeros((400, 600, 3), dtype=np.uint8)
+    curr = prev.copy()
+    curr[100:300, 300:500] = 255
+    prev_thumb, *_ = _prepare_frame(prev, None, 1.0)
+
+    _, changed, regions, _, _ = _prepare_frame(curr, prev_thumb, 1.0)
+
+    assert changed
+    assert len(regions) == 1
+    x, y, w, h = regions[0]
+    assert 0.4 < x < 0.55 and 0.15 < y < 0.3 and w > 0.25 and h > 0.4
