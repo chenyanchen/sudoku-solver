@@ -396,7 +396,9 @@ def main() -> int:
                 + 0.15 * val_metrics["accuracy"]
             )
 
-            is_best = score > best_score
+            # The small val split saturates at 1.0 early; on ties keep the later,
+            # lower-LR checkpoint instead of freezing on the first perfect epoch.
+            is_best = score >= best_score
 
             print(
                 f"epoch={epoch:03d} train_loss={train_loss:.4f} "
