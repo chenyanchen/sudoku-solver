@@ -165,3 +165,21 @@ class TestSudokuSolver:
         # Empty grid should have many solutions but should find one
         assert result is not None
         assert all(all(cell != 0 for cell in row) for row in result)
+
+
+def test_solve_unique_rejects_ambiguous_puzzle():
+    empty = [[0] * 9 for _ in range(9)]
+    solution, count = SudokuSolver().solve_unique(empty)
+    assert solution is None and count == 2
+
+
+def test_solve_endpoint_reports_multiple_solutions():
+    from fastapi.testclient import TestClient
+    from backend.main import app
+
+    with TestClient(app) as client:
+        body = client.post(
+            "/api/v1/sudoku:solve", json={"grid": {"cells": [[0] * 9 for _ in range(9)]}},
+        ).json()
+    assert body["success"] is False
+    assert body["message"] == "Puzzle has multiple solutions"

@@ -161,10 +161,7 @@ export OCR_ENGINE=cnn
 export CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_v3.2.onnx
 export CNN_BLANK_THRESHOLD=0.65
 export CNN_DIGIT_THRESHOLD=0.55
-export CNN_RERANK_CONFIDENCE=0.80
 export CNN_TOPK_CANDIDATES=4
-export CNN_REPAIR_MAX_CHANGES=2
-export CNN_REPAIR_MAX_CELLS=14
 ```
 
 ### API Compatibility Notes
@@ -200,7 +197,7 @@ sudoku-solver/
 │   │   └── cell_extractor.py  # Cell extraction
 │   ├── ocr/
 │   │   ├── cnn_digit_reader.py # CNN OCR inference
-│   │   └── grid_repair.py      # OCR candidate-based auto-repair
+│   │   └── pipeline.py         # OCR → decode → unique solution
 │   ├── solver/
 │   │   └── backtracking.py    # Sudoku solving algorithm
 │   ├── models/
@@ -228,7 +225,7 @@ sudoku-solver/
 │   ├── test_solver.py
 │   ├── test_cv.py
 │   ├── test_cnn_ocr.py
-│   ├── test_grid_repair.py
+│   ├── test_pipeline.py
 │   └── test_screen_monitor_logic.py
 ├── pyproject.toml
 └── README.md

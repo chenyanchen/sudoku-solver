@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-from backend.api.routes import prepare_grid_for_ocr
+from backend.ocr.pipeline import prepare_grid_for_ocr
 from backend.cv.cell_extractor import clean_cell, extract_cells
 
 

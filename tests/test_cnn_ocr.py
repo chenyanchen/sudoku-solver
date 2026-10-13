@@ -26,27 +26,6 @@ def test_cnn_reader_raises_when_not_ready(tmp_path: Path):
         reader.recognize_grid([None] * 81)
 
 
-def test_constraint_rerank_resolves_low_conflict():
-    reader = CnnDigitReader.__new__(CnnDigitReader)
-    reader.rerank_confidence = 0.8
-
-    # Start from an invalid row duplication: [5, 5, 0, ...]
-    grid = [[0] * 9 for _ in range(9)]
-    grid[0][0] = 5
-    grid[0][1] = 5
-
-    confidences = [0.95] * 81
-    confidences[1] = 0.25  # low confidence duplicated cell
-
-    candidates = [[] for _ in range(81)]
-    candidates[1] = [(3, 0.96), (5, 0.90)]
-
-    reranked = reader._rerank_with_constraints(grid, confidences, candidates)
-
-    assert reranked[0][0] == 5
-    assert reranked[0][1] == 3
-
-
 def test_uncertain_digit_is_not_promoted_by_recheck(monkeypatch):
     reader = CnnDigitReader(model_path="missing.onnx")
     reader._class_values = list(range(10))

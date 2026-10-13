@@ -336,15 +336,14 @@ Gaussian blur → adaptive threshold → 必要时反色 → erosion
 
 这是典型的**模型概率 + 结构化领域知识**后处理。
 
-### 7.3 Grid repair
+### 7.3 Decode（`backend/ocr/pipeline.py`）
 
-若 OCR 网格仍无法求解，`backend/ocr/grid_repair.py` 会：
+只有**解唯一**的识别结果才被信任。否则 `decode` 会：
 
-- 优先选冲突格和低置信非零格；
-- 每格最多考虑当前值、top candidates 和 blank；
-- 默认只允许少量修改（环境变量通常配置 `max_changes=2`）；
-- 每次候选组合都先过数独合法性，再调用求解器；
-- 找到可解组合即停止。
+- 多解（漏识别已知数）：在 CNN 认为可能有数字的空格里补数字；
+- 无解（认错已知数）：优先选冲突格和低置信非零格，替换为 top candidates 或 blank；
+- 最多修改 `max_changes`（默认 2）格，修改数从少到多枚举；
+- 找到第一个解唯一的组合即停止。
 
 它不是另一个 ML 模型，而是利用 CNN top-k 分布进行有界搜索。
 
@@ -683,7 +682,7 @@ OCR 预标注 score 只有在识别网格可被求解时才保留平均置信度
 
 1. 本文第 1、2、10 节；
 2. `backend/api/routes.py`：看 detector → warp → OCR；
-3. `screen_monitor/solver_pipeline.py`：看 OCR → repair → solve。
+3. `backend/ocr/pipeline.py`：看 OCR → decode → solve。
 
 目标：能口述端到端数据流，并区分 ML、CV、规则算法的职责。
 
@@ -692,7 +691,7 @@ OCR 预标注 score 只有在识别网格可被求解时才保留平均置信度
 1. `backend/ocr/model_arch.py`；
 2. `scripts/train_cnn_ocr.py`；
 3. `backend/ocr/cnn_digit_reader.py`；
-4. `backend/ocr/grid_repair.py`。
+4. `backend/ocr/pipeline.py`。
 
 目标：能画出 v2/v3 网络，解释 class weight、label smoothing、F1、batch inference、rerank。
 

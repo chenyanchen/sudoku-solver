@@ -12,7 +12,6 @@ import cv2
 import numpy as np
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from ..cv.cell_extractor import extract_cells
 from ..cv.detector import ChainDetector, warp_grid
 from ..cv.opencv_detector import OpenCVGridDetector
 from ..cv.corner_cnn_detector import CornerCnnDetector
@@ -23,7 +22,8 @@ from ..models.schemas import (
     SolveResponse,
 )
 from ..ocr.cnn_digit_reader import CnnDigitReader
-from ..solver.backtracking import SudokuSolver, is_valid_grid, is_valid_placement
+from ..ocr.pipeline import SOLVED, recognize
+from ..solver.backtracking import SudokuSolver, is_valid_grid
 
 router = APIRouter()
 _CNN_READER: CnnDigitReader | None = None
@@ -82,23 +82,6 @@ def detect_grid_image(image: np.ndarray) -> tuple[np.ndarray, str] | None:
     return warp_grid(image, result.corners), result.detector_name
 
 
-def prepare_grid_for_ocr(grid_img: np.ndarray) -> np.ndarray:
-    """Enhance grid image for OCR and return a BGR image for cell extraction."""
-    gray = (
-        cv2.cvtColor(grid_img, cv2.COLOR_BGR2GRAY)
-        if len(grid_img.shape) == 3
-        else grid_img
-    )
-    if np.mean(gray) <= 128:
-        gray = cv2.bitwise_not(gray)
-    # Threshold against local lighting before cell-level Otsu can amplify shadows.
-    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-    binary = cv2.adaptiveThreshold(
-        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 8,
-    )
-    return cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
-
-
 def _ocr_engine() -> str:
     return os.getenv("OCR_ENGINE", "cnn").strip().lower()
 
@@ -113,7 +96,6 @@ def _get_cnn_reader() -> tuple[CnnDigitReader | None, str | None]:
         model_path=os.getenv("CNN_MODEL_PATH"),
         blank_threshold=_env("CNN_BLANK_THRESHOLD", 0.65),
         digit_threshold=_env("CNN_DIGIT_THRESHOLD", 0.55),
-        rerank_confidence=_env("CNN_RERANK_CONFIDENCE", 0.80),
         top_k_candidates=_env("CNN_TOPK_CANDIDATES", 4),
         strict=False,
     )
@@ -170,13 +152,9 @@ async def solve_sudoku(request: SolveRequest):
                 message="Invalid Sudoku grid format",
             )
 
-        # Solve the puzzle
-        solver = SudokuSolver()
-        solved = solver.solve(grid)
+        solved, solution_count = SudokuSolver().solve_unique(grid)
 
         if solved is None:
-            # Check if it's unsolvable or has multiple solutions
-            solution_count = solver.count_solutions(grid, max_count=2)
             if solution_count == 0:
                 message = "Puzzle has no solution"
             else:
@@ -194,64 +172,6 @@ async def solve_sudoku(request: SolveRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-def recognize_with_border_retry(
-    reader: CnnDigitReader, ocr_grid: np.ndarray, cells: list[np.ndarray]
-) -> tuple[list[list[int]], dict]:
-    """Retry weak OCR on the cell centers, then accept only an unambiguous puzzle."""
-    grid, metadata = reader.recognize_grid_with_metadata(cells)
-    solver = SudokuSolver()
-    # Missed givens leave a valid but ambiguous puzzle; only a unique one is trusted.
-    if (sum(value != 0 for row in grid for value in row) >= 17
-            and solver.count_solutions(grid, max_count=2) == 1):
-        return grid, metadata
-
-    # Thick screen grid lines survive the normal 1px cell border crop.
-    centered = [
-        ocr_grid[
-            r * 50 + 10 : (r + 1) * 50 - 10,
-            c * 50 + 10 : (c + 1) * 50 - 10,
-        ]
-        for r in range(9) for c in range(9)
-    ]
-    retry, retry_meta = reader.recognize_grid_with_metadata(centered, threshold=0.3)
-    retry_givens = sum(value != 0 for row in retry for value in row)
-    if retry_givens < 17 or retry_givens <= sum(
-        value != 0 for row in grid for value in row
-    ):
-        return grid, metadata
-
-    solutions = solver.count_solutions(retry, max_count=2)
-    if solutions == 1:
-        return retry, retry_meta
-    if solutions != 0:
-        return grid, metadata
-
-    # One uncertain glyph may be wrong even when all other cells are legible.
-    corrections = []
-    for pred in retry_meta["cell_predictions"]:
-        row, col = pred["row"], pred["col"]
-        old = retry[row][col]
-        if old == 0 or pred["confidence"] >= 0.8:
-            continue
-        for digit, prob in pred["candidates"]:
-            if (digit == old or prob < 0.15
-                    or not is_valid_placement(retry, row, col, digit)):
-                continue
-            retry[row][col] = digit
-            if solver.count_solutions(retry, max_count=2) == 1:
-                corrections.append((row, col, digit, prob))
-            retry[row][col] = old
-            if len(corrections) > 1:
-                return grid, metadata
-    if len(corrections) != 1:
-        return grid, metadata
-    row, col, digit, prob = corrections[0]
-    retry[row][col] = digit
-    prediction = retry_meta["cell_predictions"][row * 9 + col]
-    prediction["value"], prediction["confidence"] = digit, prob
-    return retry, retry_meta
 
 
 @router.post(
@@ -284,8 +204,6 @@ async def recognize_sudoku(image: UploadFile = File(...)):
             )
 
         grid_img, detector_name = det_result
-        ocr_grid = prepare_grid_for_ocr(grid_img)
-        cells = extract_cells(ocr_grid)
         detected_b64 = image_to_base64(grid_img)
 
         reader, engine, reader_error = _resolve_ocr_reader()
@@ -299,15 +217,17 @@ async def recognize_sudoku(image: UploadFile = File(...)):
             )
 
         ocr_start = time.perf_counter()
-        grid, metadata = recognize_with_border_retry(reader, ocr_grid, cells)
+        result = recognize(reader, grid_img)
         ocr_latency_ms = (time.perf_counter() - ocr_start) * 1000.0
+        metadata = result.metadata
 
-        given_cells = sum(1 for row in grid for cell in row if cell != 0)
-
+        message = f"Recognized {result.givens} givens"
+        if result.status != SOLVED:
+            message += f" ({result.status}: some digits may be misread)"
         return RecognizeResponse(
             success=True,
-            message=f"Recognized {given_cells} givens",
-            grid=grid,
+            message=message,
+            grid=result.grid,
             detected_image=detected_b64,
             detector_name=detector_name,
             ocr_confidence=metadata.get("average_confidence"),

@@ -1,195 +1,127 @@
-"""Sudoku solver using backtracking algorithm."""
+"""Sudoku solver: bitmask backtracking with the MRV heuristic."""
 
 from __future__ import annotations
 
-import copy
-
 Grid = list[list[int]]
+
+_ALL_DIGITS = 0b1111111110  # bits 1..9
 
 
 class SudokuSolver:
     """Solves Sudoku puzzles using backtracking."""
 
-    def __init__(self):
-        self.solutions_count = 0
-        self._iterations = 0
-        self._max_iterations = 0
+    def __init__(self, max_nodes: int = 100_000):
+        self.max_nodes = max_nodes
 
-    def solve(self, grid: Grid, max_iterations: int = 100_000) -> Grid | None:
-        """
-        Solve a Sudoku puzzle.
-
-        Args:
-            grid: 9x9 list of lists with 0 for empty cells
-            max_iterations: Maximum recursive calls before aborting
-
-        Returns:
-            Solved 9x9 grid if solution exists, None otherwise
-        """
-        self.solutions_count = 0
-        self._iterations = 0
-        self._max_iterations = max_iterations
-        grid_copy = copy.deepcopy(grid)
-        if not self._is_consistent_grid(grid_copy):
-            return None
-        if self._solve_recursive(grid_copy):
-            return grid_copy
-        return None
-
-    def _solve_recursive(self, grid: Grid) -> bool:
-        """Recursively solve the puzzle using backtracking."""
-        self._iterations += 1
-        if self._iterations > self._max_iterations:
-            return False
-
-        empty = self._find_empty_cell(grid)
-        if not empty:
-            return True
-
-        row, col = empty
-
-        for num in range(1, 10):
-            if self._is_valid(grid, row, col, num):
-                grid[row][col] = num
-
-                if self._solve_recursive(grid):
-                    return True
-
-                grid[row][col] = 0
-
-        return False
-
-    def _is_valid(self, grid: Grid, row: int, col: int, num: int) -> bool:
-        """
-        Check if placing num at (row, col) is valid.
-
-        Args:
-            grid: Current grid state
-            row: Row index
-            col: Column index
-            num: Number to place (1-9)
-
-        Returns:
-            True if placement is valid, False otherwise
-        """
-        # Check row
-        if num in grid[row]:
-            return False
-
-        # Check column
-        for r in range(9):
-            if grid[r][col] == num:
-                return False
-
-        # Check 3x3 box
-        box_row = (row // 3) * 3
-        box_col = (col // 3) * 3
-
-        for r in range(box_row, box_row + 3):
-            for c in range(box_col, box_col + 3):
-                if grid[r][c] == num:
-                    return False
-
-        return True
-
-    def _find_empty_cell(self, grid: Grid) -> tuple[int, int] | None:
-        """Find the empty cell with the fewest legal candidates (MRV heuristic)."""
-        best: tuple[int, int] | None = None
-        best_count = 10  # more than max possible (9)
-        for r in range(9):
-            for c in range(9):
-                if grid[r][c] != 0:
-                    continue
-                count = sum(1 for n in range(1, 10) if self._is_valid(grid, r, c, n))
-                if count == 0:
-                    return (r, c)  # dead end — will fail immediately, no point searching further
-                if count < best_count:
-                    best_count = count
-                    best = (r, c)
-                    if count == 1:
-                        return best  # only one option — pick it immediately
-        return best
+    def solve(self, grid: Grid) -> Grid | None:
+        """Return the first solution found, or None."""
+        found, _ = _search(grid, 1, self.max_nodes)
+        return found[0] if found else None
 
     def count_solutions(self, grid: Grid, max_count: int = 2) -> int:
+        """Count solutions up to max_count.
+
+        An exhausted node budget counts as max_count: uniqueness was not proven.
         """
-        Count number of solutions (up to max_count).
+        found, exhausted = _search(grid, max_count, self.max_nodes)
+        return max_count if exhausted else len(found)
 
-        Args:
-            grid: 9x9 grid to solve
-            max_count: Stop counting after finding this many solutions
+    def solve_unique(self, grid: Grid) -> tuple[Grid | None, int]:
+        """Return (solution if unique else None, solution count capped at 2)."""
+        found, exhausted = _search(grid, 2, self.max_nodes)
+        count = 2 if exhausted else len(found)
+        return (found[0] if count == 1 else None), count
 
-        Returns:
-            Number of solutions found
-        """
-        self.solutions_count = 0
-        grid_copy = copy.deepcopy(grid)
-        if not self._is_consistent_grid(grid_copy):
-            return 0
-        self._count_solutions_recursive(grid_copy, max_count)
-        return self.solutions_count
 
-    def _count_solutions_recursive(self, grid: Grid, max_count: int) -> None:
-        """Recursively count solutions, stopping at max_count."""
-        if self.solutions_count >= max_count:
-            return
+class _BudgetExhausted(Exception):
+    pass
 
-        empty = self._find_empty_cell(grid)
-        if not empty:
-            self.solutions_count += 1
-            return
 
-        row, col = empty
+def _search(grid: Grid, limit: int, max_nodes: int) -> tuple[list[Grid], bool]:
+    """Find up to `limit` solutions. Returns (solutions, budget_exhausted)."""
+    rows, cols, boxes = [0] * 9, [0] * 9, [0] * 9
+    empties: list[tuple[int, int, int]] = []
+    cells = [list(row) for row in grid]
+    for r in range(9):
+        for c in range(9):
+            b = (r // 3) * 3 + c // 3
+            value = cells[r][c]
+            if value == 0:
+                empties.append((r, c, b))
+                continue
+            bit = 1 << value
+            if (rows[r] | cols[c] | boxes[b]) & bit:
+                return [], False
+            rows[r] |= bit
+            cols[c] |= bit
+            boxes[b] |= bit
 
-        for num in range(1, 10):
-            if self._is_valid(grid, row, col, num):
-                grid[row][col] = num
-                self._count_solutions_recursive(grid, max_count)
-                grid[row][col] = 0
+    found: list[Grid] = []
+    nodes = 0
 
-    def _is_consistent_grid(self, grid: Grid) -> bool:
-        """Check existing non-zero givens are mutually consistent."""
-        for r in range(9):
-            for c in range(9):
-                num = grid[r][c]
-                if num == 0:
-                    continue
-                grid[r][c] = 0
-                valid = self._is_valid(grid, r, c, num)
-                grid[r][c] = num
-                if not valid:
-                    return False
-        return True
+    def recurse() -> bool:
+        nonlocal nodes
+        nodes += 1
+        if nodes > max_nodes:
+            raise _BudgetExhausted
+        if not empties:
+            found.append([row[:] for row in cells])
+            return len(found) >= limit
+
+        best_i, best_mask, best_n = 0, 0, 10
+        for i, (r, c, b) in enumerate(empties):
+            mask = _ALL_DIGITS & ~(rows[r] | cols[c] | boxes[b])
+            n = mask.bit_count()
+            if n < best_n:
+                best_i, best_mask, best_n = i, mask, n
+                if n <= 1:
+                    break
+        if best_n == 0:
+            return False
+
+        cell = empties[best_i]
+        r, c, b = cell
+        empties[best_i] = empties[-1]
+        empties.pop()
+        mask = best_mask
+        done = False
+        while mask and not done:
+            bit = mask & -mask
+            mask ^= bit
+            rows[r] |= bit
+            cols[c] |= bit
+            boxes[b] |= bit
+            cells[r][c] = bit.bit_length() - 1
+            done = recurse()
+            rows[r] ^= bit
+            cols[c] ^= bit
+            boxes[b] ^= bit
+        cells[r][c] = 0
+        empties.append(cell)
+        empties[best_i], empties[-1] = empties[-1], empties[best_i]
+        return done
+
+    try:
+        recurse()
+    except _BudgetExhausted:
+        return found, True
+    return found, False
 
 
 def solve(grid: Grid) -> Grid | None:
     """Convenience function to solve a Sudoku grid."""
-    solver = SudokuSolver()
-    return solver.solve(grid)
+    return SudokuSolver().solve(grid)
 
 
 def is_valid_grid(grid: Grid) -> bool:
-    """
-    Validate that a grid has correct structure and initial values.
-
-    Args:
-        grid: 9x9 grid to validate
-
-    Returns:
-        True if grid is valid, False otherwise
-    """
-    if not isinstance(grid, list) or len(grid) != 9:
+    """Check that a 9x9 grid of 0..9 has no duplicate givens."""
+    if len(grid) != 9 or any(len(row) != 9 for row in grid):
         return False
-
-    for row in grid:
-        if not isinstance(row, list) or len(row) != 9:
-            return False
-        for cell in row:
-            if not isinstance(cell, int) or cell < 0 or cell > 9:
-                return False
-
-    # Check no duplicate values in rows, cols, boxes
-    solver = SudokuSolver()
-    return solver._is_consistent_grid(grid)
+    if any(not 0 <= cell <= 9 for row in grid for cell in row):
+        return False
+    return all(
+        is_valid_placement(grid, r, c, grid[r][c]) for r in range(9) for c in range(9)
+    )
 
 
 def is_valid_placement(grid: Grid, row: int, col: int, val: int) -> bool:

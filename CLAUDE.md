@@ -44,9 +44,9 @@ uv run python scripts/eval_cnn_ocr.py --labels data/labels/sudoku_labels.json --
 
 1. **Grid detection** (`backend/cv/grid_detector.py`): OpenCV contour detection → quadrilateral candidates → perspective warp to 450×450. Handles decorative borders via grid-line regularity scoring and line-based refinement.
 2. **Cell extraction** (`backend/cv/cell_extractor.py`): Splits warped grid into 81 cells.
-3. **OCR** (`backend/ocr/cnn_digit_reader.py`): Custom CNN (48×48 grayscale, 10 classes), runs via ONNX Runtime. Three-phase recognition: blank detection → batch inference on 81 cells → uncertain-cell recheck with adaptive threshold variant. Applies Sudoku-constraint reranking on low-confidence cells.
-4. **Grid repair** (`backend/ocr/grid_repair.py`): When OCR produces an unsolvable grid, bounded search over CNN candidate alternatives (configurable max_changes budget) to find a solvable correction.
-5. **Solver** (`backend/solver/backtracking.py`): Backtracking with MRV heuristic (picks cell with fewest legal candidates). 100K iteration limit.
+3. **OCR** (`backend/ocr/cnn_digit_reader.py`): Custom CNN (48×48 grayscale, 10 classes), runs via ONNX Runtime. Three-phase recognition: blank detection → batch inference on 81 cells → uncertain-cell recheck with adaptive threshold variant.
+4. **Pipeline** (`backend/ocr/pipeline.py`): The single OCR → decode → solve path used by web, screen monitor, camera monitor and ML backend. Every entry point binarizes with `prepare_grid_for_ocr` (the training preprocessing). A result is trusted only when the givens have exactly one solution; otherwise `decode` searches up to `max_changes` edits over CNN candidates (fill missed givens when ambiguous, replace misreads when unsolvable).
+5. **Solver** (`backend/solver/backtracking.py`): Bitmask backtracking with MRV. `solve_unique` returns the solution only when it is unique. 100K node budget.
 
 ### Web App (`backend/`)
 
@@ -56,8 +56,7 @@ FastAPI app at `backend/main.py`. CNN model is validated at startup (lifespan ho
 
 macOS overlay daemon. Runs as `python -m screen_monitor`. Architecture:
 
-- **agent.py**: Main coordination — capture loop in daemon thread, Qt app on main thread. Two-layer cache (visual hash → puzzle hash) avoids redundant OCR/solve. ROI-based detection uses frame diff regions + last known grid bbox.
-- **solver_pipeline.py**: Screen-specific OCR+solve path (skips CLAHE since screen has uniform lighting).
+- **agent.py**: Main coordination — capture loop in daemon thread, Qt app on main thread. Visual-hash cache avoids redundant OCR/solve. ROI-based detection uses frame diff regions + last known grid bbox.
 - **overlay.py / hud_painter.py**: PyQt6 transparent overlay, click-through. Debug HUD shows telemetry.
 - **grid_tracker.py**: Stability tracking — requires N consecutive stable frames before showing overlay.
 - **Monitoring**: OpenTelemetry metrics exported to Prometheus; Grafana dashboard config in `grafana/`.
@@ -91,7 +90,7 @@ Three architectures: `custom_small_cnn` (v1-v2), `custom_cnn_v3` (ResBlock + SE 
 - **Detection and OCR are decoupled**: detect on downscaled frame (max 1280px width), re-warp 450×450 from original full-res frame for OCR quality.
 - **Screen monitor uses OpenCV contours** (sufficient for screenshots); **camera/photo uses YOLO26n-pose** (required for complex backgrounds, lighting, tilt).
 - **onnxruntime is a core runtime dependency** (not just ML extra). The backend won't start without it.
-- **Screen monitor vs web app preprocessing differ**: screen monitor skips CLAHE (uniform lighting), web app applies CLAHE for camera photos.
+- **One OCR preprocessing for every input**: `prepare_grid_for_ocr` (adaptive threshold) matches the training data; per-source gray/CLAHE variants measured far worse (18 and 16 vs 32 of 40 labeled grids exact).
 - Model files live in `models/releases/` (ONNX + `.meta.json`, committed) and `models/checkpoints/` (PyTorch, gitignored).
 
 ### Data Pipeline
@@ -106,6 +105,5 @@ Three architectures: `custom_small_cnn` (v1-v2), `custom_cnn_v3` (ResBlock + SE 
 Key runtime configuration:
 
 - `CNN_MODEL_PATH` — **required**, path to CNN ONNX model (no default; must be set for backend/tests)
-- `CNN_BLANK_THRESHOLD`, `CNN_DIGIT_THRESHOLD`, `CNN_RERANK_CONFIDENCE`, `CNN_TOPK_CANDIDATES`
-- `CNN_REPAIR_MAX_CHANGES`, `CNN_REPAIR_MAX_CELLS`
+- `CNN_BLANK_THRESHOLD`, `CNN_DIGIT_THRESHOLD`, `CNN_TOPK_CANDIDATES`
 - `OCR_ENGINE` — only `cnn` is supported (others fallback to cnn)

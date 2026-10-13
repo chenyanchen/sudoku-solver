@@ -23,8 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from backend.cv.yolo_detector import YoloGridDetector
 from backend.ocr.cnn_digit_reader import CnnDigitReader
-from backend.solver.backtracking import SudokuSolver
-from screen_monitor.solver_pipeline import ocr_grid_from_warped
+from backend.ocr.pipeline import recognize
 
 
 def main() -> int:
@@ -88,15 +87,11 @@ def main() -> int:
         )
 
         # OCR pre-annotation + solve attempt.
-        ocr_result, reason, givens = ocr_grid_from_warped(warped, reader, min_givens=0)
-        if ocr_result is not None:
-            grid = ocr_result["original_grid"]
-            avg_conf = ocr_result.get("metadata", {}).get("average_confidence")
-            solved = SudokuSolver().solve(grid) is not None
-        else:
-            grid = [[0] * 9 for _ in range(9)]
-            avg_conf = None
-            solved = False
+        result = recognize(reader, warped)
+        grid = result.grid
+        givens = result.givens
+        avg_conf = result.metadata.get("average_confidence")
+        solved = result.solution is not None
 
         # Priority score: 0.0 (needs review) → 1.0 (confident + solvable).
         # Unsolvable → 0.0; solvable → scale by OCR confidence.
