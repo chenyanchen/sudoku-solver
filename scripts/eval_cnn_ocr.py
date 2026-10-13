@@ -18,7 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts._paths import DEFAULT_CORNERS, load_corner_labels, resolve_image_path
 
 from backend.api.routes import detect_grid_image
-from backend.ocr.pipeline import read_grid
+from backend.ocr.pipeline import decode, read_grid
 from backend.ocr.cnn_digit_reader import CnnDigitReader, DEFAULT_CNN_MODEL
 from backend.cv.detector import warp_grid
 from backend.cv.opencv_detector import OpenCVGridDetector
@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--detector", choices=["auto", "gt", "opencv", "corner"], default="auto")
     parser.add_argument("--image-pattern", nargs="+", default=["*"], help="Filename globs, e.g. 'IMG_86*.jpg' 'IMG_870[0-8].jpg'")
     parser.add_argument("--corners", type=Path, default=DEFAULT_CORNERS)
-    parser.add_argument("--strict", action="store_true", help="Exit nonzero unless every grid is exact and solved correctly")
+    parser.add_argument("--strict", action="store_true", help="Exit nonzero unless every grid is exact after decode and solved correctly")
     return parser.parse_args()
 
 
@@ -118,6 +118,7 @@ def merge_metrics(all_metrics):
         "digit9_hit": 0,
         "false_positive_blank": 0,
         "grid_exact": 0,
+        "pipeline_exact": 0,
         "solution_exact": 0,
     }
 
@@ -161,15 +162,16 @@ def main() -> int:
             image_path = resolve_image_path(image_name, args.labels)
             corners = corners_by_name[image_path.name] if args.detector == "gt" else None
             warped = load_warped_grid(image_path, detector, corners)
-            cnn_grid, _ = read_grid(cnn_reader, warped)
+            # Raw CNN metrics, then the production result after decode().
+            cnn_grid, metadata = read_grid(cnn_reader, warped)
             cnn_m = evaluate_single_grid(cnn_grid, truth)
-            solution = solver.solve(cnn_grid)
-            expected = solver.solve(truth)
-            cnn_m["solution_exact"] = solution is not None and expected is not None and solution == expected
+            result = decode(cnn_grid, metadata)
+            cnn_m["pipeline_exact"] = result.grid == truth
+            cnn_m["solution_exact"] = result.solution == solver.solve(truth)
             cnn_m["predicted"] = cnn_grid
         except (ValueError, FileNotFoundError, KeyError) as exc:
             cnn_m = evaluate_single_grid([[0] * 9 for _ in range(9)], truth)
-            cnn_m.update(grid_exact=False, solution_exact=False, error=str(exc))
+            cnn_m.update(pipeline_exact=False, solution_exact=False, error=str(exc))
         cnn_metrics.append(cnn_m)
         per_image[image_name] = cnn_m
         print(f"[CNN/{args.detector}] {image_name}: " + str({k: v for k, v in cnn_m.items() if k != "predicted"}))
@@ -184,7 +186,7 @@ def main() -> int:
             json.dump({"model": str(args.cnn_model.resolve()), "detector": args.detector, "cnn": aggregate, "per_image": per_image}, f, ensure_ascii=False, indent=2)
         print(f"Saved metrics JSON: {args.output_json}")
 
-    return int(args.strict and (aggregate["grid_exact"] != len(labels) or aggregate["solution_exact"] != len(labels)))
+    return int(args.strict and (aggregate["pipeline_exact"] != len(labels) or aggregate["solution_exact"] != len(labels)))
 
 
 if __name__ == "__main__":
