@@ -8,8 +8,7 @@ import cv2
 import pytest
 
 from backend.api.routes import detect_grid_image
-from backend.ocr.pipeline import prepare_grid_for_ocr
-from backend.cv.cell_extractor import extract_cells
+from backend.ocr.pipeline import read_grid
 from backend.cv.grid_detector import _has_regular_grid_lines
 from backend.ocr.cnn_digit_reader import CnnDigitReader
 
@@ -53,9 +52,7 @@ def _recognize_sample_grid(reader: CnnDigitReader, image_name: str) -> list[list
     if grid_image is None:
         raise ValueError(f"Failed to detect Sudoku grid from: {image_path}")
 
-    ocr_grid = prepare_grid_for_ocr(grid_image[0])
-    cells = extract_cells(ocr_grid)
-    return reader.recognize_grid(cells)
+    return read_grid(reader, grid_image[0])[0]
 
 
 @pytest.fixture(scope="module")

@@ -9,12 +9,13 @@ from typing import List, Tuple
 _CLAHE = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
 
 
-def extract_cells(grid_image: np.ndarray) -> List[np.ndarray]:
+def extract_cells(grid_image: np.ndarray, margin: int = 1) -> List[np.ndarray]:
     """
     Split a Sudoku grid image into 81 individual cell images.
 
     Args:
         grid_image: 450x450px grid image
+        margin: Pixels trimmed from each cell side (skips grid lines)
 
     Returns:
         List of 81 cell images (row-major order)
@@ -31,12 +32,10 @@ def extract_cells(grid_image: np.ndarray) -> List[np.ndarray]:
 
     for row in range(9):
         for col in range(9):
-            # Extract cell with some margin for border removal
             x = col * cell_size
             y = row * cell_size
 
-            # Extract cell (add 1px to skip grid line, subtract 2px for other border)
-            cell = grid_image[y + 1 : y + cell_size - 1, x + 1 : x + cell_size - 1]
+            cell = grid_image[y + margin : y + cell_size - margin, x + margin : x + cell_size - margin]
 
             cells.append(cell)
 

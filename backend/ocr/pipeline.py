@@ -21,6 +21,13 @@ from .cnn_digit_reader import CnnDigitReader
 
 SOLVED, AMBIGUOUS, UNSOLVABLE = "solved", "ambiguous", "unsolvable"
 
+_CELL = 48  # cell side after the default 1px margin
+# Median digit height / cell side is 0.48–0.69 across the training grids;
+# screenshots with small fonts (~0.35–0.40) are read poorly until zoomed in.
+_SMALL_DIGIT_HEIGHT = 0.45
+_TRAIN_DIGIT_HEIGHT = 0.55
+_ZOOMED_DIGIT_THRESHOLD = 0.3
+
 
 @dataclass
 class Recognition:
@@ -57,36 +64,57 @@ def prepare_grid_for_ocr(grid_img: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
 
 
+def read_grid(reader: CnnDigitReader, warped: np.ndarray) -> tuple[Grid, dict[str, Any]]:
+    """Raw CNN reading of a warped grid (no Sudoku constraints applied)."""
+    cells, zoomed = ocr_cells(prepare_grid_for_ocr(warped))
+    # Zoomed digits are outside the training distribution: accept lower
+    # confidence and rely on decode()'s uniqueness check to reject misreads.
+    return reader.recognize_grid_with_metadata(
+        cells, threshold=_ZOOMED_DIGIT_THRESHOLD if zoomed else None,
+    )
+
+
+def ocr_cells(ocr_grid: np.ndarray) -> tuple[list[np.ndarray], bool]:
+    """Cut 81 cells, zooming in when digits are smaller than in the training data.
+
+    Returns (cells, zoomed). Training and inference must both use this.
+    """
+    heights = _digit_heights(ocr_grid)
+    if len(heights) < 5:
+        return extract_cells(ocr_grid), False
+    height = float(np.median(heights))
+    if height / _CELL >= _SMALL_DIGIT_HEIGHT:
+        return extract_cells(ocr_grid), False
+    margin = round((50 - height / _TRAIN_DIGIT_HEIGHT) / 2)
+    return extract_cells(ocr_grid, margin), True
+
+
+def _digit_heights(ocr_grid: np.ndarray) -> list[int]:
+    """Height of the tallest interior ink blob in each cell that has one."""
+    gray = cv2.cvtColor(ocr_grid, cv2.COLOR_BGR2GRAY)
+    heights = []
+    for cell in extract_cells(gray):
+        count, _, stats, _ = cv2.connectedComponentsWithStats((cell < 128).astype(np.uint8))
+        tallest = max(
+            (h for x, y, w, h, _ in stats[1:count]
+             if x > 0 and y > 0 and x + w < _CELL and y + h < _CELL),  # skip grid-line fragments
+            default=0,
+        )
+        if tallest >= _CELL * 0.2:
+            heights.append(tallest)
+    return heights
+
+
 def recognize(
     reader: CnnDigitReader, warped: np.ndarray, max_changes: int = 2, max_cells: int = 10,
 ) -> Recognition:
     """Recognize and solve a 450x450 warped grid."""
-    timing = {"ocr_ms": 0.0, "solve_ms": 0.0}
-
-    def timed(key: str, fn, *args, **kwargs):
-        t0 = time.perf_counter()
-        out = fn(*args, **kwargs)
-        timing[key] += (time.perf_counter() - t0) * 1000.0
-        return out
-
-    ocr_grid = prepare_grid_for_ocr(warped)
-    grid, metadata = timed("ocr_ms", reader.recognize_grid_with_metadata, extract_cells(ocr_grid))
-    result = timed("solve_ms", decode, grid, metadata, max_changes, max_cells)
-
-    if result.status != SOLVED:
-        # Thick screen grid lines survive the normal 1px cell border crop.
-        centered = [
-            ocr_grid[r * 50 + 10 : (r + 1) * 50 - 10, c * 50 + 10 : (c + 1) * 50 - 10]
-            for r in range(9) for c in range(9)
-        ]
-        grid, metadata = timed(
-            "ocr_ms", reader.recognize_grid_with_metadata, centered, threshold=0.3,
-        )
-        retry = timed("solve_ms", decode, grid, metadata, max_changes, max_cells)
-        if retry.status == SOLVED:
-            result = retry
-
-    result.timing = timing
+    t0 = time.perf_counter()
+    grid, metadata = read_grid(reader, warped)
+    t1 = time.perf_counter()
+    result = decode(grid, metadata, max_changes, max_cells)
+    t2 = time.perf_counter()
+    result.timing = {"ocr_ms": (t1 - t0) * 1000.0, "solve_ms": (t2 - t1) * 1000.0}
     return result
 
 

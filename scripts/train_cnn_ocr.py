@@ -23,8 +23,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts._paths import DEFAULT_CORNERS, load_corner_labels, resolve_image_path
 
-from backend.ocr.pipeline import prepare_grid_for_ocr
-from backend.cv.cell_extractor import clean_cell, extract_cells
+from backend.ocr.pipeline import ocr_cells, prepare_grid_for_ocr
+from backend.cv.cell_extractor import clean_cell
 from backend.cv.detector import warp_grid
 from backend.ocr.model_arch import create_model
 
@@ -142,10 +142,7 @@ def build_samples(
         warped = warp_grid(image, corners * np.array([w, h]))
         source = json.dumps(grid)
 
-        ocr_grid = prepare_grid_for_ocr(warped)
-        cells = extract_cells(ocr_grid)
-        if len(cells) != 81:
-            raise ValueError(f"Expected 81 cells from {image_name}, got {len(cells)}")
+        cells, _ = ocr_cells(prepare_grid_for_ocr(warped))
 
         for row in range(9):
             for col in range(9):

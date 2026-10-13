@@ -18,8 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts._paths import DEFAULT_CORNERS, load_corner_labels, resolve_image_path
 
 from backend.api.routes import detect_grid_image
-from backend.ocr.pipeline import prepare_grid_for_ocr
-from backend.cv.cell_extractor import extract_cells
+from backend.ocr.pipeline import read_grid
 from backend.ocr.cnn_digit_reader import CnnDigitReader, DEFAULT_CNN_MODEL
 from backend.cv.detector import warp_grid
 from backend.cv.opencv_detector import OpenCVGridDetector
@@ -54,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_cells_for_image(image_path: Path, detector=None, corners=None):
+def load_warped_grid(image_path: Path, detector=None, corners=None):
     image = cv2.imread(str(image_path))
     if image is None:
         raise FileNotFoundError(f"Cannot load image: {image_path}")
@@ -73,8 +72,7 @@ def load_cells_for_image(image_path: Path, detector=None, corners=None):
             raise ValueError(f"Failed to detect Sudoku grid: {image_path}")
         grid_image, _ = result
 
-    ocr_grid = prepare_grid_for_ocr(grid_image)
-    return extract_cells(ocr_grid)
+    return grid_image
 
 
 def evaluate_single_grid(pred, truth):
@@ -164,8 +162,8 @@ def main() -> int:
         try:
             image_path = resolve_image_path(image_name, args.labels)
             corners = corners_by_name[image_path.name] if args.detector == "gt" else None
-            cells = load_cells_for_image(image_path, detector, corners)
-            cnn_grid = cnn_reader.recognize_grid(cells)
+            warped = load_warped_grid(image_path, detector, corners)
+            cnn_grid, _ = read_grid(cnn_reader, warped)
             cnn_m = evaluate_single_grid(cnn_grid, truth)
             solution = solver.solve(cnn_grid)
             expected = solver.solve(truth)
