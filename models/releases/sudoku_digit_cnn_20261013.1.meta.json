@@ -1,0 +1,28 @@
+{
+  "version": "3.6.0",
+  "class_values": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "input_size": 48,
+  "arch": "custom_cnn_v3",
+  "best_score": 0.9999999964583736,
+  "model_type": "cnn",
+  "model_version": "20261013.1",
+  "source_run_id": "6669cc1d00c346fcb01fc25870ebe69b",
+  "source_experiment_id": "245550406113532618",
+  "source_metric_name": "score",
+  "source_metric_value": 0.9999999964583736,
+  "source_git_commit": "aafa0d080acbfd69975e2f266dc92f65383e7188",
+  "released_at_utc": "2026-10-13T15:03:51.345877+00:00",
+  "training_version": "3.6.0",
+  "preprocessing": "local_adaptive_v1"
+}
