@@ -7,7 +7,7 @@ import os
 import cv2
 import pytest
 
-from backend.api.routes import detect_grid_image
+from backend.api.routes import read_image
 from backend.ocr.pipeline import read_grid
 from backend.cv.grid_detector import has_regular_grid_lines
 from backend.ocr.cnn_digit_reader import CnnDigitReader
@@ -48,11 +48,11 @@ def _recognize_sample_grid(reader: CnnDigitReader, image_name: str) -> list[list
     if image is None:
         raise FileNotFoundError(f"Failed to read sample image: {image_path}")
 
-    grid_image = detect_grid_image(image)
-    if grid_image is None:
+    reading = read_image(image)
+    if reading is None:
         raise ValueError(f"Failed to detect Sudoku grid from: {image_path}")
 
-    return read_grid(reader, grid_image[0])[0]
+    return read_grid(reader, reading.warped)[0]
 
 
 @pytest.fixture(scope="module")
@@ -121,10 +121,10 @@ def test_sudoku_20_framed_grid_detected():
     image = cv2.imread(str(image_path))
     assert image is not None, f"Failed to read {image_path}"
 
-    grid_image = detect_grid_image(image)
-    assert grid_image is not None, "detect_grid_image returned None for sudoku_20"
+    reading = read_image(image)
+    assert reading is not None, "read_image returned None for sudoku_20"
 
-    gray = cv2.cvtColor(grid_image[0], cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(reading.warped, cv2.COLOR_BGR2GRAY)
     assert has_regular_grid_lines(gray), (
         "Warped grid from sudoku_20 does not have regular grid lines — "
         "likely detected the decorative border instead of the inner grid"

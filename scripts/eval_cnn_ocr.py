@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts._paths import DEFAULT_CORNERS, load_corner_labels, resolve_image_path
 
-from backend.api.routes import detect_grid_image
+from backend.api.routes import read_image
 from backend.ocr.pipeline import decode, read_grid
 from backend.ocr.cnn_digit_reader import CnnDigitReader, DEFAULT_CNN_MODEL
 from backend.cv.detector import warp_grid
@@ -67,10 +67,10 @@ def load_warped_grid(image_path: Path, detector=None, corners=None):
             raise ValueError(f"Failed to detect Sudoku grid: {image_path}")
         grid_image = warp_grid(image, detection.corners)
     else:
-        result = detect_grid_image(image)
-        if result is None:
+        reading = read_image(image)  # the web path, Corner CNN retry included
+        if reading is None:
             raise ValueError(f"Failed to detect Sudoku grid: {image_path}")
-        grid_image, _ = result
+        grid_image = reading.warped
 
     return grid_image
 

@@ -33,17 +33,3 @@ def warp_grid(image: np.ndarray, corners: np.ndarray, size: int = 450) -> np.nda
     )
     matrix = cv2.getPerspectiveTransform(corners.astype(np.float32), dst)
     return cv2.warpPerspective(image, matrix, (size, size))
-
-
-class ChainDetector:
-    """Try multiple detectors in order, return the first successful result."""
-
-    def __init__(self, detectors: list[GridDetector]) -> None:
-        self._detectors = detectors
-
-    def detect(self, image: np.ndarray) -> DetectionResult | None:
-        for d in self._detectors:
-            result = d.detect(image)
-            if result is not None:
-                return result
-        return None
