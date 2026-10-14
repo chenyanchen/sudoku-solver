@@ -1,0 +1,27 @@
+[Unit]
+Description=Sudoku Solver web app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=sudoku
+Group=sudoku
+WorkingDirectory=/opt/sudoku-solver/current
+Environment=CNN_MODEL_PATH=/opt/sudoku-solver/current/models/releases/sudoku_digit_cnn.onnx
+Environment=SUDOKU_DATA_DIR=/var/lib/sudoku-solver
+# Reject decompression bombs before they are decoded (default limit is 2^30 px).
+Environment=OPENCV_IO_MAX_IMAGE_PIXELS=50000000
+# No access log: the privacy note promises no IP addresses are recorded.
+ExecStart=/opt/sudoku-solver/venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 \
+    --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-access-log
+Restart=on-failure
+RestartSec=3
+MemoryMax=1G
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/sudoku-solver
+
+[Install]
+WantedBy=multi-user.target
