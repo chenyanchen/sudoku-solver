@@ -13,7 +13,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
 from ..cv.corner_cnn_detector import CornerCnnDetector
 from ..cv.detector import warp_grid
@@ -204,7 +204,6 @@ async def solve_sudoku(request: SolveRequest):
 def recognize_sudoku(
     request: Request,
     image: UploadFile = File(...),
-    keep_image: bool = Form(False, description="The uploader allows storing the image to improve recognition"),
 ):
     """Recognize a Sudoku grid from an uploaded image.
 
@@ -243,7 +242,6 @@ def recognize_sudoku(
         grid=result.grid if result else None,
         latency_ms=latency_ms,
         ocr_model=result.metadata["model_version"] if result else None,
-        keep_image=keep_image,
     ) if records else None
 
     if reading is None:

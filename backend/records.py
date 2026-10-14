@@ -5,8 +5,8 @@ their latest reading, so re-uploading an image after a model release shows
 the improvement. A reading counts as solved when it produced a unique
 solution and the uploader did not correct its givens.
 
-Images are kept only with the uploader's consent; readings themselves hold
-no personal data (no IP, no file name).
+Every uploaded image is kept (once per content hash, within a disk budget)
+as training data; readings hold no personal data (no IP, no file name).
 """
 
 from __future__ import annotations
@@ -76,13 +76,12 @@ class Records:
         grid: list[list[int]] | None,
         latency_ms: float,
         ocr_model: str | None,
-        keep_image: bool,
     ) -> str:
         """Store a reading; returns the token that authorizes its correction."""
         sha = hashlib.sha256(image).hexdigest()
         token = secrets.token_urlsafe(16)
         with self._lock:
-            kept = keep_image and self._keep(sha, image)
+            kept = self._keep(sha, image)
             self._db.execute(
                 "INSERT INTO readings (token, created_at, image_sha256, image_bytes, width, height, detector,"
                 " status, grid, latency_ms, ocr_model, image_kept) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

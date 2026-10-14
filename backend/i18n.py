@@ -30,7 +30,7 @@ TEXT: dict[str, dict[str, str]] = {
         "subtitle": "Upload a photo or screenshot of a Sudoku puzzle to solve it",
         "upload_text": "Click to upload or drag and drop",
         "upload_hint": "JPG, PNG or WEBP, up to 10 MB",
-        "consent": "Allow storing my image to improve recognition",
+        "storage_notice": "Uploaded images are stored and used only to improve recognition.",
         "original_image": "Your image",
         "detected_grid": "Detected grid",
         "solve_button": "Solve again",
@@ -59,9 +59,9 @@ TEXT: dict[str, dict[str, str]] = {
         "faq_rate_a": "The share of distinct uploaded images that were solved without corrections. We publish "
                       "it so you can watch recognition improve.",
         "faq_privacy_q": "What do you store?",
-        "faq_privacy_a": "For each upload: whether it was solved, how long it took, and any digits you "
-                         "corrected. No IP address and no file name. Your image is stored only if you tick "
-                         "the box above, and is used only to improve recognition.",
+        "faq_privacy_a": "Your image, whether it was solved, how long it took, and any digits you corrected. "
+                         "No IP address and no file name. Images are used only to improve recognition "
+                         "and are never published.",
         "footer": "Recognition: OpenCV, a grid-corner CNN and a digit CNN, running on our server.",
     },
     "zh": {
@@ -74,7 +74,7 @@ TEXT: dict[str, dict[str, str]] = {
         "subtitle": "上传数独的照片或截图，立即求解",
         "upload_text": "点击上传，或把图片拖到这里",
         "upload_hint": "支持 JPG、PNG、WEBP，最大 10 MB",
-        "consent": "允许保存我的图片，用于改进识别",
+        "storage_notice": "上传的图片会被保存，仅用于改进识别。",
         "original_image": "你的图片",
         "detected_grid": "识别到的网格",
         "solve_button": "重新求解",
@@ -100,8 +100,8 @@ TEXT: dict[str, dict[str, str]] = {
         "faq_rate_q": "解出率是什么？",
         "faq_rate_a": "所有上传过的不同图片中，无需修改就被解出的比例。我们公开这个数字，你可以看到识别能力的进步。",
         "faq_privacy_q": "你们会保存什么？",
-        "faq_privacy_a": "每次上传：是否解出、耗时，以及你改正过的数字。不记录 IP 地址和文件名。"
-                         "只有勾选上方的选项，才会保存你的图片，并且只用于改进识别。",
+        "faq_privacy_a": "你上传的图片、是否解出、耗时，以及你改正过的数字。不记录 IP 地址和文件名。"
+                         "图片只用于改进识别，不会公开。",
         "footer": "识别：OpenCV、网格角点 CNN 与数字 CNN，运行在我们的服务器上。",
     },
 }
