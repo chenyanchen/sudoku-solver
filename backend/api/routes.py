@@ -5,15 +5,16 @@ from __future__ import annotations
 import base64
 import logging
 import os
-import time
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
 from fastapi import APIRouter, File, UploadFile
 
-from ..cv.detector import ChainDetector, warp_grid
-from ..cv.opencv_detector import OpenCVGridDetector
 from ..cv.corner_cnn_detector import CornerCnnDetector
+from ..cv.detector import warp_grid
+from ..cv.grid_detector import has_regular_grid_lines
+from ..cv.opencv_detector import OpenCVGridDetector
 from ..models.schemas import (
     HealthResponse,
     RecognizeResponse,
@@ -21,13 +22,15 @@ from ..models.schemas import (
     SolveResponse,
 )
 from ..ocr.cnn_digit_reader import CnnDigitReader
-from ..ocr.pipeline import SOLVED, recognize
+from ..ocr.pipeline import SOLVED, Recognition, recognize
 from ..solver.backtracking import SudokuSolver, is_valid_grid
 
 router = APIRouter()
 _CNN_READER: CnnDigitReader | None = None
-_DETECTOR: ChainDetector | None = None
+_OPENCV = OpenCVGridDetector()
+_CORNER_CNN: CornerCnnDetector | None = None
 _LOGGER = logging.getLogger(__name__)
+
 
 def image_to_base64(image: np.ndarray) -> str:
     """Convert OpenCV image to base64 string."""
@@ -35,33 +38,54 @@ def image_to_base64(image: np.ndarray) -> str:
     return base64.b64encode(buffer).decode("utf-8")
 
 
-def _get_detector() -> ChainDetector:
-    """Lazy-init the detector chain: OpenCV first, Corner CNN as fallback.
+def _get_corner_cnn() -> CornerCnnDetector | None:
+    global _CORNER_CNN
+    if _CORNER_CNN is None:
+        _CORNER_CNN = CornerCnnDetector(model_path=os.getenv("CORNER_CNN_MODEL_PATH"))
+        if not _CORNER_CNN.is_ready:
+            _LOGGER.info("Corner CNN unavailable: %s", _CORNER_CNN.load_error)
+    return _CORNER_CNN if _CORNER_CNN.is_ready else None
 
-    Corner CNN's corners are off by a median 6% of the image, and wrong ones
-    can pass the grid-regularity check, so it only runs when OpenCV fails.
+
+@dataclass
+class GridReading:
+    recognition: Recognition
+    warped: np.ndarray  # 450x450 grid
+    detector_name: str
+
+
+def read_image(image: np.ndarray) -> GridReading | None:
+    """Detect, warp and recognize the grid; None if no grid is found.
+
+    OpenCV and Corner CNN each solve images the other cannot (glare over the
+    lines, a plastic sleeve; grids Corner CNN mislocates), so Corner CNN's
+    corners are tried whenever OpenCV's grid does not solve. A unique solution
+    is the acceptance test, so Corner CNN skips the grid-regularity check,
+    which rejects good corners on photos with moiré. That check still decides
+    whether an unsolved Corner CNN quad counts as a grid at all.
     """
-    global _DETECTOR
-    if _DETECTOR is not None:
-        return _DETECTOR
+    reader = _get_cnn_reader()
 
-    detectors: list = [OpenCVGridDetector()]
-    corner_cnn = CornerCnnDetector(model_path=os.getenv("CORNER_CNN_MODEL_PATH"))
-    if corner_cnn.is_ready:
-        detectors.append(corner_cnn)
-    else:
-        _LOGGER.info("Corner CNN unavailable: %s", corner_cnn.load_error)
+    def read(corners: np.ndarray, name: str) -> GridReading:
+        warped = warp_grid(image, corners)
+        return GridReading(recognize(reader, warped), warped, name)
 
-    _DETECTOR = ChainDetector(detectors)
-    return _DETECTOR
+    found = None
+    detection = _OPENCV.detect(image)
+    if detection is not None:
+        found = read(detection.corners, detection.detector_name)
+        if found.recognition.status == SOLVED:
+            return found
 
-
-def detect_grid_image(image: np.ndarray) -> tuple[np.ndarray, str] | None:
-    """Detect grid and warp to 450x450. Returns (warped, detector_name) or None."""
-    result = _get_detector().detect(image)
-    if result is None:
-        return None
-    return warp_grid(image, result.corners), result.detector_name
+    corner_cnn = _get_corner_cnn()
+    corners = corner_cnn.predict(image) if corner_cnn else None
+    if corners is not None:
+        second = read(corners, "corner_cnn")
+        if second.recognition.status == SOLVED:
+            return second
+        if found is None and has_regular_grid_lines(cv2.cvtColor(second.warped, cv2.COLOR_BGR2GRAY)):
+            found = second
+    return found
 
 
 def _get_cnn_reader() -> CnnDigitReader:
@@ -142,17 +166,13 @@ async def recognize_sudoku(image: UploadFile = File(...)):
             message="Failed to decode image. Please upload a valid image file.",
         )
 
-    det_result = detect_grid_image(img)
-    if det_result is None:
+    reading = read_image(img)
+    if reading is None:
         return RecognizeResponse(
             success=False,
             message="Could not detect a Sudoku grid in the image.",
         )
-    grid_img, detector_name = det_result
-
-    ocr_start = time.perf_counter()
-    result = recognize(_get_cnn_reader(), grid_img)
-    ocr_latency_ms = (time.perf_counter() - ocr_start) * 1000.0
+    result = reading.recognition
 
     message = f"Recognized {result.givens} givens"
     if result.status != SOLVED:
@@ -161,10 +181,10 @@ async def recognize_sudoku(image: UploadFile = File(...)):
         success=True,
         message=message,
         grid=result.grid,
-        detected_image=image_to_base64(grid_img),
-        detector_name=detector_name,
+        detected_image=image_to_base64(reading.warped),
+        detector_name=reading.detector_name,
         ocr_confidence=result.metadata["average_confidence"],
         ocr_engine="cnn",
         ocr_model_version=result.metadata["model_version"],
-        ocr_latency_ms=ocr_latency_ms,
+        ocr_latency_ms=sum(result.timing.values()),
     )

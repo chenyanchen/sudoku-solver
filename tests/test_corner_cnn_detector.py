@@ -3,10 +3,9 @@ from __future__ import annotations
 import numpy as np
 
 from backend.cv.corner_cnn_detector import CornerCnnDetector
-from backend.cv.detector import ChainDetector, DetectionResult
 
 
-def test_bad_corner_prediction_does_not_block_fallback(monkeypatch):
+def test_corners_without_a_grid_are_not_a_detection(monkeypatch):
     detector = CornerCnnDetector.__new__(CornerCnnDetector)
     detector._input_name = "image"
 
@@ -15,13 +14,10 @@ def test_bad_corner_prediction_does_not_block_fallback(monkeypatch):
             return [np.array([[0.1, 0.1, 0.9, 0.1, 0.9, 0.9, 0.1, 0.9]], dtype=np.float32)]
 
     monkeypatch.setattr(detector, "_session", Session(), raising=False)
-    expected = DetectionResult(np.zeros((4, 2), dtype=np.float32), "fallback")
+    blank = np.full((450, 450, 3), 255, dtype=np.uint8)
 
-    class Fallback:
-        def detect(self, image):
-            return expected
-
-    assert ChainDetector([detector, Fallback()]).detect(np.full((450, 450, 3), 255, dtype=np.uint8)) is expected
+    assert detector.predict(blank) is not None
+    assert detector.detect(blank) is None
 
 
 def test_geometric_confidence_prefers_valid_perspective_quad():
