@@ -157,9 +157,14 @@ def main() -> int:
     per_image = {}
     solver = SudokuSolver()
 
+    skipped = []
     for image_name, truth in labels.items():
         try:
             image_path = resolve_image_path(image_name, args.labels)
+        except FileNotFoundError:
+            skipped.append(image_name)  # e.g. gitignored data/testset/local/ on another machine
+            continue
+        try:
             corners = corners_by_name[image_path.name] if args.detector == "gt" else None
             warped = load_warped_grid(image_path, detector, corners)
             # Raw CNN metrics, then the production result after decode().
@@ -167,7 +172,8 @@ def main() -> int:
             cnn_m = evaluate_single_grid(cnn_grid, truth)
             result = decode(cnn_grid, metadata)
             cnn_m["pipeline_exact"] = result.grid == truth
-            cnn_m["solution_exact"] = result.solution == solver.solve(truth)
+            # A label with several solutions expects no solution to be shown.
+            cnn_m["solution_exact"] = result.solution == solver.solve_unique(truth)[0]
             cnn_m["predicted"] = cnn_grid
         except (ValueError, FileNotFoundError, KeyError) as exc:
             cnn_m = evaluate_single_grid([[0] * 9 for _ in range(9)], truth)
@@ -176,6 +182,8 @@ def main() -> int:
         per_image[image_name] = cnn_m
         print(f"[CNN/{args.detector}] {image_name}: " + str({k: v for k, v in cnn_m.items() if k != "predicted"}))
 
+    if skipped:
+        print(f"\nSkipped {len(skipped)} labels whose image is missing: {skipped}")
     print("\n=== Aggregate ===")
     aggregate = merge_metrics(cnn_metrics)
     print("CNN:", aggregate)
@@ -186,7 +194,7 @@ def main() -> int:
             json.dump({"model": str(args.cnn_model.resolve()), "detector": args.detector, "cnn": aggregate, "per_image": per_image}, f, ensure_ascii=False, indent=2)
         print(f"Saved metrics JSON: {args.output_json}")
 
-    return int(args.strict and (aggregate["pipeline_exact"] != len(labels) or aggregate["solution_exact"] != len(labels)))
+    return int(args.strict and (aggregate["pipeline_exact"] != len(cnn_metrics) or aggregate["solution_exact"] != len(cnn_metrics)))
 
 
 if __name__ == "__main__":

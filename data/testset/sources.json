@@ -1,0 +1,93 @@
+{
+  "images/commons-9x9-sudoku-2022032301.jpg": {
+    "title": "9x9 sudoku 2022032301.jpg",
+    "url": "https://commons.wikimedia.org/wiki/File:9x9_sudoku_2022032301.jpg",
+    "author": "Rosalina450280",
+    "license": "CC BY-SA 4.0",
+    "site": "Wikimedia Commons"
+  },
+  "images/commons-sudoku-8381070829.jpg": {
+    "title": "SUDOKU (8381070829).jpg",
+    "url": "https://commons.wikimedia.org/wiki/File:SUDOKU_(8381070829).jpg",
+    "author": "inazakira",
+    "license": "CC BY-SA 2.0",
+    "site": "Wikimedia Commons"
+  },
+  "images/commons-gnome-sudoku-debian-lenny.png": {
+    "title": "GNOME Sudoku Debian Lenny.png",
+    "url": "https://commons.wikimedia.org/wiki/File:GNOME_Sudoku_Debian_Lenny.png",
+    "author": "GNOME Project",
+    "license": "GPL",
+    "site": "Wikimedia Commons"
+  },
+  "images/commons-sudoku-gnome-games-2-32-1-ru.png": {
+    "title": "Sudoku (GNOME Games 2.32.1) ru.png",
+    "url": "https://commons.wikimedia.org/wiki/File:Sudoku_(GNOME_Games_2.32.1)_ru.png",
+    "author": "The GNOME Project.",
+    "license": "GPL",
+    "site": "Wikimedia Commons"
+  },
+  "images/commons-sudoku-puzzle-17-clue-r929-3e01.png": {
+    "title": "Sudoku Puzzle (17 clue - R929-3E01).png",
+    "url": "https://commons.wikimedia.org/wiki/File:Sudoku_Puzzle_(17_clue_-_R929-3E01).png",
+    "author": "LithiumFlash",
+    "license": "CC BY-SA 4.0",
+    "site": "Wikimedia Commons"
+  },
+  "images/commons-sudoku-18-clue-symmetrical.png": {
+    "title": "Sudoku (18 clue symmetrical).png",
+    "url": "https://commons.wikimedia.org/wiki/File:Sudoku_(18_clue_symmetrical).png",
+    "author": "LithiumFlash",
+    "license": "CC BY-SA 4.0",
+    "site": "Wikimedia Commons"
+  },
+  "images/commons-oceans-sudoku17-puzzle-39451-trimmed.png": {
+    "title": "Oceans Sudoku17 Puzzle-39451 trimmed.png",
+    "url": "https://commons.wikimedia.org/wiki/File:Oceans_Sudoku17_Puzzle-39451_trimmed.png",
+    "author": "LithiumFlash",
+    "license": "CC BY-SA 4.0",
+    "site": "Wikimedia Commons"
+  },
+  "images/commons-the-first-discovered-minimal-9x9-sudoku-.png": {
+    "title": "The first discovered minimal 9x9 Sudoku puzzle with 40 givens.png",
+    "url": "https://commons.wikimedia.org/wiki/File:The_first_discovered_minimal_9x9_Sudoku_puzzle_with_40_givens.png",
+    "author": "LithiumFlash",
+    "license": "CC BY-SA 4.0",
+    "site": "Wikimedia Commons"
+  },
+  "images/commons-klasychni-sudoku.jpg": {
+    "title": "Класичні судоку.jpg",
+    "url": "https://commons.wikimedia.org/wiki/File:Класичні_судоку.jpg",
+    "author": "Анатолій 2000",
+    "license": "CC BY-SA 4.0",
+    "site": "Wikimedia Commons"
+  },
+  "images/commons-sudoku01.png": {
+    "title": "Sudoku01.png",
+    "url": "https://commons.wikimedia.org/wiki/File:Sudoku01.png",
+    "author": "Jelte (uploader)",
+    "license": "CC BY-SA 3.0",
+    "site": "Wikimedia Commons"
+  },
+  "images/flickr-sudoku-stumper.jpg": {
+    "title": "Sudoku stumper",
+    "url": "https://www.flickr.com/photos/41541935@N00/10914622654",
+    "author": "Random McRandomhead",
+    "license": "CC BY 2.0",
+    "site": "Flickr"
+  },
+  "images/flickr-solve-the-sudoku-for-free-beer.jpg": {
+    "title": "Solve the Sudoku for Free Beer!",
+    "url": "https://www.flickr.com/photos/7776449@N06/4203091160",
+    "author": "elPadawan",
+    "license": "CC BY-SA 2.0",
+    "site": "Flickr"
+  },
+  "images/flickr-sudoku-paper-puzzle.jpg": {
+    "title": "sudoku paper puzzle",
+    "url": "https://www.flickr.com/photos/41112245@N03/6978422072",
+    "author": "Scientific Quilter",
+    "license": "CC BY 2.0",
+    "site": "Flickr"
+  }
+}
