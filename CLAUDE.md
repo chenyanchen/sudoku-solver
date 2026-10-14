@@ -51,8 +51,8 @@ Release only if the candidate is no worse than the current release on both evals
 
 - `data/labels/sudoku_labels.json`: ground-truth grids. Every label must have exactly one solution (the solver rejected two wrong labels).
 - `data/labels/sudoku_corners.csv`: reviewed grid corners. Required for every training image; never train on predicted crops.
-- `data/testset/`: independent test set (never train or tune on it; see its README). `local/` holds non-redistributable images and is gitignored. Evaluate with `scripts/eval_cnn_ocr.py --labels data/testset/labels.json`.
-- `data/raw/images/`: source screenshots and photos. `data/corner_cnn/`: Corner CNN training data. `data/yolo_grid/`: legacy YOLO keypoint data.
+- `data/testset/`: independent test set (never train or tune on it; see its README), with reviewed `corners.csv`. `local/` holds non-redistributable images and is gitignored. Evaluate with `scripts/eval_cnn_ocr.py --labels data/testset/labels.json` and `scripts/eval_corner_cnn.py --model <onnx>`.
+- `data/raw/images/`: training screenshots and photos; non-redistributable ones are in gitignored `local/` (labels keyed `local/<name>`). OCR and Corner CNN training both read these with `sudoku_corners.csv`; the ML Backend's `/fit` writes corners there. `data/yolo_grid/`: legacy YOLO keypoint data.
 
 ## Environment Variables
 

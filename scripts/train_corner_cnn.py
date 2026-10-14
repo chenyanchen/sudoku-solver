@@ -1,13 +1,16 @@
 """Train corner regression CNN for sudoku grid detection.
 
+Trains on the reviewed corners in data/labels/sudoku_corners.csv and the source
+images under data/raw/images/ (including the gitignored local/).
+
 Usage:
-    uv run python scripts/train_corner_cnn.py [--epochs 60] [--lr 1e-3]
+    uv run --extra ml python scripts/train_corner_cnn.py [--epochs 60]
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
+import json
 import random
 import tempfile
 import time
@@ -21,7 +24,10 @@ import sys
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts._provenance import file_sha256, git_state
+from scripts._paths import DATA_IMAGE_DIR, DEFAULT_CORNERS, load_corner_labels
+from scripts._provenance import file_sha256, file_sha256_many, git_state
+
+DEFAULT_LABELS = REPO_ROOT / "data" / "labels" / "sudoku_labels.json"
 
 
 def _import_torch():
@@ -142,33 +148,25 @@ def _apply_augmentation(
     return image, corners_out.astype(np.float32)
 
 
-def load_dataset(csv_path: Path, images_dir: Path):
-    """Load dataset from CSV. Returns list of (image_path, corners_4x2_normalized)."""
+def load_dataset(corners_path: Path, images_dir: Path = DATA_IMAGE_DIR):
+    """Return [(image_path, corners_4x2_normalized)]; every labeled image must exist."""
+    paths = {p.name: p for p in images_dir.rglob("*") if p.is_file()}
     samples = []
-    with csv_path.open("r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            img_path = images_dir / row["image"]
-            if not img_path.exists():
-                continue
-            corners = np.array([
-                [float(row["x_tl"]), float(row["y_tl"])],
-                [float(row["x_tr"]), float(row["y_tr"])],
-                [float(row["x_br"]), float(row["y_br"])],
-                [float(row["x_bl"]), float(row["y_bl"])],
-            ], dtype=np.float32)
-            samples.append((img_path, corners))
+    for name, corners in load_corner_labels(corners_path).items():
+        if name not in paths:
+            raise FileNotFoundError(f"Image for corner label not found under {images_dir}: {name}")
+        samples.append((paths[name], corners))
     return samples
 
 
-def split_dataset(samples, val_ratio: float, seed: int):
-    rng = random.Random(seed)
-    indices = list(range(len(samples)))
-    rng.shuffle(indices)
-    val_count = max(1, int(round(len(indices) * val_ratio)))
-    val_idx = set(indices[:val_count])
-    train = [s for i, s in enumerate(samples) if i not in val_idx]
-    val = [s for i, s in enumerate(samples) if i in val_idx]
+def split_dataset(samples, labels_path: Path, val_ratio: float, seed: int):
+    """Split by puzzle, so copies of one grid (rescaled, re-photographed) stay together."""
+    grids = {Path(name).name: json.dumps(grid) for name, grid in json.loads(labels_path.read_text()).items()}
+    groups = sorted({grids.get(path.name, path.name) for path, _ in samples})
+    random.Random(seed).shuffle(groups)
+    val_groups = set(groups[: max(1, int(round(len(groups) * val_ratio)))])
+    train = [s for s in samples if grids.get(s[0].name, s[0].name) not in val_groups]
+    val = [s for s in samples if grids.get(s[0].name, s[0].name) in val_groups]
     return train, val
 
 
@@ -249,7 +247,8 @@ def compute_metrics(pred: np.ndarray, target: np.ndarray) -> dict:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train corner regression CNN")
-    parser.add_argument("--data-dir", type=Path, default=REPO_ROOT / "data" / "corner_cnn")
+    parser.add_argument("--corners", type=Path, default=DEFAULT_CORNERS)
+    parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS, help="Groups the val split by puzzle")
     parser.add_argument("--epochs", type=int, default=60)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--head-lr", type=float, default=1e-3)
@@ -280,16 +279,8 @@ def main() -> int:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    csv_path = args.data_dir / "labels.csv"
-    images_dir = args.data_dir / "images"
-    if not csv_path.exists():
-        raise FileNotFoundError(f"Labels not found: {csv_path}")
-
-    samples = load_dataset(csv_path, images_dir)
-    if len(samples) < 5:
-        raise RuntimeError(f"Too few samples ({len(samples)}). Need at least 5.")
-
-    train_samples, val_samples = split_dataset(samples, args.val_ratio, args.seed)
+    samples = load_dataset(args.corners)
+    train_samples, val_samples = split_dataset(samples, args.labels, args.val_ratio, args.seed)
     train_loader = DataLoader(
         CornerDataset(train_samples, augment=True).impl,
         batch_size=args.batch_size, shuffle=True, num_workers=0,
@@ -329,9 +320,17 @@ def main() -> int:
             "num_val": len(val_samples),
             "input_size": INPUT_SIZE,
         })
-        mlflow.set_tags({**git_tags, "labels_sha256": file_sha256(csv_path)})
+        mlflow.set_tags({
+            **git_tags,
+            "corners_sha256": file_sha256(args.corners),
+            "images_sha256": file_sha256_many(path for path, _ in samples),
+        })
         if git_diff:
             mlflow.log_text(git_diff, "git_diff.patch")
+        mlflow.log_dict({
+            "train": sorted(path.name for path, _ in train_samples),
+            "val": sorted(path.name for path, _ in val_samples),
+        }, "split.json")
 
         best_warp_iou = -1.0
         best_state = None

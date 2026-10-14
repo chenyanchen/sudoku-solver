@@ -64,5 +64,27 @@
   "sudoku_20.jpg": {
     "source": "manual",
     "note": "Desktop web screenshot, wooden decorative border sudoku app"
-  }
+  },
+  "commons-gnome-sudoku-debian-lenny.png": {"source": "manual", "note": "moved from the test set on 2026-10-14", "title": "GNOME Sudoku Debian Lenny.png", "url": "https://commons.wikimedia.org/wiki/File:GNOME_Sudoku_Debian_Lenny.png", "author": "GNOME Project", "license": "GPL", "site": "Wikimedia Commons"},
+  "commons-oceans-sudoku17-puzzle-39451-trimmed.png": {"source": "manual", "note": "moved from the test set on 2026-10-14", "title": "Oceans Sudoku17 Puzzle-39451 trimmed.png", "url": "https://commons.wikimedia.org/wiki/File:Oceans_Sudoku17_Puzzle-39451_trimmed.png", "author": "LithiumFlash", "license": "CC BY-SA 4.0", "site": "Wikimedia Commons"},
+  "commons-sudoku-8381070829.jpg": {"source": "manual", "note": "moved from the test set on 2026-10-14", "title": "SUDOKU (8381070829).jpg", "url": "https://commons.wikimedia.org/wiki/File:SUDOKU_(8381070829).jpg", "author": "inazakira", "license": "CC BY-SA 2.0", "site": "Wikimedia Commons"},
+  "commons-sudoku-puzzle-17-clue-r929-3e01.png": {"source": "manual", "note": "moved from the test set on 2026-10-14", "title": "Sudoku Puzzle (17 clue - R929-3E01).png", "url": "https://commons.wikimedia.org/wiki/File:Sudoku_Puzzle_(17_clue_-_R929-3E01).png", "author": "LithiumFlash", "license": "CC BY-SA 4.0", "site": "Wikimedia Commons"},
+  "commons-the-first-discovered-minimal-9x9-sudoku-.png": {"source": "manual", "note": "moved from the test set on 2026-10-14", "title": "The first discovered minimal 9x9 Sudoku puzzle with 40 givens.png", "url": "https://commons.wikimedia.org/wiki/File:The_first_discovered_minimal_9x9_Sudoku_puzzle_with_40_givens.png", "author": "LithiumFlash", "license": "CC BY-SA 4.0", "site": "Wikimedia Commons"},
+  "flickr-sudoku-paper-puzzle.jpg": {"source": "manual", "note": "moved from the test set on 2026-10-14", "title": "sudoku paper puzzle", "url": "https://www.flickr.com/photos/41112245@N03/6978422072", "author": "Scientific Quilter", "license": "CC BY 2.0", "site": "Flickr"},
+  "local/IMG_9748.jpg": {"source": "manual", "note": "moved from the test set on 2026-10-14; not redistributable, gitignored"},
+  "local/IMG_9749.jpg": {"source": "manual", "note": "moved from the test set on 2026-10-14; not redistributable, gitignored"},
+  "local/IMG_9750.jpg": {"source": "manual", "note": "moved from the test set on 2026-10-14; not redistributable, gitignored"},
+  "local/IMG_9751.jpg": {"source": "manual", "note": "moved from the test set on 2026-10-14; not redistributable, gitignored"},
+  "local/livesudoku-evil-1.png": {"source": "manual", "note": "browser screenshot, not redistributable", "site": "https://www.livesudoku.com", "captured": "2026-10-14"},
+  "local/nyt-easy-1.png": {"source": "manual", "note": "browser screenshot, not redistributable", "site": "https://www.nytimes.com/puzzles/sudoku", "captured": "2026-10-14"},
+  "local/nyt-easy-1-lowres.png": {"source": "manual", "note": "browser screenshot, not redistributable", "site": "https://www.nytimes.com/puzzles/sudoku", "captured": "2026-10-14"},
+  "local/poki-calendar-1.png": {"source": "manual", "note": "browser screenshot, not redistributable", "site": "https://poki.com/zh/数独", "captured": "2026-10-14"},
+  "local/poki-sudoku-easy-1.png": {"source": "manual", "note": "browser screenshot, not redistributable", "site": "https://poki.com/zh/数独", "captured": "2026-10-14"},
+  "local/sudokucom-hard-1.png": {"source": "manual", "note": "browser screenshot, not redistributable", "site": "https://sudoku.com", "captured": "2026-10-14"},
+  "local/websudoku-evil-1.png": {"source": "manual", "note": "browser screenshot, not redistributable", "site": "https://www.websudoku.com", "captured": "2026-10-14"},
+  "local/puzzlesudoku-1.png": {"source": "manual", "note": "browser screenshot, not redistributable", "site": "https://www.puzzle-sudoku.com", "captured": "2026-10-14"},
+  "local/paper-newspaper-red.jpeg": {"source": "manual", "note": "web image of a paper puzzle, transcribed by hand; not redistributable, gitignored"},
+  "local/paper-booklet-easy-1.jpeg": {"source": "manual", "note": "web image of a paper puzzle, transcribed by hand; not redistributable, gitignored"},
+  "local/paper-newspaper-fr.jpeg": {"source": "manual", "note": "web image of a paper puzzle, transcribed by hand; not redistributable, gitignored"},
+  "local/paper-booklet-easy-1-angle.webp": {"source": "manual", "note": "web image of a paper puzzle, transcribed by hand; not redistributable, gitignored"}
 }

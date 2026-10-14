@@ -168,7 +168,7 @@ def test_fit_corners_writes_csv(tmp_path):
     result = fit_corners(annotation, task, parsed, repo_root)
 
     assert result == {"status": "ok", "saved": "IMG_8695.jpg"}
-    csv_path = repo_root / "data" / "corner_cnn" / "labels.csv"
+    csv_path = repo_root / "data" / "labels" / "sudoku_corners.csv"
     assert csv_path.exists()
     rows = csv_path.read_text(encoding="utf-8")
     assert "IMG_8695.jpg" in rows
