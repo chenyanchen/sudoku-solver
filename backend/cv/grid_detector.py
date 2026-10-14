@@ -73,7 +73,7 @@ def _find_grids(
     """Warp quadrilateral candidates (largest first); prefer regular grids.
 
     Candidates that fail the regularity check are kept as fallbacks and
-    get one chance at line-based refinement (decorative borders).
+    snapped to the grid-line lattice around them.
     """
     thresh = morphological_operations(preprocess(image)["thresh"])
     # RETR_LIST finds nested contours, so we can skip decorative borders
@@ -91,19 +91,23 @@ def _find_grids(
             grids.append((warped, ordered))
             if len(grids) >= max_grids:
                 break
-        elif len(fallbacks) < max_grids:
+        elif len(fallbacks) < max(max_grids, _MAX_FALLBACKS):
             fallbacks.append((warped, ordered))
 
     if grids:
         return grids
 
-    for warped, ordered in fallbacks:
-        refined = _try_refine_grid_bounds(warped, image, ordered)
+    # An irregular quad is often a decorative frame around the grid, or a
+    # single 3x3 box when the grid's outline merges with its surroundings.
+    for _, ordered in fallbacks:
+        refined = snap_to_lattice(image, ordered, cells=9) or snap_to_lattice(
+            image, ordered, cells=3,
+        )
         if refined is not None:
             grids.append(refined)
             if len(grids) >= max_grids:
                 break
-    return grids if grids else fallbacks
+    return grids if grids else fallbacks[:max_grids]
 
 
 def _quad_corners(contours, min_area: float) -> List[np.ndarray]:
@@ -243,12 +247,11 @@ def _find_line_peaks(projection: np.ndarray, min_prominence: float = 0.3) -> np.
     return np.array(peaks, dtype=int)
 
 
-def _detect_grid_lines(gray: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _detect_grid_lines(gray: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Detect horizontal and vertical grid lines via morphological projection.
 
     Returns:
-        (h_peaks, v_peaks, h_lines_mask) where peaks are 1-D arrays of row/col
-        indices and h_lines_mask is the binary mask of horizontal lines.
+        (h_peaks, v_peaks): 1-D arrays of row/col indices.
     """
     h, w = gray.shape[:2]
 
@@ -265,7 +268,7 @@ def _detect_grid_lines(gray: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.nda
     h_proj = h_lines.sum(axis=1).astype(float)
     v_proj = v_lines.sum(axis=0).astype(float)
 
-    return _find_line_peaks(h_proj), _find_line_peaks(v_proj), h_lines
+    return _find_line_peaks(h_proj), _find_line_peaks(v_proj)
 
 
 def _direction_is_regular(
@@ -304,7 +307,7 @@ def has_regular_grid_lines(gray: np.ndarray, max_cv: float = 0.25) -> bool:
         True if the image has a regular grid pattern.
     """
     h, w = gray.shape[:2]
-    h_peaks, v_peaks, _ = _detect_grid_lines(gray)
+    h_peaks, v_peaks = _detect_grid_lines(gray)
 
     h_ok = _direction_is_regular(h_peaks, h, max_cv)
     v_ok = _direction_is_regular(v_peaks, w, max_cv)
@@ -327,143 +330,140 @@ def has_regular_grid_lines(gray: np.ndarray, max_cv: float = 0.25) -> bool:
     return False
 
 
-def _try_refine_grid_bounds(
-    warped: np.ndarray,
-    original: np.ndarray,
-    outer_corners: np.ndarray,
+_MAX_FALLBACKS = 8
+_SNAP_PX = 30  # canvas pixels per cell
+
+
+def snap_to_lattice(
+    image: np.ndarray, corners: np.ndarray, cells: int,
 ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-    """Refine grid bounds when the warped image fails the regularity check.
+    """Find the 9x9 grid around a quad assumed to span `cells` x `cells` cells.
 
-    Uses the horizontal line mask to estimate the inner grid extent, maps
-    the tighter corners back to the original image, and re-warps.  This
-    handles decorative borders where the inner grid doesn't form a separate
-    contour but its grid lines are visible in the initial warp.
+    A whole grid (cells=9) is searched with 1.5 cells of margin. A 3x3 box
+    (cells=3) is first re-fitted to its own four lines, since extrapolating
+    six cells amplifies its corner error, then searched with six cells of
+    margin and accepted only if it sits on the lattice's box boundaries.
+    The quad only has to be roughly right: lines are located, not assumed.
     """
-    gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-    h, w = gray.shape[:2]
-
-    h_peaks, v_peaks, h_lines_mask = _detect_grid_lines(gray)
-
-    # Need enough horizontal peaks to estimate cell size.
-    if len(h_peaks) < 8:
+    if cells < 9:
+        box = _fit_lattice(image, corners, cells, margin=0.5, lines=cells + 1)
+        if box is None:
+            return None
+        corners, margin = box[0], 9 - cells
+    else:
+        margin = 1.5
+    found = _fit_lattice(image, corners, cells, margin, lines=10)
+    if found is None:
         return None
-
-    # Select the best 10 consecutive peaks (lowest CV).
-    best_h = _select_best_consecutive(h_peaks, 10)
-    if best_h is None:
+    snapped, offsets = found
+    if cells < 9 and any(abs(o - 3 * round(o / 3)) > 0.3 for o in offsets):
         return None
-
-    cell_h = float(np.diff(best_h).mean())
-
-    # --- Y extent from best H peaks ---
-    y_top = float(best_h[0])
-    y_bot = float(best_h[-1])
-
-    # --- X extent from H-line mask endpoints (per-row) ---
-    # Fit a line through (y, x_left) and (y, x_right) to extrapolate
-    # corners at y_top/y_bot while preserving trapezoidal shape.
-    row_extents: list[Tuple[int, int, int]] = []  # (y, x_left, x_right)
-    for y in best_h:
-        row = h_lines_mask[int(y), :]
-        nz = np.nonzero(row)[0]
-        if len(nz) > 0:
-            row_extents.append((int(y), int(nz[0]), int(nz[-1])))
-    if len(row_extents) < 2:
+    warped = perspective_transform(image, snapped, (450, 450))
+    if not has_regular_grid_lines(cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)):
         return None
+    return warped, snapped
 
-    # Remove endpoint outliers separately for x_left and x_right.
-    # Decorative borders can truncate individual line endpoints severely,
-    # causing x_left to be too far right or x_right too far left.
-    med_xl = float(np.median([r[1] for r in row_extents]))
-    med_xr = float(np.median([r[2] for r in row_extents]))
-    row_extents = [
-        r for r in row_extents
-        if r[1] <= med_xl + cell_h and r[2] >= med_xr - cell_h
-    ]
-    if len(row_extents) < 2:
-        return None
 
-    ys = np.array([r[0] for r in row_extents], dtype=float)
-    x_lefts = np.array([r[1] for r in row_extents], dtype=float)
-    x_rights = np.array([r[2] for r in row_extents], dtype=float)
+def _fit_lattice(
+    image: np.ndarray, corners: np.ndarray, cells: int, margin: float, lines: int,
+) -> Optional[Tuple[np.ndarray, Tuple[float, float]]]:
+    """Fit `lines` equally spaced lines per axis around a quad of `cells` cells.
 
-    left_fit = np.polyfit(ys, x_lefts, 1)
-    right_fit = np.polyfit(ys, x_rights, 1)
+    Lines are measured in two strips across the quad's middle, which every
+    grid line crosses, so each boundary line gets its own tilt and the fit
+    can correct the quad's perspective, not just its position and scale.
 
-    tl_x = float(np.polyval(left_fit, y_top))
-    tr_x = float(np.polyval(right_fit, y_top))
-    bl_x = float(np.polyval(left_fit, y_bot))
-    br_x = float(np.polyval(right_fit, y_bot))
-
-    # H-line endpoints may not reach the true grid boundary when the
-    # decorative border obscures the intersection with vertical lines.
-    # Use V peaks to widen each corner independently if a vertical grid
-    # line exists just outside the endpoint estimate (within one cell).
-    if len(v_peaks) >= 2:
-        v_gaps = np.diff(v_peaks).astype(float)
-        single_gaps = v_gaps[v_gaps < cell_h * 1.8]
-        if len(single_gaps) > 0:
-            v_cell = float(np.median(single_gaps))
-            v_left = float(v_peaks[0])
-            v_right_est = v_left + 9 * v_cell
-            # Expand left corners independently.
-            if v_left < tl_x and (tl_x - v_left) < v_cell:
-                tl_x = v_left
-            if v_left < bl_x and (bl_x - v_left) < v_cell:
-                bl_x = v_left
-            # Expand right corners independently.
-            if v_right_est > tr_x and (v_right_est - tr_x) < v_cell:
-                tr_x = v_right_est
-            if v_right_est > br_x and (v_right_est - br_x) < v_cell:
-                br_x = v_right_est
-
-    # Sanity: inner grid must be meaningfully smaller than the warped image.
-    top_w = tr_x - tl_x
-    bot_w = br_x - bl_x
-    avg_w = (top_w + bot_w) / 2.0
-    grid_h = y_bot - y_top
-    inner_area = avg_w * grid_h
-    if inner_area < 0.25 * w * h or inner_area > 0.98 * w * h:
-        return None
-
-    # Build a quadrilateral (may be trapezoidal) that matches the actual
-    # grid shape, preserving perspective information for accurate correction.
-    inner_corners = np.array(
-        [[tl_x, y_top], [tr_x, y_top], [br_x, y_bot], [bl_x, y_bot]],
-        dtype=np.float32,
+    Returns (the fitted lattice's corners in image coordinates, the quad's
+    offset from the lattice's first line in cells per axis), or None.
+    """
+    px = _SNAP_PX
+    size = int(round((cells + 2 * margin) * px))
+    src = np.float32([[0, 0], [cells, 0], [cells, cells], [0, cells]])
+    cell_to_image = cv2.getPerspectiveTransform(src, corners.astype(np.float32))
+    canvas_to_image = cell_to_image @ np.float32(
+        [[1 / px, 0, -margin], [0, 1 / px, -margin], [0, 0, 1]]
     )
-    dst_pts = np.array(
-        [[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype=np.float32
+    canvas = cv2.warpPerspective(
+        image, canvas_to_image, (size, size), flags=cv2.WARP_INVERSE_MAP | cv2.INTER_AREA,
     )
-    M_inv = cv2.getPerspectiveTransform(dst_pts, outer_corners)
-    mapped = cv2.perspectiveTransform(inner_corners.reshape(-1, 1, 2), M_inv)
-    inner_in_orig = mapped.reshape(-1, 2).astype(np.float32)
+    binary = cv2.adaptiveThreshold(
+        cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY), 255,
+        cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 15, 10,
+    )
+    h_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (px, 1)))
+    v_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, px)))
 
-    # Re-warp from the original image.
-    refined = perspective_transform(original, inner_in_orig, (w, h))
-
-    # Accept if the refined warp passes the regularity check.
-    if not has_regular_grid_lines(cv2.cvtColor(refined, cv2.COLOR_BGR2GRAY)):
+    a, b, c = (int(round((margin + cells * f) * px)) for f in (0.1, 0.5, 0.9))
+    centres = ((a + b) / 2, (b + c) / 2)
+    min_hits = lines - 2 if lines > 4 else lines
+    rows, cols = [], []
+    for lo, hi in ((a, b), (b, c)):
+        rows.append(_fit_lines(_coverage_peaks(h_lines[:, lo:hi].mean(axis=1) / 255, 0.5), px, lines, min_hits))
+        cols.append(_fit_lines(_coverage_peaks(v_lines[lo:hi, :].mean(axis=0) / 255, 0.5), px, lines, min_hits))
+    if None in rows or None in cols:
+        return None
+    # Both strips must have found the same lines, not lattices a line apart.
+    if max(abs(rows[0][k] - rows[1][k]) for k in (0, 1)) > px / 2:
+        return None
+    if max(abs(cols[0][k] - cols[1][k]) for k in (0, 1)) > px / 2:
         return None
 
-    return refined, inner_in_orig
+    def h_line(k: int) -> np.ndarray:
+        return np.cross([centres[0], rows[0][k], 1.0], [centres[1], rows[1][k], 1.0])
+
+    def v_line(k: int) -> np.ndarray:
+        return np.cross([cols[0][k], centres[0], 1.0], [cols[1][k], centres[1], 1.0])
+
+    points = [np.cross(v_line(x), h_line(y)) for x, y in ((0, 0), (1, 0), (1, 1), (0, 1))]
+    rect = np.float32([p[:2] / p[2] for p in points])
+    fitted = cv2.perspectiveTransform(rect.reshape(-1, 1, 2), canvas_to_image).reshape(4, 2)
+    offsets = tuple(
+        (margin * px - (fit[0][0] + fit[1][0]) / 2)
+        / ((fit[0][1] + fit[1][1] - fit[0][0] - fit[1][0]) / 2 / (lines - 1))
+        for fit in (cols, rows)
+    )
+    return fitted.astype(np.float32), offsets
 
 
-def _select_best_consecutive(peaks: np.ndarray, n: int = 10) -> Optional[np.ndarray]:
-    """Select the *n* consecutive peaks with the most regular spacing."""
-    best: Optional[np.ndarray] = None
-    best_cv = float("inf")
-    for start in range(len(peaks) - n + 1):
-        subset = peaks[start : start + n]
-        gaps = np.diff(subset).astype(float)
-        if gaps.mean() == 0:
-            continue
-        cv = float(gaps.std() / gaps.mean())
-        if cv < best_cv:
-            best_cv = cv
-            best = subset
+def _coverage_peaks(profile: np.ndarray, threshold: float) -> np.ndarray:
+    """Centres of the runs where `profile` exceeds `threshold`."""
+    above = np.concatenate([[0], (profile > threshold).astype(int), [0]])
+    edges = np.diff(above)
+    starts, ends = np.nonzero(edges == 1)[0], np.nonzero(edges == -1)[0]
+    return ((starts + ends - 1) / 2).astype(float)
 
-    return best if best is not None and best_cv < 0.25 else None
+
+def _fit_lines(
+    peaks: np.ndarray, spacing: float, count: int, min_hits: int,
+) -> Optional[Tuple[float, float]]:
+    """(first, last) of `count` equally spaced lines (spacing ±25%) fitted to `peaks`.
+
+    Up to count - min_hits lines may be missing (faint or hidden by glare).
+    Each pair of peaks proposes a spacing and phase; the proposal matching
+    the most peaks, then with the smallest residual, wins.
+    """
+    best: Optional[Tuple[Tuple[int, float], Tuple[float, float]]] = None
+    for i in range(len(peaks)):
+        for j in range(i + 1, len(peaks)):
+            gaps = round((peaks[j] - peaks[i]) / spacing)
+            if not 1 <= gaps < count:
+                continue
+            step = (peaks[j] - peaks[i]) / gaps
+            if abs(step - spacing) > 0.25 * spacing:
+                continue
+            for first in range(count - gaps):
+                lines = peaks[i] + (np.arange(count) - first) * step
+                dist = np.abs(peaks[:, None] - lines[None, :])
+                hit = np.nonzero(dist.min(axis=0) < 0.15 * step)[0]
+                if len(hit) < min_hits:
+                    continue
+                matched = peaks[dist[:, hit].argmin(axis=0)]
+                slope, start = np.polyfit(hit, matched, 1)
+                residual = float(np.abs(start + slope * hit - matched).mean())
+                key = (len(hit), -residual)
+                if best is None or key > best[0]:
+                    best = (key, (float(start), float(start + (count - 1) * slope)))
+    return None if best is None else best[1]
 
 
 def find_grid_with_debug(
