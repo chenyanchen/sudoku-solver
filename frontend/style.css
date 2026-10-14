@@ -365,3 +365,44 @@ footer {
         font-size: 1rem;
     }
 }
+
+.lang-switch {
+    text-align: right;
+    font-size: 0.9rem;
+}
+
+.lang-switch a {
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.info {
+    margin-top: 2rem;
+    padding: 1.5rem;
+    background-color: var(--card-bg);
+    border-radius: 0.75rem;
+    line-height: 1.6;
+}
+
+.info h2 {
+    font-size: 1.25rem;
+    margin: 1rem 0 0.5rem;
+}
+
+.info h2:first-child {
+    margin-top: 0;
+}
+
+.info h3 {
+    font-size: 1rem;
+    margin: 0.75rem 0 0.25rem;
+}
+
+.info p,
+.info li {
+    color: var(--text-secondary);
+}
+
+.info ol {
+    padding-left: 1.5rem;
+}

@@ -179,17 +179,20 @@ async def solve_sudoku(request: SolveRequest):
     if not is_valid_grid(grid):
         return SolveResponse(
             success=False, original=grid, solved=None, message="Invalid Sudoku grid format",
+            status="invalid",
         )
 
     solved, solution_count = SudokuSolver().solve_unique(grid)
     if solved is None:
-        message = (
-            "Puzzle has no solution" if solution_count == 0 else "Puzzle has multiple solutions"
-        )
-        return SolveResponse(success=False, original=grid, solved=None, message=message)
+        if solution_count == 0:
+            message, status = "Puzzle has no solution", "no_solution"
+        else:
+            message, status = "Puzzle has multiple solutions", "multiple_solutions"
+        return SolveResponse(success=False, original=grid, solved=None, message=message, status=status)
 
     return SolveResponse(
         success=True, original=grid, solved=solved, message="Puzzle solved successfully",
+        status="solved",
     )
 
 
