@@ -1,0 +1,33 @@
+{
+  "model_type": "corner_cnn",
+  "model_version": "20261014.1",
+  "source_run_id": "0f711df241824db9abed9825f595fc4e",
+  "source_experiment_id": "316961318942125732",
+  "source_metric_name": "warp_iou",
+  "source_metric_value": 0.8193109711348904,
+  "source_git_commit": "896f65c724952889046bb6bbe841c7232ce0a74b",
+  "source_git_dirty": "false",
+  "source_git_diff_sha256": null,
+  "training_data_sha256": {
+    "corners": "b5f83554145c08ac3ca5ba52b32bd05ff13681051d6982b6dfe51d3631c092ce",
+    "images": "0ebd5e3196b17ac3c1422687bca86c1450ae2c213473cd18a423c5cdaebf7cde"
+  },
+  "training_params": {
+    "num_train": "49",
+    "seed": "42",
+    "backbone_lr": "0.0003",
+    "patience": "80",
+    "input_size": "256",
+    "freeze_epochs": "0",
+    "weight_decay": "0.0001",
+    "num_val": "11",
+    "version": "1.1.2",
+    "epochs": "300",
+    "batch_size": "8",
+    "val_ratio": "0.2",
+    "head_lr": "0.001"
+  },
+  "release_git_commit": "896f65c724952889046bb6bbe841c7232ce0a74b",
+  "release_git_dirty": "false",
+  "released_at_utc": "2026-10-14T07:57:47.559236+00:00"
+}
