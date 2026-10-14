@@ -36,24 +36,21 @@ def image_to_base64(image: np.ndarray) -> str:
 
 
 def _get_detector() -> ChainDetector:
-    """Lazy-init the detector chain: CornerCNN (preferred) → OpenCV (fallback)."""
+    """Lazy-init the detector chain: OpenCV first, Corner CNN as fallback.
+
+    Corner CNN's corners are off by a median 6% of the image, and wrong ones
+    can pass the grid-regularity check, so it only runs when OpenCV fails.
+    """
     global _DETECTOR
     if _DETECTOR is not None:
         return _DETECTOR
 
-    detectors = []
-
-    corner_cnn = CornerCnnDetector(
-        model_path=os.getenv("CORNER_CNN_MODEL_PATH"),
-    )
+    detectors: list = [OpenCVGridDetector()]
+    corner_cnn = CornerCnnDetector(model_path=os.getenv("CORNER_CNN_MODEL_PATH"))
     if corner_cnn.is_ready:
         detectors.append(corner_cnn)
-        _LOGGER.info("Corner CNN grid detector ready")
     else:
         _LOGGER.info("Corner CNN unavailable: %s", corner_cnn.load_error)
-
-    detectors.append(OpenCVGridDetector())
-    _LOGGER.info("OpenCV grid detector ready (fallback)")
 
     _DETECTOR = ChainDetector(detectors)
     return _DETECTOR
