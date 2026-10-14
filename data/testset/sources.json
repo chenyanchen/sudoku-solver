@@ -6,20 +6,6 @@
     "license": "CC BY-SA 4.0",
     "site": "Wikimedia Commons"
   },
-  "images/commons-sudoku-8381070829.jpg": {
-    "title": "SUDOKU (8381070829).jpg",
-    "url": "https://commons.wikimedia.org/wiki/File:SUDOKU_(8381070829).jpg",
-    "author": "inazakira",
-    "license": "CC BY-SA 2.0",
-    "site": "Wikimedia Commons"
-  },
-  "images/commons-gnome-sudoku-debian-lenny.png": {
-    "title": "GNOME Sudoku Debian Lenny.png",
-    "url": "https://commons.wikimedia.org/wiki/File:GNOME_Sudoku_Debian_Lenny.png",
-    "author": "GNOME Project",
-    "license": "GPL",
-    "site": "Wikimedia Commons"
-  },
   "images/commons-sudoku-gnome-games-2-32-1-ru.png": {
     "title": "Sudoku (GNOME Games 2.32.1) ru.png",
     "url": "https://commons.wikimedia.org/wiki/File:Sudoku_(GNOME_Games_2.32.1)_ru.png",
@@ -27,30 +13,9 @@
     "license": "GPL",
     "site": "Wikimedia Commons"
   },
-  "images/commons-sudoku-puzzle-17-clue-r929-3e01.png": {
-    "title": "Sudoku Puzzle (17 clue - R929-3E01).png",
-    "url": "https://commons.wikimedia.org/wiki/File:Sudoku_Puzzle_(17_clue_-_R929-3E01).png",
-    "author": "LithiumFlash",
-    "license": "CC BY-SA 4.0",
-    "site": "Wikimedia Commons"
-  },
   "images/commons-sudoku-18-clue-symmetrical.png": {
     "title": "Sudoku (18 clue symmetrical).png",
     "url": "https://commons.wikimedia.org/wiki/File:Sudoku_(18_clue_symmetrical).png",
-    "author": "LithiumFlash",
-    "license": "CC BY-SA 4.0",
-    "site": "Wikimedia Commons"
-  },
-  "images/commons-oceans-sudoku17-puzzle-39451-trimmed.png": {
-    "title": "Oceans Sudoku17 Puzzle-39451 trimmed.png",
-    "url": "https://commons.wikimedia.org/wiki/File:Oceans_Sudoku17_Puzzle-39451_trimmed.png",
-    "author": "LithiumFlash",
-    "license": "CC BY-SA 4.0",
-    "site": "Wikimedia Commons"
-  },
-  "images/commons-the-first-discovered-minimal-9x9-sudoku-.png": {
-    "title": "The first discovered minimal 9x9 Sudoku puzzle with 40 givens.png",
-    "url": "https://commons.wikimedia.org/wiki/File:The_first_discovered_minimal_9x9_Sudoku_puzzle_with_40_givens.png",
     "author": "LithiumFlash",
     "license": "CC BY-SA 4.0",
     "site": "Wikimedia Commons"
@@ -83,40 +48,13 @@
     "license": "CC BY-SA 2.0",
     "site": "Flickr"
   },
-  "images/flickr-sudoku-paper-puzzle.jpg": {
-    "title": "sudoku paper puzzle",
-    "url": "https://www.flickr.com/photos/41112245@N03/6978422072",
-    "author": "Scientific Quilter",
-    "license": "CC BY 2.0",
-    "site": "Flickr"
-  },
   "local/sudokucom-easy-1.png": {
-    "site": "https://sudoku.com",
-    "captured": "2026-10-14",
-    "note": "browser screenshot, not redistributable"
-  },
-  "local/sudokucom-hard-1.png": {
     "site": "https://sudoku.com",
     "captured": "2026-10-14",
     "note": "browser screenshot, not redistributable"
   },
   "local/websudoku-easy-1.png": {
     "site": "https://www.websudoku.com",
-    "captured": "2026-10-14",
-    "note": "browser screenshot, not redistributable"
-  },
-  "local/puzzlesudoku-1.png": {
-    "site": "https://www.puzzle-sudoku.com",
-    "captured": "2026-10-14",
-    "note": "browser screenshot, not redistributable"
-  },
-  "local/nyt-easy-1.png": {
-    "site": "https://www.nytimes.com/puzzles/sudoku",
-    "captured": "2026-10-14",
-    "note": "browser screenshot, not redistributable"
-  },
-  "local/nyt-easy-1-lowres.png": {
-    "site": "https://www.nytimes.com/puzzles/sudoku",
     "captured": "2026-10-14",
     "note": "browser screenshot, not redistributable"
   },
@@ -135,17 +73,7 @@
     "captured": "2026-10-14",
     "note": "browser screenshot, not redistributable"
   },
-  "local/poki-calendar-1.png": {
-    "site": "https://poki.com/zh/数独",
-    "captured": "2026-10-14",
-    "note": "browser screenshot, not redistributable"
-  },
   "local/poki-online-hard-1.png": {
-    "site": "https://poki.com/zh/数独",
-    "captured": "2026-10-14",
-    "note": "browser screenshot, not redistributable"
-  },
-  "local/poki-sudoku-easy-1.png": {
     "site": "https://poki.com/zh/数独",
     "captured": "2026-10-14",
     "note": "browser screenshot, not redistributable"
@@ -157,16 +85,6 @@
   },
   "local/nyt-medium-1-wide.png": {
     "site": "https://www.nytimes.com/puzzles/sudoku",
-    "captured": "2026-10-14",
-    "note": "browser screenshot, not redistributable"
-  },
-  "local/websudoku-evil-1.png": {
-    "site": "https://www.websudoku.com",
-    "captured": "2026-10-14",
-    "note": "browser screenshot, not redistributable"
-  },
-  "local/livesudoku-evil-1.png": {
-    "site": "https://www.livesudoku.com",
     "captured": "2026-10-14",
     "note": "browser screenshot, not redistributable"
   }
