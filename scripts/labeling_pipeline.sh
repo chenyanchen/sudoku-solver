@@ -21,7 +21,7 @@ case "${1:-help}" in
     : "${CNN_MODEL_PATH:?CNN_MODEL_PATH must point to an explicit released CNN ONNX}"
     : "${CORNER_CNN_MODEL:?CORNER_CNN_MODEL must point to an explicit released corner CNN ONNX}"
     echo "=== Starting ML Backend on port ${2:-9090} ==="
-    uv run python -m ml_backend --port "${2:-9090}"
+    uv run --extra labeling python -m ml_backend --port "${2:-9090}"
     ;;
 
   generate)
