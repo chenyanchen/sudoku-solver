@@ -39,6 +39,7 @@ class SolveResponse(BaseModel):
     original: list[list[int]] = Field(description="Original grid")
     solved: list[list[int]] | None = Field(description="Solved grid (if successful)")
     message: str = Field(description="Status message")
+    status: str = Field(description="solved, no_solution, multiple_solutions or invalid")
 
 
 class RecognizeResponse(BaseModel):

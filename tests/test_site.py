@@ -1,0 +1,41 @@
+"""Bilingual pages and the files search engines read."""
+
+from fastapi.testclient import TestClient
+
+from backend import i18n
+from backend.main import app
+
+client = TestClient(app)
+
+
+def test_languages_translate_the_same_strings():
+    assert i18n.TEXT["en"].keys() == i18n.TEXT["zh"].keys()
+    assert i18n.JS_TEXT["en"].keys() == i18n.JS_TEXT["zh"].keys()
+
+
+def test_each_language_has_its_own_url_with_alternates():
+    en, zh = client.get("/"), client.get("/zh/")
+    assert en.status_code == zh.status_code == 200
+    assert '<html lang="en">' in en.text and '<html lang="zh-Hans">' in zh.text
+    for page, url in ((en.text, i18n.BASE_URL + "/"), (zh.text, i18n.BASE_URL + "/zh/")):
+        assert f'<link rel="canonical" href="{url}">' in page
+        assert 'hreflang="x-default"' in page and "{{" not in page
+    assert "数独求解器" in zh.text and "window.I18N" in zh.text
+    redirect = client.get("/zh", follow_redirects=False)
+    assert redirect.status_code == 301 and redirect.headers["location"] == "/zh/"
+
+
+def test_robots_and_sitemap():
+    robots = client.get("/robots.txt").text
+    assert "Disallow: /api/" in robots and "sitemap.xml" in robots
+    sitemap = client.get("/sitemap.xml")
+    assert sitemap.headers["content-type"].startswith("application/xml")
+    assert sitemap.text.count("<loc>") == 2
+
+
+def test_solve_reports_why_it_failed():
+    empty = {"grid": {"cells": [[0] * 9 for _ in range(9)]}}
+    assert client.post("/api/v1/sudoku:solve", json=empty).json()["status"] == "multiple_solutions"
+    clash = [[0] * 9 for _ in range(9)]
+    clash[0][0] = clash[0][1] = 5
+    assert client.post("/api/v1/sudoku:solve", json={"grid": {"cells": clash}}).json()["status"] == "invalid"
