@@ -2,33 +2,54 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import cv2
 import numpy as np
 
 from .detector import DetectionResult
-from .grid_detector import find_grid_with_corners
+from .grid_detector import find_grid_with_corners, has_regular_grid_lines
+
+# Thresholding and morphology use fixed pixel sizes, so no single scale suits
+# every image: on a 12MP photo of a screen they pick up moiré and lose the grid
+# outline, while some paper photos lose thin lines when downscaled.
+MAX_DETECT_WIDTH = 1280
 
 
 class OpenCVGridDetector:
     """Detect sudoku grids using OpenCV contour detection.
 
-    Tries direct detection first, then retries with CLAHE enhancement.
+    Tries the input, then a copy at most MAX_DETECT_WIDTH wide, each directly
+    and with CLAHE. The first warp with regular grid lines wins; otherwise the
+    first irregular candidate is returned.
     """
 
     def detect(self, image: np.ndarray) -> DetectionResult | None:
-        # Direct detection.
-        result = find_grid_with_corners(image)
-        if result is not None:
-            _, corners = result
-            return DetectionResult(corners=corners, detector_name="opencv")
+        fallback = None
+        for variant, scale in _variants(image):
+            result = find_grid_with_corners(variant)
+            if result is None:
+                continue
+            warped, corners = result
+            corners = corners / scale
+            if has_regular_grid_lines(cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)):
+                return DetectionResult(corners=corners, detector_name="opencv")
+            if fallback is None:
+                fallback = DetectionResult(corners=corners, detector_name="opencv")
+        return fallback
 
-        # CLAHE-enhanced retry.
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
-        enhanced = cv2.cvtColor(clahe.apply(gray), cv2.COLOR_GRAY2BGR)
-        result = find_grid_with_corners(enhanced)
-        if result is not None:
-            _, corners = result
-            return DetectionResult(corners=corners, detector_name="opencv")
 
-        return None
+def _variants(image: np.ndarray) -> Iterator[tuple[np.ndarray, float]]:
+    scales = [1.0]
+    if image.shape[1] > MAX_DETECT_WIDTH:
+        scales.append(MAX_DETECT_WIDTH / image.shape[1])
+    for enhance in (False, True):
+        for scale in scales:
+            img = image if scale == 1.0 else cv2.resize(
+                image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA,
+            )
+            if enhance:
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
+                img = cv2.cvtColor(clahe.apply(gray), cv2.COLOR_GRAY2BGR)
+            yield img, scale
