@@ -89,5 +89,85 @@
     "author": "Scientific Quilter",
     "license": "CC BY 2.0",
     "site": "Flickr"
+  },
+  "local/sudokucom-easy-1.png": {
+    "site": "https://sudoku.com",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/sudokucom-hard-1.png": {
+    "site": "https://sudoku.com",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/websudoku-easy-1.png": {
+    "site": "https://www.websudoku.com",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/puzzlesudoku-1.png": {
+    "site": "https://www.puzzle-sudoku.com",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/nyt-easy-1.png": {
+    "site": "https://www.nytimes.com/puzzles/sudoku",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/nyt-easy-1-lowres.png": {
+    "site": "https://www.nytimes.com/puzzles/sudoku",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/nyt-hard-1-tight.png": {
+    "site": "https://www.nytimes.com/puzzles/sudoku",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/livesudoku-medium-1.png": {
+    "site": "https://www.livesudoku.com",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/poki-ultimate-1.png": {
+    "site": "https://poki.com/zh/数独",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/poki-calendar-1.png": {
+    "site": "https://poki.com/zh/数独",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/poki-online-hard-1.png": {
+    "site": "https://poki.com/zh/数独",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/poki-sudoku-easy-1.png": {
+    "site": "https://poki.com/zh/数独",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/sudokucom-expert-1.png": {
+    "site": "https://sudoku.com",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/nyt-medium-1-wide.png": {
+    "site": "https://www.nytimes.com/puzzles/sudoku",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/websudoku-evil-1.png": {
+    "site": "https://www.websudoku.com",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
+  },
+  "local/livesudoku-evil-1.png": {
+    "site": "https://www.livesudoku.com",
+    "captured": "2026-10-14",
+    "note": "browser screenshot, not redistributable"
   }
 }
