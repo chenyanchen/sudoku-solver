@@ -33,7 +33,8 @@ case "${1:-help}" in
     export MLFLOW_TRACKING_URI="file://${REPO_ROOT}/mlruns"
 
     echo "=== Training Corner CNN ==="
-    uv run --extra ml python scripts/train_corner_cnn.py --version 1.1.2
+    uv run --extra ml python scripts/synth_corner_data.py --count 6000 --seed 0
+    uv run --extra ml python scripts/train_corner_cnn.py --synth data/synth_corner --version 2.0.0
 
     echo ""
     echo "=== Training CNN OCR ==="
