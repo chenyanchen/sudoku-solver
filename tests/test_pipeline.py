@@ -111,3 +111,21 @@ def test_ocr_cells_zooms_only_when_digits_are_small():
 
     small, zoomed = ocr_cells(_grid_with_digits(0.6))
     assert zoomed and small[0].shape[0] < 48
+
+
+def test_inked_blanks_are_filled_beyond_the_edit_budget():
+    # Four givens in a font the CNN is unsure of: read as blank, but surely not
+    # blank. One is misread too (its top candidate is wrong).
+    missed = {(0, 0): [[6, 0.4]], (0, 2): [[8, 0.4]], (0, 5): [[3, 0.4]], (0, 7): [[7, 0.3], [2, 0.25]]}
+    grid = [r[:] for r in PUZZLE]
+    for row, col in missed:
+        grid[row][col] = 0
+    assert SudokuSolver().count_solutions(grid) > 1
+    meta = _metadata(grid)
+    for (row, col), candidates in missed.items():
+        meta["cell_predictions"][row * 9 + col].update(confidence=0.01, candidates=candidates)
+
+    result = decode(grid, meta)
+
+    assert result.status == SOLVED
+    assert result.grid == PUZZLE
