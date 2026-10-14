@@ -39,7 +39,9 @@ def find_grid_with_corners(
         Tuple of (warped_450x450_grid, ordered_corners_4x2_float32),
         or None if no valid grid is found.
     """
-    grids = _find_grids(image, max_grids=1, min_area=10000.0, max_quads=None)
+    # A 3x3 box of a grid filling a small image can be under 10000 px².
+    min_area = min(10000.0, 0.02 * image.shape[0] * image.shape[1])
+    grids = _find_grids(image, max_grids=1, min_area=min_area, max_quads=None)
     return grids[0] if grids else None
 
 
@@ -84,9 +86,6 @@ def _find_grids(
     fallbacks: List[Tuple[np.ndarray, np.ndarray]] = []
     for ordered in _quad_corners(contours, min_area)[:max_quads]:
         warped = perspective_transform(image, ordered, (450, 450))
-        if not validate_grid(warped):
-            continue
-
         if has_regular_grid_lines(cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)):
             grids.append((warped, ordered))
             if len(grids) >= max_grids:
@@ -271,65 +270,34 @@ def _detect_grid_lines(gray: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     return _find_line_peaks(h_proj), _find_line_peaks(v_proj)
 
 
-def _direction_is_regular(
-    peaks: np.ndarray, dim_size: int, max_cv: float = 0.25, min_span: float = 0.7
-) -> bool:
-    """Check if a set of peaks has regular spacing spanning most of the axis."""
-    if len(peaks) < 8:
-        return False
-    gaps = np.diff(peaks).astype(float)
-    if gaps.mean() == 0:
-        return False
-    if gaps.std() / gaps.mean() >= max_cv:
-        return False
-    span = float(peaks[-1] - peaks[0])
-    return span >= dim_size * min_span
+def _lattice_hits(peaks: np.ndarray, size: int) -> int:
+    """How many of 10 equally spaced lines from edge to edge have a peak nearby."""
+    step = (size - 1) / 9
+    if len(peaks) == 0:
+        return 0
+    expected = np.arange(10) * step
+    return int((np.abs(peaks[None, :] - expected[:, None]).min(axis=1) < _LINE_TOL * step).sum())
 
 
-def has_regular_grid_lines(gray: np.ndarray, max_cv: float = 0.25) -> bool:
-    """Check whether the warped image contains equally-spaced grid lines.
+def has_regular_grid_lines(gray: np.ndarray) -> bool:
+    """Check whether a warped grid image is a Sudoku lattice spanning the image.
 
-    A correctly warped 450x450 Sudoku grid has 10 horizontal + 10 vertical
-    lines spaced ~50px apart.  An incorrectly warped decorative border will
-    have lines clustered in the centre with irregular spacing.
+    A correctly warped Sudoku grid has 10 equally spaced lines per axis, the
+    outer ones on the image's edges. Equal spacing alone also passes for a
+    frame around the grid (with a keypad beside it) or, in one direction, for
+    a quad skewed across the grid, so the lines must be where they belong.
 
-    Two paths to pass:
-    1. **Both** directions have ≥8 regular peaks spanning ≥70% of the image.
-    2. **One** direction has ≥9 regular peaks AND average spacing is within
-       15% of the expected cell size (image_dim / 9).  This handles grids
-       whose thin lines are invisible in one direction due to border texture.
-
-    Args:
-        gray: Grayscale warped image (expected 450x450).
-        max_cv: Maximum coefficient of variation for the peak spacing.
-
-    Returns:
-        True if the image has a regular grid pattern.
+    Passes when both directions have at most 2 lines missing, or one has at
+    most 1 missing (thin lines in the other direction can be lost in border
+    texture).
     """
     h, w = gray.shape[:2]
     h_peaks, v_peaks = _detect_grid_lines(gray)
-
-    h_ok = _direction_is_regular(h_peaks, h, max_cv)
-    v_ok = _direction_is_regular(v_peaks, w, max_cv)
-
-    if h_ok and v_ok:
-        return True
-
-    # Single-direction fallback: accept if one direction has ≥9 peaks with
-    # average spacing close to the expected cell size (~50 px for 450 px).
-    expected = float(max(h, w)) / 9.0
-    tol = 0.15  # ±15 %
-
-    for peaks, ok in [(h_peaks, h_ok), (v_peaks, v_ok)]:
-        if not ok or len(peaks) < 9:
-            continue
-        avg = float(np.diff(peaks).mean())
-        if abs(avg - expected) / expected < tol:
-            return True
-
-    return False
+    h_hits, v_hits = _lattice_hits(h_peaks, h), _lattice_hits(v_peaks, w)
+    return min(h_hits, v_hits) >= 8 or max(h_hits, v_hits) >= 9
 
 
+_LINE_TOL = 0.25  # cells
 _MAX_FALLBACKS = 8
 _SNAP_PX = 30  # canvas pixels per cell
 

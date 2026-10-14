@@ -27,6 +27,9 @@ _CELL = 48  # cell side after the default 1px margin
 _SMALL_DIGIT_HEIGHT = 0.45
 _TRAIN_DIGIT_HEIGHT = 0.55
 _ZOOMED_DIGIT_THRESHOLD = 0.3
+# Below this blank probability a cell read as blank holds a digit in a font
+# the CNN is unsure of; across the labeled grids every such cell was a digit.
+_INKED_BLANK_PROB = 0.05
 
 
 @dataclass
@@ -128,8 +131,10 @@ def decode(
     """Return the most plausible correction of `grid` that has a unique solution.
 
     Tries every combination of up to `max_changes` edits among the `max_cells`
-    most doubtful cells, fewest edits first.
+    most doubtful cells, fewest edits first. Cells that are surely not blank
+    start with their top candidate, so only a misread among them costs an edit.
     """
+    grid, metadata = _fill_inked_blanks(grid, metadata)
     solver = SudokuSolver()
     solution, count = solver.solve_unique(grid)
     if count == 1:
@@ -165,6 +170,21 @@ def decode(
                     return Recognition(candidate, solution, SOLVED, metadata, corrections)
 
     return Recognition(grid, None, AMBIGUOUS if fill_blanks else UNSOLVABLE, metadata)
+
+
+def _fill_inked_blanks(
+    grid: Grid, metadata: dict[str, Any],
+) -> tuple[Grid, dict[str, Any]]:
+    """Give blank-read cells with ink their top candidate, at that candidate's confidence."""
+    grid = [row[:] for row in grid]
+    predictions = []
+    for pred in metadata["cell_predictions"]:
+        if pred["value"] == 0 and pred["confidence"] < _INKED_BLANK_PROB and pred["candidates"]:
+            digit, prob = pred["candidates"][0]
+            grid[pred["row"]][pred["col"]] = digit
+            pred = {**pred, "value": digit, "confidence": prob}
+        predictions.append(pred)
+    return grid, {**metadata, "cell_predictions": predictions}
 
 
 def _edit_options(
