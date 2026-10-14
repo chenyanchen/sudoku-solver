@@ -32,7 +32,7 @@ Release only if the candidate is no worse than the current release on both evals
 
 ## Architecture
 
-- **Detection**: web uses OpenCV contours (`backend/cv/grid_detector.py`) with Corner CNN (`backend/cv/corner_cnn_detector.py`) as fallback — Corner CNN's corners are poor (median error 6% of the image); screen monitor uses OpenCV only. Detection runs on a ≤1280px-wide frame; OCR re-warps 450×450 from the full-res frame.
+- **Detection**: web uses OpenCV contours (`backend/cv/grid_detector.py`) with Corner CNN (`backend/cv/corner_cnn_detector.py`) as fallback — Corner CNN's corners are poor (median error 6% of the image); screen monitor uses OpenCV only. OpenCV's fixed-pixel thresholds suit no single scale (12MP photos of screens pick up moiré; some paper photos lose lines when downscaled), so web tries full res then ≤1280px wide and takes the first warp with regular grid lines; the screen monitor detects at ≤1280px only. OCR always re-warps 450×450 from the full-res frame.
 - **Pipeline** (`backend/ocr/pipeline.py`), the only OCR → solve path, used by every front end:
   - `prepare_grid_for_ocr`: adaptive-threshold binarization, the same as training. Per-source gray/CLAHE variants measured far worse.
   - `ocr_cells`: 1px-margin crops; zooms in when the grid's median digit height is below the training range (small-font screenshots) and lowers the digit threshold for that grid. Training and eval use the same function.
