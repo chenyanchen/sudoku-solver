@@ -230,3 +230,7 @@ data/corner_cnn/
 models/yolo_runs/
 runs/
 *.pt
+
+# Test-set images that may not be redistributed (e.g. website screenshots);
+# their labels live in data/testset/labels.json.
+data/testset/local/
