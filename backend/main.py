@@ -5,9 +5,10 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from . import i18n
 from .api.routes import _get_cnn_reader, router
 
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
@@ -39,13 +40,29 @@ app.include_router(router)
 app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIR)), name="static")
 
 
-@app.get("/")
-async def root():
-    """Root endpoint -- serve the frontend."""
-    index_html = _FRONTEND_DIR / "index.html"
-    if index_html.exists():
-        return FileResponse(str(index_html))
-    return {"message": "Sudoku Solver API", "docs": "/docs"}
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def index_en():
+    return i18n.render("en")
+
+
+@app.get("/zh/", response_class=HTMLResponse, include_in_schema=False)
+def index_zh():
+    return i18n.render("zh")
+
+
+@app.get("/zh", include_in_schema=False)
+def index_zh_slash():
+    return RedirectResponse("/zh/", status_code=301)
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)
+def robots():
+    return i18n.robots()
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+def sitemap():
+    return Response(i18n.sitemap(), media_type="application/xml")
 
 
 if __name__ == "__main__":

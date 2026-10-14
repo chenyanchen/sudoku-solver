@@ -1,6 +1,12 @@
 // Sudoku Solver Frontend Application
 
 const KEEP_IMAGE_KEY = 'sudoku-keep-image';
+const I18N = window.I18N || {};
+
+// Localized string with {name} placeholders filled from `values`.
+function t(key, values = {}) {
+    return (I18N[key] || key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
+}
 
 function storageGet(key) {
     try { return localStorage.getItem(key); } catch { return null; }
@@ -67,8 +73,7 @@ class SudokuSolver {
         try {
             const data = await (await fetch('/api/v1/stats')).json();
             if (data.total > 0) {
-                this.stats.textContent =
-                    `Solved ${data.solved} of ${data.total} uploaded puzzles (${data.percentage}%)`;
+                this.stats.textContent = t('stats', data);
                 this.stats.hidden = false;
             }
         } catch {
@@ -78,11 +83,11 @@ class SudokuSolver {
 
     handleFileSelect(file) {
         if (!file.type.startsWith('image/')) {
-            this.showMessage('Please select an image file', 'error');
+            this.showMessage(t('notImage'), 'error');
             return;
         }
         if (file.size > 10 * 1024 * 1024) {
-            this.showMessage('Image larger than 10 MB', 'error');
+            this.showMessage(t('tooLarge'), 'error');
             return;
         }
 
@@ -102,7 +107,7 @@ class SudokuSolver {
 
     async solvePuzzle() {
         if (!this.selectedFile) {
-            this.showMessage('Please select an image first', 'error');
+            this.showMessage(t('noImage'), 'error');
             return;
         }
 
@@ -118,7 +123,7 @@ class SudokuSolver {
             const recResp = await fetch('/api/v1/sudoku:recognize', { method: 'POST', body: formData });
             if (!recResp.ok) {
                 const err = await recResp.json().catch(() => ({}));
-                this.showMessage(err.detail || `Upload failed (${recResp.status})`, 'error');
+                this.showMessage(err.detail || t('uploadFailed', { status: recResp.status }), 'error');
                 return;
             }
             const recData = await recResp.json();
@@ -128,7 +133,7 @@ class SudokuSolver {
                 this.displayDetectedGrid(recData.detected_image);
             }
             if (!recData.success || !recData.grid) {
-                this.showMessage(recData.message || 'Failed to recognize grid', 'warning');
+                this.showMessage(t('noGrid'), 'warning');
                 return;
             }
 
@@ -138,15 +143,12 @@ class SudokuSolver {
             this.resultsSection.style.display = 'block';
 
             if (recData.solved) {
-                await this.solve(recData.grid, 'Puzzle solved!');
+                await this.solve(recData.grid, t('solved'));
             } else {
-                this.showMessage(
-                    'Some digits may be misread: compare with your image, fix the cells, then solve again.',
-                    'warning',
-                );
+                this.showMessage(t('misread'), 'warning');
             }
         } catch (error) {
-            this.showMessage('Error communicating with server: ' + error.message, 'error');
+            this.showMessage(t('network', { error: error.message }), 'error');
         } finally {
             this.setLoading(false);
             this.loadStats();
@@ -156,7 +158,7 @@ class SudokuSolver {
     async solveCorrected() {
         const grid = this.readEditableGrid();
         if (!grid) {
-            this.showMessage('Cells accept only digits 1-9 (leave blank for empty).', 'error');
+            this.showMessage(t('digitsOnly'), 'error');
             return;
         }
         if (this.token) {
@@ -167,7 +169,7 @@ class SudokuSolver {
                 body: JSON.stringify({ token: this.token, grid: { cells: grid } }),
             }).then(() => this.loadStats()).catch(() => {});
         }
-        await this.solve(grid, 'Puzzle solved with your corrections. Thank you!');
+        await this.solve(grid, t('solvedCorrected'));
     }
 
     async solve(grid, successMessage) {
@@ -181,10 +183,8 @@ class SudokuSolver {
             this.showMessage(successMessage, 'success');
             this.displayGrid(data.solved, 'solvedGrid', grid);
         } else {
-            this.showMessage(
-                (data.message || 'Could not solve puzzle') + '. Check the recognized digits against your image.',
-                'warning',
-            );
+            const reason = { no_solution: 'noSolution', multiple_solutions: 'multipleSolutions', invalid: 'invalid' };
+            this.showMessage(t(reason[data.status] || 'noSolution'), 'warning');
             this.displayGrid(null, 'solvedGrid');
         }
     }
@@ -203,7 +203,7 @@ class SudokuSolver {
                 input.className = 'sudoku-cell given';
                 input.inputMode = 'numeric';
                 input.maxLength = 1;
-                input.setAttribute('aria-label', `Row ${row + 1}, column ${col + 1}`);
+                input.setAttribute('aria-label', t('cell', { row: row + 1, col: col + 1 }));
                 input.value = grid[row][col] || '';
                 input.addEventListener('focus', () => input.select());
                 input.addEventListener('input', () => {
