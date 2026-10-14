@@ -21,13 +21,14 @@ uv run pytest tests/test_pipeline.py -k name    # one test
 ### Corner CNN: train → eval → release
 
 ```bash
-MLFLOW_TRACKING_URI="file://$PWD/mlruns" uv run --extra ml python scripts/train_corner_cnn.py --version <MAJOR.MINOR.PATCH>
+uv run --extra ml python scripts/synth_corner_data.py --count 6000 --seed 0          # → gitignored data/synth_corner/
+MLFLOW_TRACKING_URI="file://$PWD/mlruns" uv run --extra ml python scripts/train_corner_cnn.py --synth data/synth_corner --version <MAJOR.MINOR.PATCH>
 uv run --extra ml python scripts/export_corner_cnn_onnx.py --checkpoint <run .pt> --output <scratch>.onnx
 uv run python scripts/eval_corner_cnn.py --model <candidate.onnx>      # held-out test set; compare with the release
 MLFLOW_TRACKING_URI="file://$PWD/mlruns" uv run --extra ml python scripts/release_model.py corner-cnn --run-id <id> --version <YYYYMMDD.N>
 ```
 
-Pick between candidates on training/val error (`eval_corner_cnn.py --labels data/labels/sudoku_labels.json --corners data/labels/sudoku_corners.csv`), not the test set. The old defaults (backbone lr 1e-5, frozen 5 epochs, 120 epochs) underfit: 9% median error even on training images.
+Pick between candidates on training/val error (`eval_corner_cnn.py --labels data/labels/sudoku_labels.json --corners data/labels/sudoku_corners.csv`), not the test set. Synthetic images are training-only; selection uses real val images. Regressing corners from globally pooled features (1.x) underfit: 4–9% median error even on training images; heatmaps (2.x) fixed that.
 
 ### OCR model: train → gate → release
 
@@ -43,7 +44,7 @@ Release only if the candidate is no worse than the current release on both evals
 
 ## Architecture
 
-- **Detection**: web uses OpenCV contours (`backend/cv/grid_detector.py`) with Corner CNN (`backend/cv/corner_cnn_detector.py`) as fallback, which runs only when OpenCV returns nothing — Corner CNN's corners are rough (median error 6% of the image on the test set; it mainly pre-annotates corners in the ML Backend); screen monitor uses OpenCV only. OpenCV's fixed-pixel thresholds suit no single scale (12MP photos of screens pick up moiré; some paper photos lose lines when downscaled; in images narrower than ~1000px the opening erases 1px lines), so web tries full res then a 1280px-wide copy (down- or upscaled) and takes the first warp with regular grid lines (`has_regular_grid_lines`: lines at the warp's 10 equally spaced positions per axis, so a frame around the grid fails); the screen monitor detects at ≤1280px only. A quad without regular lines is usually a decorative frame or a single 3×3 box (when the grid outline merges with its surroundings); `snap_to_lattice` fits the 9×9 line lattice around it. OCR always re-warps 450×450 from the full-res frame.
+- **Detection**: web uses OpenCV contours (`backend/cv/grid_detector.py`) with Corner CNN (`backend/cv/corner_cnn_detector.py`) as fallback, which runs only when OpenCV returns nothing — Corner CNN (heatmap + soft-argmax, `corner_cnn_arch.py`) has median corner error 1% on the test set and pre-annotates corners in the ML Backend; screen monitor uses OpenCV only. OpenCV's fixed-pixel thresholds suit no single scale (12MP photos of screens pick up moiré; some paper photos lose lines when downscaled; in images narrower than ~1000px the opening erases 1px lines), so web tries full res then a 1280px-wide copy (down- or upscaled) and takes the first warp with regular grid lines (`has_regular_grid_lines`: lines at the warp's 10 equally spaced positions per axis, so a frame around the grid fails); the screen monitor detects at ≤1280px only. A quad without regular lines is usually a decorative frame or a single 3×3 box (when the grid outline merges with its surroundings); `snap_to_lattice` fits the 9×9 line lattice around it. OCR always re-warps 450×450 from the full-res frame.
 - **Pipeline** (`backend/ocr/pipeline.py`), the only OCR → solve path, used by every front end:
   - `prepare_grid_for_ocr`: adaptive-threshold binarization, the same as training. Per-source gray/CLAHE variants measured far worse.
   - `ocr_cells`: 1px-margin crops; zooms in when the grid's median digit height is below the training range (small-font screenshots) and lowers the digit threshold for that grid. Training and eval use the same function.
