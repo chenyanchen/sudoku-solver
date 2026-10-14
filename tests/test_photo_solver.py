@@ -15,7 +15,6 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_ordinary_photos_recognize_and_solve(monkeypatch):
     labels = json.loads((ROOT / "data/labels/sudoku_labels.json").read_text())
     monkeypatch.setattr(routes, "_CNN_READER", None)
-    monkeypatch.setattr(routes, "_DETECTOR", None)
     with TestClient(app) as client:
         # 8695–8708: ordinary photographed screens. 8709–8712 have vine borders.
         for number in range(8695, 8709):
