@@ -1,6 +1,5 @@
 // Sudoku Solver Frontend Application
 
-const KEEP_IMAGE_KEY = 'sudoku-keep-image';
 const I18N = window.I18N || {};
 
 // Localized string with {name} placeholders filled from `values`.
@@ -8,19 +7,10 @@ function t(key, values = {}) {
     return (I18N[key] || key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
 }
 
-function storageGet(key) {
-    try { return localStorage.getItem(key); } catch { return null; }
-}
-
-function storageSet(key, value) {
-    try { localStorage.setItem(key, value); } catch { /* private mode */ }
-}
-
 class SudokuSolver {
     constructor() {
         this.uploadArea = document.getElementById('uploadArea');
         this.fileInput = document.getElementById('fileInput');
-        this.keepImage = document.getElementById('keepImage');
         this.previewSection = document.getElementById('previewSection');
         this.originalImage = document.getElementById('originalImage');
         this.detectedCard = document.getElementById('detectedCard');
@@ -57,11 +47,6 @@ class SudokuSolver {
             if (e.dataTransfer.files.length > 0) {
                 this.handleFileSelect(e.dataTransfer.files[0]);
             }
-        });
-
-        this.keepImage.checked = storageGet(KEEP_IMAGE_KEY) === '1';
-        this.keepImage.addEventListener('change', () => {
-            storageSet(KEEP_IMAGE_KEY, this.keepImage.checked ? '1' : '0');
         });
 
         this.solveButton.addEventListener('click', () => this.solvePuzzle());
@@ -118,7 +103,6 @@ class SudokuSolver {
         try {
             const formData = new FormData();
             formData.append('image', this.selectedFile);
-            formData.append('keep_image', this.keepImage.checked ? 'true' : 'false');
 
             const recResp = await fetch('/api/v1/sudoku:recognize', { method: 'POST', body: formData });
             if (!recResp.ok) {

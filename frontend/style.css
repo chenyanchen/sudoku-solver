@@ -274,12 +274,9 @@ input.sudoku-cell.edited {
     color: var(--text-primary);
 }
 
-.consent {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
+.notice {
     margin-top: 0.75rem;
+    text-align: center;
     color: var(--text-secondary);
     font-size: 0.9rem;
 }
