@@ -34,7 +34,7 @@ def validate_backend_model_env() -> tuple[Path, Path]:
     for path, env_name in ((cnn, _CNN_ENV), (corner_cnn, _CORNER_CNN_ENV)):
         if not path.exists():
             raise RuntimeError(f"{env_name} points to a missing file: {path}")
-        meta_path = path.with_suffix(".meta.json")
+        meta_path = _meta_path(path)
         if not meta_path.exists():
             raise RuntimeError(
                 f"Release metadata file is missing for {env_name}: {meta_path}"
@@ -43,8 +43,13 @@ def validate_backend_model_env() -> tuple[Path, Path]:
     return cnn, corner_cnn
 
 
+def _meta_path(model_path: Path) -> Path:
+    """The sidecar sits next to the release file, not the canonical symlink."""
+    return model_path.resolve().with_suffix(".meta.json")
+
+
 def read_release_metadata(model_path: Path) -> dict[str, Any]:
-    meta_path = model_path.with_suffix(".meta.json")
+    meta_path = _meta_path(model_path)
     try:
         payload = json.loads(meta_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:

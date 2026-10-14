@@ -4,7 +4,7 @@ Trains on the reviewed corners in data/labels/sudoku_corners.csv and the source
 images under data/raw/images/ (including the gitignored local/).
 
 Usage:
-    uv run --extra ml python scripts/train_corner_cnn.py [--epochs 60]
+    uv run --extra ml python scripts/train_corner_cnn.py [--version X.Y.Z]
 """
 
 from __future__ import annotations
@@ -249,15 +249,15 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Train corner regression CNN")
     parser.add_argument("--corners", type=Path, default=DEFAULT_CORNERS)
     parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS, help="Groups the val split by puzzle")
-    parser.add_argument("--epochs", type=int, default=60)
+    parser.add_argument("--epochs", type=int, default=300)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--head-lr", type=float, default=1e-3)
-    parser.add_argument("--backbone-lr", type=float, default=1e-5)
+    parser.add_argument("--backbone-lr", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--freeze-epochs", type=int, default=5)
+    parser.add_argument("--freeze-epochs", type=int, default=0)
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--patience", type=int, default=15)
+    parser.add_argument("--patience", type=int, default=80)
     parser.add_argument("--version", type=str, default="1.0.0")
     parser.add_argument(
         "--allow-dirty", action="store_true",
