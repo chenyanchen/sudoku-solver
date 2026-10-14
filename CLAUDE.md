@@ -7,12 +7,12 @@ Sudoku solver with four front ends sharing one recognition pipeline: a FastAPI w
 ## Commands
 
 ```bash
-uv sync --extra dev        # + pytest; other extras: ml (training), screen (overlay), viz (notebooks)
+uv sync --extra dev        # + pytest (ML tests are skipped without --extra ml); other extras: ml (training), labeling (ML Backend), screen (overlay), viz (notebooks)
 export CNN_MODEL_PATH=models/releases/sudoku_digit_cnn.onnx   # required by app, monitors and tests
 
 uv run uvicorn backend.main:app --reload
 uv run --extra screen python -m screen_monitor --debug
-CORNER_CNN_MODEL=models/releases/sudoku_corner_cnn.onnx uv run python -m ml_backend --port 9090
+CORNER_CNN_MODEL=models/releases/sudoku_corner_cnn.onnx uv run --extra labeling python -m ml_backend --port 9090
 
 uv run pytest                                   # all tests
 uv run pytest tests/test_pipeline.py -k name    # one test
