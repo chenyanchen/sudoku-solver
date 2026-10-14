@@ -22,7 +22,7 @@ cd /opt/sudoku-solver
 venv/bin/pip install -q --disable-pip-version-check -r $DIR/requirements.txt
 ln -sfn $DIR current
 systemctl restart sudoku-solver
-for i in \$(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:8000/health && break; sleep 1; done
+for i in \$(seq 1 30); do curl -fs -o /dev/null http://127.0.0.1:8000/health && break; sleep 1; done
 curl -fsS http://127.0.0.1:8000/health; echo
 # Keep the three newest releases, and whichever one is current.
 ls -1dt releases/* | tail -n +4 | grep -vx "releases/$REV" | xargs -r rm -rf
