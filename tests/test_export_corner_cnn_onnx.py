@@ -45,7 +45,7 @@ def test_export_model_uses_dynamic_shapes(monkeypatch, tmp_path: Path):
         output.write_bytes(b"fake-onnx")
 
     monkeypatch.setattr(export_corner_cnn_onnx.torch, "load", lambda *a, **k: payload)
-    monkeypatch.setattr(export_corner_cnn_onnx, "create_corner_model", lambda: DummyModel())
+    monkeypatch.setattr(export_corner_cnn_onnx, "create_corner_model", lambda *a, **k: DummyModel())
     monkeypatch.setattr(export_corner_cnn_onnx.torch.onnx, "export", fake_export)
     monkeypatch.setattr(
         export_corner_cnn_onnx,
@@ -79,7 +79,7 @@ def test_export_checkpoint_rejects_opset_mismatch(monkeypatch, tmp_path: Path):
             return self
 
     monkeypatch.setattr(export_corner_cnn_onnx.torch, "load", lambda *a, **k: payload)
-    monkeypatch.setattr(export_corner_cnn_onnx, "create_corner_model", lambda: DummyModel())
+    monkeypatch.setattr(export_corner_cnn_onnx, "create_corner_model", lambda *a, **k: DummyModel())
     monkeypatch.setattr(
         export_corner_cnn_onnx.torch.onnx,
         "export",

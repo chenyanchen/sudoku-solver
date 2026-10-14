@@ -39,7 +39,7 @@ def export_checkpoint(args: argparse.Namespace) -> Path:
     payload = torch.load(args.checkpoint, map_location="cpu")
     input_size = payload.get("input_size", 256)
 
-    model = create_corner_model()
+    model = create_corner_model(payload.get("arch", "regress"), pretrained=False)
     model.load_state_dict(payload["state_dict"])
     model.eval()
 
