@@ -33,3 +33,11 @@ def git_state(allow_dirty: bool) -> tuple[dict[str, str], str]:
 
 def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def file_sha256_many(paths) -> str:
+    """One hash over the names and contents of several files, in name order."""
+    digest = hashlib.sha256()
+    for path in sorted(paths, key=lambda p: p.name):
+        digest.update(path.name.encode() + b"\0" + bytes.fromhex(file_sha256(path)))
+    return digest.hexdigest()

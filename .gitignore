@@ -231,6 +231,7 @@ models/yolo_runs/
 runs/
 *.pt
 
-# Test-set images that may not be redistributed (e.g. website screenshots);
-# their labels live in data/testset/labels.json.
+# Images that may not be redistributed (e.g. website screenshots); their labels
+# live in data/testset/labels.json and data/labels/sudoku_labels.json.
 data/testset/local/
+data/raw/images/local/

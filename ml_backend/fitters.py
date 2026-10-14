@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -37,13 +36,9 @@ def fit_corners(
     if missing:
         return {"status": "skipped", "reason": f"missing corners: {missing}"}
 
-    dst_dir = repo_root / "data" / "corner_cnn" / "images"
-    dst_dir.mkdir(parents=True, exist_ok=True)
-    dst_img = dst_dir / Path(filename).name
-    if not dst_img.exists():
-        shutil.copy2(src_image, dst_img)
-
-    csv_path = repo_root / "data" / "corner_cnn" / "labels.csv"
+    # The reviewed corners that Corner CNN and OCR training read.
+    csv_path = repo_root / "data" / "labels" / "sudoku_corners.csv"
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "image",
         "x_tl",
@@ -80,13 +75,13 @@ def fit_corners(
 
     if found:
         with csv_path.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
             writer.writeheader()
             writer.writerows(existing_rows)
     else:
         write_header = not csv_path.exists()
         with csv_path.open("a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
             if write_header:
                 writer.writeheader()
             writer.writerow(row_data)

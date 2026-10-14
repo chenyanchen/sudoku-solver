@@ -62,6 +62,21 @@ class CornerCnnDetector:
         LOGGER.info("Corner CNN detector loaded: %s", path.name)
 
     def detect(self, image: np.ndarray) -> DetectionResult | None:
+        corners = self.predict(image)
+        if corners is None:
+            return None
+        # A plausible quadrilateral is not evidence of a Sudoku grid.
+        gray = cv2.cvtColor(warp_grid(image, corners), cv2.COLOR_BGR2GRAY)
+        if not has_regular_grid_lines(gray):
+            return None
+
+        return DetectionResult(
+            corners=corners,
+            detector_name="corner_cnn",
+        )
+
+    def predict(self, image: np.ndarray) -> np.ndarray | None:
+        """Predicted corners (TL, TR, BR, BL) in image coordinates, or None if not a convex quad."""
         h_orig, w_orig = image.shape[:2]
         blob, scale, pad_x, pad_y = self._preprocess(image)
 
@@ -86,15 +101,7 @@ class CornerCnnDetector:
         if not np.isfinite(corners_raw).all() or not cv2.isContourConvex(corners):
             return None
         self.last_confidence = self._geometric_confidence(corners_raw, corners, w_orig, h_orig)
-        # A plausible quadrilateral is not evidence of a Sudoku grid.
-        gray = cv2.cvtColor(warp_grid(image, corners), cv2.COLOR_BGR2GRAY)
-        if not has_regular_grid_lines(gray):
-            return None
-
-        return DetectionResult(
-            corners=corners,
-            detector_name="corner_cnn",
-        )
+        return corners
 
     @staticmethod
     def _geometric_confidence(

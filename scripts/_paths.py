@@ -35,7 +35,7 @@ def resolve_image_path(image_ref: str, labels_path: Path) -> Path:
       1. Absolute path (if *image_ref* is absolute)
       2. Relative to the labels file directory
       3. Relative to the repository root
-      4. By filename inside ``data/raw/images/``
+      4. Relative to ``data/raw/images/`` (e.g. ``local/x.png``), then by filename there
 
     Raises ``FileNotFoundError`` when no candidate matches.
     """
@@ -47,6 +47,7 @@ def resolve_image_path(image_ref: str, labels_path: Path) -> Path:
     else:
         candidates.append(labels_path.parent / ref)
         candidates.append(REPO_ROOT / ref)
+        candidates.append(DATA_IMAGE_DIR / ref)
         candidates.append(DATA_IMAGE_DIR / ref.name)
 
     for candidate in candidates:
