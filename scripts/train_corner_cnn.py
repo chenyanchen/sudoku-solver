@@ -170,40 +170,58 @@ def split_dataset(samples, labels_path: Path, val_ratio: float, seed: int):
     return train, val
 
 
+def load_synthetic(synth_dir: Path):
+    """[(image_path, corners)] from scripts/synth_corner_data.py output."""
+    return [(synth_dir / "images" / name, corners)
+            for name, corners in load_corner_labels(synth_dir / "labels.csv").items()]
+
+
 class CornerDataset:
-    """PyTorch Dataset for corner regression."""
+    """PyTorch Dataset for corner regression; images are letterboxed once and cached."""
 
     def __init__(self, samples, augment: bool):
         torch, _, Dataset = _import_torch()
+        cache = []
+        for img_path, corners in samples:
+            image = cv2.imread(str(img_path))
+            if image is None:
+                raise FileNotFoundError(f"Cannot read: {img_path}")
+            h, w = image.shape[:2]
+            padded, scale, pad_x, pad_y = _letterbox(image)
+            cache.append((padded, _corners_to_letterbox(corners, w, h, scale, pad_x, pad_y)))
 
         class _Impl(Dataset):
-            def __init__(self, inner_samples, use_augment):
-                self.samples = inner_samples
-                self.augment = use_augment
-
             def __len__(self):
-                return len(self.samples)
+                return len(cache)
 
             def __getitem__(self, idx):
-                img_path, corners = self.samples[idx]
-                image = cv2.imread(str(img_path))
-                if image is None:
-                    raise FileNotFoundError(f"Cannot read: {img_path}")
-
-                h, w = image.shape[:2]
-                padded, scale, pad_x, pad_y = _letterbox(image)
-                lb_corners = _corners_to_letterbox(corners, w, h, scale, pad_x, pad_y)
-
-                if self.augment:
+                padded, lb_corners = cache[idx]
+                if augment:
                     padded, lb_corners = _apply_augmentation(padded, lb_corners)
-
                 # HWC BGR → CHW RGB, float32 [0, 1]
                 tensor = padded[:, :, ::-1].transpose(2, 0, 1).astype(np.float32) / 255.0
-                tensor = torch.from_numpy(tensor.copy())
-                target = torch.from_numpy(lb_corners.flatten())  # (8,)
-                return tensor, target
+                return torch.from_numpy(tensor.copy()), torch.from_numpy(lb_corners.flatten())
 
-        self.impl = _Impl(samples, augment)
+        self.impl = _Impl()
+
+
+def heatmap_loss(model, images, targets, sigma: float):
+    """Coordinate L1 in heatmap pixels plus KL from a Gaussian at each corner (DSNT-style)."""
+    torch, _, _ = _import_torch()
+    from backend.cv.corner_cnn_arch import soft_argmax
+
+    coords, prob = soft_argmax(model.heatmaps(images))
+    n, k, h, w = prob.shape
+    target = targets.view(n, k, 2)
+    scale = torch.tensor([w, h], dtype=coords.dtype, device=coords.device)
+    coord_loss = (torch.abs(coords - target) * scale).sum(-1).mean()
+    xs = torch.arange(w, dtype=prob.dtype, device=prob.device) + 0.5
+    ys = torch.arange(h, dtype=prob.dtype, device=prob.device) + 0.5
+    tx, ty = (target[..., 0] * w)[..., None, None], (target[..., 1] * h)[..., None, None]
+    gauss = torch.exp(-((xs[None, None, None, :] - tx) ** 2 + (ys[None, None, :, None] - ty) ** 2) / (2 * sigma ** 2))
+    gauss = gauss / gauss.sum(dim=(-2, -1), keepdim=True).clamp_min(1e-12)
+    kl = (gauss * (torch.log(gauss.clamp_min(1e-12)) - torch.log(prob.clamp_min(1e-12)))).sum(dim=(-2, -1)).mean()
+    return coord_loss + kl, coords.flatten(1)
 
 
 # ---------------------------------------------------------------------------
@@ -246,19 +264,24 @@ def compute_metrics(pred: np.ndarray, target: np.ndarray) -> dict:
 # ---------------------------------------------------------------------------
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train corner regression CNN")
+    parser = argparse.ArgumentParser(description="Train the Corner CNN")
+    parser.add_argument("--arch", choices=["regress", "heatmap"], default="heatmap")
     parser.add_argument("--corners", type=Path, default=DEFAULT_CORNERS)
     parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS, help="Groups the val split by puzzle")
-    parser.add_argument("--epochs", type=int, default=300)
-    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--synth", type=Path, default=None,
+                        help="Synthetic data from scripts/synth_corner_data.py, added to training only")
+    parser.add_argument("--real-repeat", type=int, default=10, help="Real training images per epoch, as copies")
+    parser.add_argument("--epochs", type=int, default=40)
+    parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--head-lr", type=float, default=1e-3)
-    parser.add_argument("--backbone-lr", type=float, default=3e-4)
+    parser.add_argument("--backbone-lr", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--freeze-epochs", type=int, default=0)
+    parser.add_argument("--heatmap-sigma", type=float, default=1.0, help="Target Gaussian, in heatmap pixels")
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--patience", type=int, default=80)
-    parser.add_argument("--version", type=str, default="1.0.0")
+    parser.add_argument("--patience", type=int, default=40)
+    parser.add_argument("--version", type=str, default="2.0.0")
     parser.add_argument(
         "--allow-dirty", action="store_true",
         help="Train with uncommitted changes; the diff is logged as git_diff.patch",
@@ -270,6 +293,7 @@ def main() -> int:
     import mlflow
 
     torch, DataLoader, _ = _import_torch()
+    from torch.utils.data import ConcatDataset
 
     args = parse_args()
     git_tags, git_diff = git_state(args.allow_dirty)
@@ -277,54 +301,75 @@ def main() -> int:
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    )
 
     samples = load_dataset(args.corners)
     train_samples, val_samples = split_dataset(samples, args.labels, args.val_ratio, args.seed)
-    train_loader = DataLoader(
-        CornerDataset(train_samples, augment=True).impl,
-        batch_size=args.batch_size, shuffle=True, num_workers=0,
-    )
+    synth_samples = load_synthetic(args.synth) if args.synth else []
+    train_sets = [CornerDataset(train_samples, augment=True).impl] * args.real_repeat
+    if synth_samples:
+        train_sets.append(CornerDataset(synth_samples, augment=True).impl)
+    train_loader = DataLoader(ConcatDataset(train_sets), batch_size=args.batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(
         CornerDataset(val_samples, augment=False).impl,
         batch_size=args.batch_size, shuffle=False, num_workers=0,
     )
 
     from backend.cv.corner_cnn_arch import create_corner_model
-    model = create_corner_model().to(device)
+    model = create_corner_model(args.arch).to(device)
+    head = [p for name, p in model.named_parameters() if not name.startswith("backbone.")]
 
-    criterion = torch.nn.SmoothL1Loss()
+    if args.arch == "heatmap":
+        def step(images, targets):
+            return heatmap_loss(model, images, targets, args.heatmap_sigma)
+    else:
+        smooth_l1 = torch.nn.SmoothL1Loss()
+
+        def step(images, targets):
+            preds = model(images)
+            return smooth_l1(preds, targets), preds
 
     # Phase 1: freeze backbone
     for param in model.backbone.parameters():
-        param.requires_grad = False
-
+        param.requires_grad = args.freeze_epochs == 0
     optimizer = torch.optim.AdamW([
-        {"params": model.head.parameters(), "lr": args.head_lr},
+        {"params": model.backbone.parameters(), "lr": args.backbone_lr},
+        {"params": head, "lr": args.head_lr},
     ], weight_decay=args.weight_decay)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     mlflow.set_experiment("sudoku-corner-cnn")
     with mlflow.start_run() as run:
         mlflow.log_params({
+            "arch": args.arch,
             "epochs": args.epochs,
             "batch_size": args.batch_size,
             "head_lr": args.head_lr,
             "backbone_lr": args.backbone_lr,
             "weight_decay": args.weight_decay,
             "freeze_epochs": args.freeze_epochs,
+            "heatmap_sigma": args.heatmap_sigma,
             "val_ratio": args.val_ratio,
             "seed": args.seed,
             "patience": args.patience,
             "version": args.version,
             "num_train": len(train_samples),
             "num_val": len(val_samples),
+            "num_synth": len(synth_samples),
+            "real_repeat": args.real_repeat,
             "input_size": INPUT_SIZE,
+            "device": device.type,
         })
-        mlflow.set_tags({
+        tags = {
             **git_tags,
             "corners_sha256": file_sha256(args.corners),
             "images_sha256": file_sha256_many(path for path, _ in samples),
-        })
+        }
+        if args.synth:
+            tags["synth_labels_sha256"] = file_sha256(args.synth / "labels.csv")
+        mlflow.set_tags(tags)
         if git_diff:
             mlflow.log_text(git_diff, "git_diff.patch")
         mlflow.log_dict({
@@ -335,92 +380,75 @@ def main() -> int:
         best_warp_iou = -1.0
         best_state = None
         epochs_no_improve = 0
-        global_step = 0
 
         for epoch in range(1, args.epochs + 1):
             epoch_start = time.time()
-
-            # Phase transition: unfreeze backbone after freeze_epochs
-            if epoch == args.freeze_epochs + 1:
+            if epoch == args.freeze_epochs + 1 and args.freeze_epochs:
                 for param in model.backbone.parameters():
                     param.requires_grad = True
-                optimizer = torch.optim.AdamW([
-                    {"params": model.backbone.parameters(), "lr": args.backbone_lr},
-                    {"params": model.head.parameters(), "lr": args.head_lr / 10},
-                ], weight_decay=args.weight_decay)
                 print(f"=== Epoch {epoch}: unfreezing backbone ===")
 
             model.train()
             train_loss = 0.0
             for images, targets in train_loader:
-                images = images.to(device)
-                targets = targets.to(device)
+                images, targets = images.to(device), targets.to(device)
                 optimizer.zero_grad(set_to_none=True)
-                preds = model(images)
-                loss = criterion(preds, targets)
+                loss, _ = step(images, targets)
                 loss.backward()
                 optimizer.step()
                 train_loss += loss.item()
-                global_step += 1
-                mlflow.log_metric("train_loss", loss.item(), step=global_step)
-
             train_loss /= max(1, len(train_loader))
+            scheduler.step()
 
-            # Validation
             model.eval()
             all_preds, all_targets = [], []
             val_loss = 0.0
             with torch.no_grad():
                 for images, targets in val_loader:
-                    images = images.to(device)
-                    targets = targets.to(device)
-                    preds = model(images)
-                    val_loss += criterion(preds, targets).item()
+                    images, targets = images.to(device), targets.to(device)
+                    loss, preds = step(images, targets)
+                    val_loss += loss.item()
                     all_preds.append(preds.cpu().numpy())
                     all_targets.append(targets.cpu().numpy())
-
             val_loss /= max(1, len(val_loader))
-            preds_np = np.concatenate(all_preds)
-            targets_np = np.concatenate(all_targets)
-            metrics = compute_metrics(preds_np, targets_np)
-
-            current_lr = optimizer.param_groups[0]["lr"]
+            metrics = compute_metrics(np.concatenate(all_preds), np.concatenate(all_targets))
             epoch_duration = time.time() - epoch_start
 
             print(
-                f"epoch={epoch:03d} train_loss={train_loss:.4f} "
-                f"val_loss={val_loss:.4f} "
-                f"corner_mae={metrics['corner_mae']:.4f} "
-                f"warp_iou={metrics['warp_iou']:.4f}"
+                f"epoch={epoch:03d} train_loss={train_loss:.4f} val_loss={val_loss:.4f} "
+                f"corner_mae={metrics['corner_mae']:.4f} warp_iou={metrics['warp_iou']:.4f} "
+                f"({epoch_duration:.0f}s)", flush=True,
             )
-
             mlflow.log_metrics({
                 "train_loss_epoch": train_loss,
                 "val_loss": val_loss,
                 "corner_mae": metrics["corner_mae"],
                 "warp_iou": metrics["warp_iou"],
-                "lr": current_lr,
+                "lr": optimizer.param_groups[0]["lr"],
                 "epoch_duration_sec": epoch_duration,
             }, step=epoch)
 
-            if metrics["warp_iou"] > best_warp_iou:
+            # Ties go to the later epoch: the val set is small and saturates.
+            if metrics["warp_iou"] >= best_warp_iou:
                 best_warp_iou = metrics["warp_iou"]
                 best_state = {
                     "state_dict": {k: v.detach().cpu().clone() for k, v in model.state_dict().items()},
+                    "arch": args.arch,
                     "version": args.version,
                     "input_size": INPUT_SIZE,
                     "best_warp_iou": best_warp_iou,
+                    "epoch": epoch,
                 }
                 epochs_no_improve = 0
             else:
                 epochs_no_improve += 1
-
             if epochs_no_improve >= args.patience:
                 print(f"Early stop at epoch={epoch}")
                 break
 
         if best_state is None:
             raise RuntimeError("No valid checkpoint produced")
+        mlflow.log_metrics({"best_warp_iou": best_warp_iou, "best_epoch": best_state["epoch"]})
 
         with tempfile.TemporaryDirectory() as tmpdir:
             pt_path = Path(tmpdir) / f"sudoku_corner_cnn_v{args.version}.pt"
@@ -428,7 +456,7 @@ def main() -> int:
             mlflow.log_artifact(str(pt_path))
 
         print(f"Run ID: {run.info.run_id}")
-        print(f"Best warp_iou: {best_warp_iou:.4f}")
+        print(f"Best warp_iou: {best_warp_iou:.4f} at epoch {best_state['epoch']}")
 
     return 0
 

@@ -227,6 +227,7 @@ mlruns/
 data/warped_grids/
 data/yolo_grid/
 data/corner_cnn/
+data/synth_corner/
 models/yolo_runs/
 runs/
 *.pt
@@ -235,3 +236,5 @@ runs/
 # live in data/testset/labels.json and data/labels/sudoku_labels.json.
 data/testset/local/
 data/raw/images/local/
+
+.DS_Store
