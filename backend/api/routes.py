@@ -5,24 +5,31 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import threading
+import time
+from collections import defaultdict, deque
 from dataclasses import dataclass
+from pathlib import Path
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
 from ..cv.corner_cnn_detector import CornerCnnDetector
 from ..cv.detector import warp_grid
 from ..cv.grid_detector import has_regular_grid_lines
 from ..cv.opencv_detector import OpenCVGridDetector
 from ..models.schemas import (
+    FeedbackRequest,
     HealthResponse,
     RecognizeResponse,
     SolveRequest,
     SolveResponse,
+    StatsResponse,
 )
 from ..ocr.cnn_digit_reader import CnnDigitReader
 from ..ocr.pipeline import SOLVED, Recognition, recognize
+from ..records import Records
 from ..solver.backtracking import SudokuSolver, is_valid_grid
 
 router = APIRouter()
@@ -30,6 +37,45 @@ _CNN_READER: CnnDigitReader | None = None
 _OPENCV = OpenCVGridDetector()
 _CORNER_CNN: CornerCnnDetector | None = None
 _LOGGER = logging.getLogger(__name__)
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+# Recognition is CPU bound (~50-500 ms); more concurrent requests than cores only queue up.
+_RECOGNIZE_SLOTS = threading.BoundedSemaphore(int(os.getenv("SUDOKU_RECOGNIZE_SLOTS", "2")))
+_RECORDS: Records | None = None
+
+
+class _RateLimit:
+    """At most `limit` events per key in a sliding `window` of seconds."""
+
+    def __init__(self, limit: int, window: float = 60.0):
+        self.limit, self.window = limit, window
+        self._events: dict[str, deque[float]] = defaultdict(deque)
+        self._lock = threading.Lock()
+
+    def allow(self, key: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            if len(self._events) > 10_000:  # forget idle clients
+                for k in [k for k, q in self._events.items() if not q or now - q[-1] > self.window]:
+                    del self._events[k]
+            events = self._events[key]
+            while events and now - events[0] > self.window:
+                events.popleft()
+            if len(events) >= self.limit:
+                return False
+            events.append(now)
+            return True
+
+
+_RECOGNIZE_LIMIT = _RateLimit(int(os.getenv("SUDOKU_RECOGNIZE_PER_MINUTE", "20")))
+
+
+def _get_records() -> Records | None:
+    """Records are kept only when SUDOKU_DATA_DIR is set (the deployed site)."""
+    global _RECORDS
+    if _RECORDS is None and os.getenv("SUDOKU_DATA_DIR"):
+        _RECORDS = Records(Path(os.environ["SUDOKU_DATA_DIR"]))
+    return _RECORDS
 
 
 def image_to_base64(image: np.ndarray) -> str:
@@ -152,13 +198,23 @@ async def solve_sudoku(request: SolveRequest):
     response_model=RecognizeResponse,
     tags=["Sudoku"],
 )
-async def recognize_sudoku(image: UploadFile = File(...)):
+def recognize_sudoku(
+    request: Request,
+    image: UploadFile = File(...),
+    keep_image: bool = Form(False, description="The uploader allows storing the image to improve recognition"),
+):
     """Recognize a Sudoku grid from an uploaded image.
 
     Detects the grid, extracts cells, and runs OCR.
     Returns the recognized grid — call `/api/v1/sudoku:solve` to solve it.
+    A plain `def`: FastAPI runs it in a thread pool, so recognition does not
+    block the event loop.
     """
-    contents = await image.read()
+    if not _RECOGNIZE_LIMIT.allow(request.client.host if request.client else "-"):
+        raise HTTPException(429, "Too many uploads; please wait a minute.")
+    contents = image.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"Image larger than {MAX_UPLOAD_BYTES // 1024 // 1024} MB.")
     img = cv2.imdecode(np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
         return RecognizeResponse(
@@ -166,14 +222,33 @@ async def recognize_sudoku(image: UploadFile = File(...)):
             message="Failed to decode image. Please upload a valid image file.",
         )
 
-    reading = read_image(img)
+    if not _RECOGNIZE_SLOTS.acquire(timeout=30):
+        raise HTTPException(503, "Server busy; please try again.")
+    try:
+        start = time.perf_counter()
+        reading = read_image(img)
+        latency_ms = (time.perf_counter() - start) * 1000.0
+    finally:
+        _RECOGNIZE_SLOTS.release()
+
+    result = reading.recognition if reading else None
+    records = _get_records()
+    token = records.add(
+        contents, img.shape[:2],
+        detector=reading.detector_name if reading else None,
+        status=result.status if result else None,
+        grid=result.grid if result else None,
+        latency_ms=latency_ms,
+        ocr_model=result.metadata["model_version"] if result else None,
+        keep_image=keep_image,
+    ) if records else None
+
     if reading is None:
         return RecognizeResponse(
             success=False,
             message="Could not detect a Sudoku grid in the image.",
+            token=token,
         )
-    result = reading.recognition
-
     message = f"Recognized {result.givens} givens"
     if result.status != SOLVED:
         message += f" ({result.status}: some digits may be misread)"
@@ -187,4 +262,27 @@ async def recognize_sudoku(image: UploadFile = File(...)):
         ocr_engine="cnn",
         ocr_model_version=result.metadata["model_version"],
         ocr_latency_ms=sum(result.timing.values()),
+        solved=result.status == SOLVED,
+        token=token,
     )
+
+
+@router.post("/api/v1/sudoku:feedback", tags=["Sudoku"])
+def sudoku_feedback(request: FeedbackRequest):
+    """Record the uploader's corrected givens for a reading (training data)."""
+    grid = request.grid.cells
+    if not is_valid_grid(grid):
+        raise HTTPException(422, "Invalid Sudoku grid")
+    records = _get_records()
+    if records is None:
+        return {"stored": False}
+    if not records.correct(request.token, grid):
+        raise HTTPException(404, "Unknown reading")
+    return {"stored": True}
+
+
+@router.get("/api/v1/stats", response_model=StatsResponse, tags=["Sudoku"])
+def solve_stats():
+    """Solved / total over distinct uploaded images, by their latest reading."""
+    records = _get_records()
+    return StatsResponse(**records.stats()) if records else StatsResponse(solved=0, total=0, percentage=0.0)

@@ -53,7 +53,7 @@ class RecognizeResponse(BaseModel):
         default=None, description="Base64 encoded detected grid image"
     )
     detector_name: str | None = Field(
-        default=None, description="Grid detector that found the puzzle (e.g. yolo, opencv)"
+        default=None, description="Grid detector that found the puzzle (opencv or corner_cnn)"
     )
     ocr_confidence: float | None = Field(
         default=None, description="Average OCR confidence"
@@ -67,6 +67,25 @@ class RecognizeResponse(BaseModel):
     ocr_latency_ms: float | None = Field(
         default=None, description="OCR stage latency in milliseconds"
     )
+    solved: bool = Field(default=False, description="Whether the givens have exactly one solution")
+    token: str | None = Field(
+        default=None, description="Authorizes a correction of this reading via /api/v1/sudoku:feedback"
+    )
+
+
+class FeedbackRequest(BaseModel):
+    """The uploader's corrected givens for a reading."""
+
+    token: str = Field(description="Token returned by /api/v1/sudoku:recognize")
+    grid: SudokuGrid = Field(description="Corrected givens")
+
+
+class StatsResponse(BaseModel):
+    """Public solve rate over distinct uploaded images."""
+
+    solved: int
+    total: int
+    percentage: float
 
 
 class HealthResponse(BaseModel):
