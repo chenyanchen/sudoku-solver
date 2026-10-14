@@ -123,6 +123,15 @@ class TestHasRegularGridLines:
             cv2.line(img, (x, 0), (x, 449), 0, 2)
         assert not has_regular_grid_lines(img)
 
+    def test_lattice_must_reach_the_edges(self):
+        """A frame warped around the grid: regular lines, but not on the edges."""
+        img = np.ones((450, 450), dtype=np.uint8) * 255
+        for i in range(10):
+            p = 45 + i * 40
+            cv2.line(img, (45, p), (405, p), 0, 2)
+            cv2.line(img, (p, 45), (p, 405), 0, 2)
+        assert not has_regular_grid_lines(img)
+
     def test_blank_image(self):
         """A blank image with no lines should fail."""
         img = np.ones((450, 450), dtype=np.uint8) * 255
