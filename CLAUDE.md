@@ -32,7 +32,7 @@ Release only if the candidate is no worse than the current release on both evals
 
 ## Architecture
 
-- **Detection**: web uses Corner CNN (`backend/cv/corner_cnn_detector.py`) with OpenCV contours (`backend/cv/grid_detector.py`) as fallback; screen monitor uses OpenCV only. Detection runs on a ≤1280px-wide frame; OCR re-warps 450×450 from the full-res frame.
+- **Detection**: web uses OpenCV contours (`backend/cv/grid_detector.py`) with Corner CNN (`backend/cv/corner_cnn_detector.py`) as fallback — Corner CNN's corners are poor (median error 6% of the image); screen monitor uses OpenCV only. Detection runs on a ≤1280px-wide frame; OCR re-warps 450×450 from the full-res frame.
 - **Pipeline** (`backend/ocr/pipeline.py`), the only OCR → solve path, used by every front end:
   - `prepare_grid_for_ocr`: adaptive-threshold binarization, the same as training. Per-source gray/CLAHE variants measured far worse.
   - `ocr_cells`: 1px-margin crops; zooms in when the grid's median digit height is below the training range (small-font screenshots) and lowers the digit threshold for that grid. Training and eval use the same function.
@@ -51,6 +51,7 @@ Release only if the candidate is no worse than the current release on both evals
 
 - `data/labels/sudoku_labels.json`: ground-truth grids. Every label must have exactly one solution (the solver rejected two wrong labels).
 - `data/labels/sudoku_corners.csv`: reviewed grid corners. Required for every training image; never train on predicted crops.
+- `data/testset/`: independent test set (never train or tune on it; see its README). `local/` holds non-redistributable images and is gitignored. Evaluate with `scripts/eval_cnn_ocr.py --labels data/testset/labels.json`.
 - `data/raw/images/`: source screenshots and photos. `data/corner_cnn/`: Corner CNN training data. `data/yolo_grid/`: legacy YOLO keypoint data.
 
 ## Environment Variables
