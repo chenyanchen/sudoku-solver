@@ -68,9 +68,13 @@ def _search(grid: Grid, limit: int, max_nodes: int) -> tuple[list[Grid], bool]:
             found.append([row[:] for row in cells])
             return len(found) >= limit
 
+        # Branch on the most constrained choice: a cell with the fewest
+        # candidates (MRV), or a digit with only one place left in a unit.
         best_i, best_mask, best_n = 0, 0, 10
+        masks = []
         for i, (r, c, b) in enumerate(empties):
             mask = _ALL_DIGITS & ~(rows[r] | cols[c] | boxes[b])
+            masks.append(mask)
             n = mask.bit_count()
             if n < best_n:
                 best_i, best_mask, best_n = i, mask, n
@@ -78,6 +82,26 @@ def _search(grid: Grid, limit: int, max_nodes: int) -> tuple[list[Grid], bool]:
                     break
         if best_n == 0:
             return False
+        if best_n > 1:
+            for unit, used in enumerate((rows, cols, boxes)):
+                groups: dict[int, list[int]] = {}
+                for i, cell in enumerate(empties):
+                    groups.setdefault(cell[unit], []).append(i)
+                for u, members in groups.items():
+                    missing = _ALL_DIGITS & ~used[u]
+                    while missing:
+                        bit = missing & -missing
+                        missing ^= bit
+                        places = [i for i in members if masks[i] & bit]
+                        if not places:
+                            return False
+                        if len(places) == 1:
+                            best_i, best_mask, best_n = places[0], bit, 1
+                            break
+                    if best_n == 1:
+                        break
+                if best_n == 1:
+                    break
 
         cell = empties[best_i]
         r, c, b = cell
