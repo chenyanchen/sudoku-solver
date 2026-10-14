@@ -49,7 +49,7 @@ scp -r deploy <host>:/root/sudoku-deploy && ssh <host> bash /root/sudoku-deploy/
 deploy/deploy.sh <host>                                  # ships the committed HEAD; keeps 3 releases
 ```
 
-The site runs on one 2-core/2 GB VPS: uvicorn (1 worker, 127.0.0.1:8000, systemd `sudoku-solver`) behind Caddy (TLS). `SUDOKU_DATA_DIR=/var/lib/sudoku-solver` holds `records.sqlite3` (every upload's result, corrections) and `images/` (only with the uploader's consent). No access log: the privacy note promises no IPs are stored.
+The site runs on one 2-core/2 GB VPS: uvicorn (1 worker, 127.0.0.1:8000, systemd `sudoku-solver`) behind Caddy (TLS). `SUDOKU_DATA_DIR=/var/lib/sudoku-solver` holds `records.sqlite3` (every upload's result, corrections) and `images/` (every upload, once per SHA-256, 5 GB budget). No access log: the privacy note promises no IPs are stored.
 
 ## Architecture
 
@@ -80,4 +80,4 @@ The site runs on one 2-core/2 GB VPS: uvicorn (1 worker, 127.0.0.1:8000, systemd
 - `CNN_MODEL_PATH`: **required** for the web app (startup fails fast) and tests; the monitors' `--model` defaults to it.
 - `CNN_BLANK_THRESHOLD` (0.65), `CNN_DIGIT_THRESHOLD` (0.55), `CNN_TOPK_CANDIDATES` (4): optional web overrides.
 - `CORNER_CNN_MODEL_PATH`: web Corner CNN (defaults to the release symlink). `CORNER_CNN_MODEL`: ML Backend (required).
-- `SUDOKU_DATA_DIR`: enables upload records, `/api/v1/stats` and consented image storage (unset locally: nothing is written). `SUDOKU_RECOGNIZE_SLOTS` (2) concurrent recognitions, `SUDOKU_RECOGNIZE_PER_MINUTE` (20) uploads per IP.
+- `SUDOKU_DATA_DIR`: enables upload records, `/api/v1/stats` and image storage (unset locally: nothing is written). `SUDOKU_RECOGNIZE_SLOTS` (2) concurrent recognitions, `SUDOKU_RECOGNIZE_PER_MINUTE` (20) uploads per IP.

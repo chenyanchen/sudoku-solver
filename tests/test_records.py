@@ -14,9 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 GRID = [[0] * 9 for _ in range(9)]
 
 
-def _add(records, image, status, keep=False):
+def _add(records, image, status):
     return records.add(image, (10, 20), "opencv" if status else None, status,
-                       GRID if status else None, 1.0, "v", keep)
+                       GRID if status else None, 1.0, "v")
 
 
 def test_stats_count_each_image_by_its_latest_reading(tmp_path):
@@ -40,13 +40,12 @@ def test_a_corrected_reading_is_not_solved(tmp_path):
     assert not records.correct("unknown", fixed)
 
 
-def test_images_are_kept_only_with_consent_and_within_budget(tmp_path):
+def test_images_are_kept_once_per_content_and_within_budget(tmp_path):
     records = Records(tmp_path, max_image_bytes=10)
-    _add(records, b"no consent", "solved")
-    assert list(records.images_dir.iterdir()) == []
-    _add(records, b"\xff\xd8\xffyes", "solved", keep=True)
+    _add(records, b"\xff\xd8\xffyes", "solved")
+    _add(records, b"\xff\xd8\xffyes", None)  # the same image again
     assert [p.suffix for p in records.images_dir.iterdir()] == [".jpg"]
-    _add(records, b"\x89PNG" + b"x" * 20, "solved", keep=True)  # over budget
+    _add(records, b"\x89PNG" + b"x" * 20, "solved")  # over budget
     assert len(list(records.images_dir.iterdir())) == 1
 
 
@@ -59,14 +58,13 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
-def _upload(client, name="IMG_8695.jpg", keep=False):
+def _upload(client, name="IMG_8695.jpg"):
     data = (ROOT / "data/raw/images" / name).read_bytes()
-    return client.post("/api/v1/sudoku:recognize", files={"image": (name, data, "image/jpeg")},
-                       data={"keep_image": str(keep).lower()})
+    return client.post("/api/v1/sudoku:recognize", files={"image": (name, data, "image/jpeg")})
 
 
 def test_upload_is_recorded_and_feedback_counts(client, tmp_path):
-    body = _upload(client, keep=True).json()
+    body = _upload(client).json()
     assert body["solved"] and body["token"]
     assert client.get("/api/v1/stats").json() == {"solved": 1, "total": 1, "percentage": 100.0}
     assert len(list((tmp_path / "images").iterdir())) == 1
