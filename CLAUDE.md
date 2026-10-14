@@ -42,6 +42,15 @@ MLFLOW_TRACKING_URI="file://$PWD/mlruns" uv run --extra ml python scripts/releas
 
 Release only if the candidate is no worse than the current release on both evals and `pytest` passes; the validation score saturates at 1.0 and is not a release signal. Training and release refuse uncommitted changes (`--allow-dirty` records the diff), so the sidecar's commit reproduces the model; the sidecar also records data hashes, params, the val split and gate results, so it stands alone without `mlruns/`. Training version: MAJOR = architecture, MINOR = data/hyperparameters. Release version: `YYYYMMDD.N`; `models/releases/sudoku_digit_cnn.onnx` is a symlink to the current release, with a `.meta.json` sidecar (version, class order).
 
+### Deploy (public site)
+
+```bash
+scp -r deploy <host>:/root/sudoku-deploy && ssh <host> bash /root/sudoku-deploy/setup-server.sh [domain]   # once; the domain enables Caddy/TLS
+deploy/deploy.sh <host>                                  # ships the committed HEAD; keeps 3 releases
+```
+
+The site runs on one 2-core/2 GB VPS: uvicorn (1 worker, 127.0.0.1:8000, systemd `sudoku-solver`) behind Caddy (TLS). `SUDOKU_DATA_DIR=/var/lib/sudoku-solver` holds `records.sqlite3` (every upload's result, corrections) and `images/` (only with the uploader's consent). No access log: the privacy note promises no IPs are stored.
+
 ## Architecture
 
 - **Detection**: web (`routes.read_image`) reads the grid from OpenCV contours (`backend/cv/grid_detector.py`) and, when that grid does not solve uniquely, from Corner CNN's corners (`backend/cv/corner_cnn_detector.py`; heatmap + soft-argmax, median corner error 1% on the test set). Each solves images the other cannot (glare over the lines, a plastic sleeve / grids Corner CNN mislocates). The unique solution is the acceptance test, so the Corner CNN retry skips the regularity check, which rejects good corners on photos with moiré. Corner CNN also pre-annotates corners in the ML Backend; the screen monitor uses OpenCV only. OpenCV's fixed-pixel thresholds suit no single scale (12MP photos of screens pick up moiré; some paper photos lose lines when downscaled; in images narrower than ~1000px the opening erases 1px lines), so web tries full res then a 1280px-wide copy (down- or upscaled) and takes the first warp with regular grid lines (`has_regular_grid_lines`: lines at the warp's 10 equally spaced positions per axis, so a frame around the grid fails); the screen monitor detects at ≤1280px only. A quad without regular lines is usually a decorative frame or a single 3×3 box (when the grid outline merges with its surroundings); `snap_to_lattice` fits the 9×9 line lattice around it. OCR always re-warps 450×450 from the full-res frame.
@@ -71,3 +80,4 @@ Release only if the candidate is no worse than the current release on both evals
 - `CNN_MODEL_PATH`: **required** for the web app (startup fails fast) and tests; the monitors' `--model` defaults to it.
 - `CNN_BLANK_THRESHOLD` (0.65), `CNN_DIGIT_THRESHOLD` (0.55), `CNN_TOPK_CANDIDATES` (4): optional web overrides.
 - `CORNER_CNN_MODEL_PATH`: web Corner CNN (defaults to the release symlink). `CORNER_CNN_MODEL`: ML Backend (required).
+- `SUDOKU_DATA_DIR`: enables upload records, `/api/v1/stats` and consented image storage (unset locally: nothing is written). `SUDOKU_RECOGNIZE_SLOTS` (2) concurrent recognitions, `SUDOKU_RECOGNIZE_PER_MINUTE` (20) uploads per IP.
