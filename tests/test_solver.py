@@ -182,7 +182,7 @@ def test_solve_endpoint_reports_multiple_solutions():
         ).json()
     assert body["success"] is False
     assert body["message"] == "Puzzle has multiple solutions"
-    assert body["partial"] is None  # too many solutions to list
+    assert body["solved"] is None  # too many solutions to list
 
 
 # An uploaded puzzle with two solutions: 1 and 2 swap in r8-9 c6/c8.
@@ -193,19 +193,20 @@ AMBIGUOUS = [
 ]
 
 
-def test_common_cells_keeps_what_every_solution_shares():
-    shared, count = SudokuSolver().common_cells(AMBIGUOUS)
-    assert count == 2
-    assert {(r, c) for r in range(9) for c in range(9) if shared[r][c] == 0} == {(7, 5), (7, 7), (8, 5), (8, 7)}
-    assert all(shared[r][c] == AMBIGUOUS[r][c] for r in range(9) for c in range(9) if AMBIGUOUS[r][c])
-    assert SudokuSolver().common_cells([[0] * 9 for _ in range(9)]) is None
+def test_all_solutions_lists_every_solution_up_to_a_cap():
+    solutions = SudokuSolver().all_solutions(AMBIGUOUS)
+    assert len(solutions) == 2 and solutions[0] != solutions[1]
+    assert SudokuSolver().all_solutions([[0] * 9 for _ in range(9)]) is None
 
 
-def test_solve_endpoint_returns_shared_cells_of_an_ambiguous_puzzle():
+def test_solve_endpoint_shows_one_solution_of_an_ambiguous_puzzle():
     from fastapi.testclient import TestClient
     from backend.main import app
 
     with TestClient(app) as client:
         body = client.post("/api/v1/sudoku:solve", json={"grid": {"cells": AMBIGUOUS}}).json()
     assert body["status"] == "multiple_solutions" and body["solution_count"] == 2
-    assert sum(v == 0 for row in body["partial"] for v in row) == 4
+    solved = body["solved"]
+    assert all(v for row in solved for v in row) and is_valid_grid(solved)
+    assert all(solved[r][c] == AMBIGUOUS[r][c] for r in range(9) for c in range(9) if AMBIGUOUS[r][c])
+    assert sorted(body["differing_cells"]) == [[7, 5], [7, 7], [8, 5], [8, 7]]

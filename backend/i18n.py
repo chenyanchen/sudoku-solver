@@ -122,8 +122,8 @@ JS_TEXT: dict[str, dict[str, str]] = {
         "digitsOnly": "Cells accept only digits 1–9 (leave blank for empty).",
         "noSolution": "These digits have no solution. Check them against your image.",
         "multipleSolutions": "These digits have more than one solution. Check for a missed digit.",
-        "partial": "These digits have {count} solutions. The filled cells are the same in all of them; "
-        "the {open} highlighted cells differ. Check for a missed digit, or the puzzle itself is ambiguous.",
+        "partial": "These digits have {count} solutions; here is one. The {open} highlighted cells can take "
+        "other digits in the other solutions. If your puzzle has a single answer, check for a missed digit.",
         "invalid": "Some digits repeat in a row, column or box. Check them against your image.",
         "network": "Could not reach the server: {error}",
         "cell": "Row {row}, column {col}",
@@ -141,8 +141,8 @@ JS_TEXT: dict[str, dict[str, str]] = {
         "digitsOnly": "格子只能填 1–9（空格留空）。",
         "noSolution": "这些数字无解，请对照原图检查。",
         "multipleSolutions": "这些数字有多个解，请检查是否漏了数字。",
-        "partial": "这些数字有 {count} 个解。已填的格子在所有解里都一样；"
-        "标出的 {open} 个格子在不同解里不同。请检查是否漏了数字，也可能题目本身就不唯一。",
+        "partial": "这些数字有 {count} 个解，下面是其中一个。标黄的 {open} 个格子在其他解里可以填别的数字。"
+        "如果你的题目应该只有一个答案，请检查是否漏了数字。",
         "invalid": "有数字在同一行、列或宫里重复了，请对照原图检查。",
         "network": "无法连接服务器：{error}",
         "cell": "第 {row} 行，第 {col} 列",
