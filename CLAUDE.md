@@ -70,7 +70,7 @@ The site runs on one 2-core/2 GB VPS: uvicorn (1 worker, 127.0.0.1:8000, systemd
 
 ## Data
 
-- `data/labels/sudoku_labels.json`: ground-truth grids. Every label must have exactly one solution (the solver rejected two wrong labels).
+- `data/labels/sudoku_labels.json`: ground-truth grids, the digits as printed. Every label must have at least one solution: zero means a transcription error (the solver caught two). Several solutions are allowed when the puzzle itself is ambiguous; check such a label against the image, since a missed digit causes them too.
 - `data/labels/sudoku_corners.csv`: reviewed grid corners. Required for every training image; never train on predicted crops.
 - `data/testset/`: independent test set (never train or tune on it; see its README), with reviewed `corners.csv`. `local/` holds non-redistributable images and is gitignored. Evaluate with `scripts/eval_cnn_ocr.py --labels data/testset/labels.json` and `scripts/eval_corner_cnn.py --model <onnx>`.
 - `data/raw/images/`: training screenshots and photos; non-redistributable ones are in gitignored `local/` (labels keyed `local/<name>`). OCR and Corner CNN training both read these with `sudoku_corners.csv`; the ML Backend's `/fit` writes corners there. `data/yolo_grid/`: legacy YOLO keypoint data.
