@@ -83,6 +83,9 @@ def apply_augmentations(image: np.ndarray) -> np.ndarray:
     """Apply lightweight CV augmentations for robustness."""
     out = image.copy()
 
+    if random.random() < 0.1:
+        out = draw_highlight_ring(out)
+
     if random.random() < 0.35:
         alpha = random.uniform(0.85, 1.2)  # contrast
         beta = random.uniform(-18, 18)  # brightness
@@ -104,6 +107,19 @@ def apply_augmentations(image: np.ndarray) -> np.ndarray:
         noise = np.random.normal(0, 6, out.shape).astype(np.int16)
         out = np.clip(out.astype(np.int16) + noise, 0, 255).astype(np.uint8)
 
+    return out
+
+
+def draw_highlight_ring(image: np.ndarray) -> np.ndarray:
+    """Circle the cell like a game's highlight of the selected digit.
+
+    Such rings survive binarization and made a circled 1 read as 9 or 6.
+    """
+    size = image.shape[0]
+    center = (round(size / 2 + random.uniform(-2, 2)), round(size / 2 + random.uniform(-2, 2)))
+    radius = round(size * random.uniform(0.38, 0.49))
+    out = image.copy()
+    cv2.circle(out, center, radius, random.randint(0, 60), random.randint(2, 4), cv2.LINE_AA)
     return out
 
 
