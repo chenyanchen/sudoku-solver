@@ -4,10 +4,10 @@ A universal Sudoku solver — from web uploads to real-time screen overlays, wit
 
 ## Photo baseline
 
-Release `20261013.1` passes all 14 ordinary-photo regressions (`IMG_8695`–`IMG_8708`): exact recognition of all 81 cells and the correct solution through the Web API. These are known photographed-screen samples, not an independent generalization benchmark. Decorative borders (247sudoku's bamboo frame, `IMG_8709`–`IMG_8711`, `sudoku_21`) are handled by snapping to the grid-line lattice; `IMG_8712`, with glare over the grid, is read from Corner CNN's corners when OpenCV's grid does not solve.
+Release `20261015.2` reads all 62 labeled images exactly after decode (the release gate) and all 15 images of the independent test set. The labeled images are training data, not a generalization benchmark; the test set is. Decorative borders (247sudoku's bamboo frame, `IMG_8709`–`IMG_8711`, `sudoku_21`) are handled by snapping to the grid-line lattice; `IMG_8712`, with glare over the grid, is read from Corner CNN's corners when OpenCV's grid does not solve.
 
 ```bash
-CNN_MODEL_PATH=models/releases/sudoku_digit_cnn_20261013.1.onnx \
+CNN_MODEL_PATH=models/releases/sudoku_digit_cnn.onnx \
   uv run uvicorn backend.main:app --reload
 ```
 

@@ -81,7 +81,8 @@ def test_cnn_release_checks_photos_before_changing_canonical(tmp_path, monkeypat
             artifact.write_bytes(b"new")
             artifact.with_suffix(".meta.json").write_text(json.dumps({"class_values": list(range(10)), "input_size": 48}))
         else:
-            assert "--strict" in command
+            assert "--strict" in command and "--image-pattern" not in command  # every label
+            assert kwargs["env"]["CNN_MODEL_PATH"] == str(artifact)
             assert canonical.resolve() == old
             if not gate_passes:
                 raise subprocess.CalledProcessError(1, command)
@@ -110,3 +111,4 @@ def test_cnn_release_checks_photos_before_changing_canonical(tmp_path, monkeypat
         assert metadata["val_images"] == ["b.jpg"]
         assert metadata["release_git_commit"] == "d00d"
         assert metadata["release_gate"]["pipeline_exact"] == 16
+        assert metadata["release_gate"]["labels"] == "data/labels/sudoku_labels.json"

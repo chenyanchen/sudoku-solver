@@ -35,12 +35,12 @@ Pick between candidates on training/val error (`eval_corner_cnn.py --labels data
 ```bash
 MLFLOW_TRACKING_URI="file://$PWD/mlruns" uv run --extra ml python scripts/train_cnn_ocr.py --version <MAJOR.MINOR.PATCH> --epochs 60 --patience 20
 uv run --extra ml python scripts/export_cnn_onnx.py --checkpoint <run .pt> --output <scratch>.onnx
-uv run python scripts/eval_cnn_ocr.py --cnn-model <candidate.onnx> --strict --image-pattern 'IMG_86*.jpg' 'IMG_870[0-8].jpg'
-uv run python scripts/eval_cnn_ocr.py --cnn-model <candidate.onnx>      # all labeled images
+CNN_MODEL_PATH=<candidate.onnx> uv run python scripts/eval_cnn_ocr.py --cnn-model <candidate.onnx> --strict   # release gate: every labeled image
+CNN_MODEL_PATH=<candidate.onnx> uv run python scripts/eval_cnn_ocr.py --cnn-model <candidate.onnx> --labels data/testset/labels.json   # report only
 MLFLOW_TRACKING_URI="file://$PWD/mlruns" uv run --extra ml python scripts/release_model.py cnn --run-id <id> --version <YYYYMMDD.N>
 ```
 
-Release only if the candidate is no worse than the current release on both evals and `pytest` passes; the validation score saturates at 1.0 and is not a release signal. Seeds alone swing results (the same architecture scored 59–61/61), so compare architectures over 3 seeds each. Training uses MPS when available (separable convs train ~50× slower on CPU); the device changes results, so compare runs on one device. Training and release refuse uncommitted changes (`--allow-dirty` records the diff), so the sidecar's commit reproduces the model; the sidecar also records data hashes, params, the val split and gate results, so it stands alone without `mlruns/`. Training version: MAJOR = architecture, MINOR = data/hyperparameters. Release version: `YYYYMMDD.N`; `models/releases/sudoku_digit_cnn.onnx` is a symlink to the current release, with a `.meta.json` sidecar (version, class order).
+The release gate is every labeled image read exactly after decode (`release_model.py` runs it and refuses a candidate that fails, or whose labeled image is missing), so an image added to the labels is protected from then on. The test set is reported, never gated on: deciding releases on it would tune the model to it. Release only if the candidate passes the gate, its raw (pre-decode) errors are no worse than the current release's, and `pytest` passes; the validation score saturates at 1.0 and is not a release signal. Seeds alone swing results (the same architecture scored 59–61/61), so compare architectures over 3 seeds each. Training uses MPS when available (separable convs train ~50× slower on CPU); the device changes results, so compare runs on one device. Training and release refuse uncommitted changes (`--allow-dirty` records the diff), so the sidecar's commit reproduces the model; the sidecar also records data hashes, params, the val split and gate results, so it stands alone without `mlruns/`. Training version: MAJOR = architecture, MINOR = data/hyperparameters. Release version: `YYYYMMDD.N`; `models/releases/sudoku_digit_cnn.onnx` is a symlink to the current release, with a `.meta.json` sidecar (version, class order).
 
 ### Deploy (public site)
 
