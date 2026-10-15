@@ -5,7 +5,7 @@ import pytest
 
 from backend.api import routes
 from backend.cv.detector import DetectionResult
-from backend.ocr.pipeline import AMBIGUOUS, SOLVED, Recognition
+from backend.ocr.pipeline import AMBIGUOUS, UNIQUE, Recognition
 
 QUAD = np.float32([[10, 10], [90, 10], [90, 90], [10, 90]])
 IMAGE = np.full((100, 100, 3), 255, np.uint8)
@@ -41,13 +41,13 @@ def setup(monkeypatch):
 
 
 def test_solved_by_opencv_skips_corner_cnn(setup):
-    setup(True, [SOLVED])
+    setup(True, [UNIQUE])
     assert routes.read_image(IMAGE).detector_name == "opencv"
     assert CornerCnn.calls == 0
 
 
 def test_unsolved_opencv_grid_is_retried_with_corner_cnn(setup):
-    setup(True, [AMBIGUOUS, SOLVED])
+    setup(True, [AMBIGUOUS, UNIQUE])
     assert routes.read_image(IMAGE).detector_name == "corner_cnn"
 
 

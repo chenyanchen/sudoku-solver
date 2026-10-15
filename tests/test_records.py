@@ -22,16 +22,23 @@ def _add(records, image, status):
 def test_stats_count_each_image_by_its_latest_reading(tmp_path):
     records = Records(tmp_path)
     _add(records, b"a", "unsolvable")
-    _add(records, b"a", "solved")     # re-uploaded after a model release
+    _add(records, b"a", "unique")     # re-uploaded after a model release
     _add(records, b"b", None)         # no grid found
     _add(records, b"c", "ambiguous")  # several solutions: one is shown
     _add(records, b"d", "unsolvable")
     assert records.stats() == {"solved": 2, "total": 4, "percentage": 50.0}
 
 
+
+def test_readings_stored_as_solved_become_unique(tmp_path):
+    _add(Records(tmp_path), b"a", "solved")  # status name before 2026-10-15
+    records = Records(tmp_path)
+    assert records._db.execute("SELECT status FROM readings").fetchall() == [("unique",)]
+    assert records.stats()["solved"] == 1
+
 def test_a_corrected_reading_is_not_solved(tmp_path):
     records = Records(tmp_path)
-    token = _add(records, b"a", "solved")
+    token = _add(records, b"a", "unique")
     assert records.correct(token, GRID)  # confirmed unchanged
     assert records.stats()["solved"] == 1
     fixed = [row[:] for row in GRID]
@@ -43,10 +50,10 @@ def test_a_corrected_reading_is_not_solved(tmp_path):
 
 def test_images_are_kept_once_per_content_and_within_budget(tmp_path):
     records = Records(tmp_path, max_image_bytes=10)
-    _add(records, b"\xff\xd8\xffyes", "solved")
+    _add(records, b"\xff\xd8\xffyes", "unique")
     _add(records, b"\xff\xd8\xffyes", None)  # the same image again
     assert [p.suffix for p in records.images_dir.iterdir()] == [".jpg"]
-    _add(records, b"\x89PNG" + b"x" * 20, "solved")  # over budget
+    _add(records, b"\x89PNG" + b"x" * 20, "unique")  # over budget
     assert len(list(records.images_dir.iterdir())) == 1
 
 
@@ -66,7 +73,7 @@ def _upload(client, name="IMG_8695.jpg"):
 
 def test_upload_is_recorded_and_feedback_counts(client, tmp_path):
     body = _upload(client).json()
-    assert body["solved"] and body["token"]
+    assert body["unique"] and body["token"]
     assert client.get("/api/v1/stats").json() == {"solved": 1, "total": 1, "percentage": 100.0}
     assert len(list((tmp_path / "images").iterdir())) == 1
 

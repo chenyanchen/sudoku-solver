@@ -19,7 +19,7 @@ from ..cv.cell_extractor import extract_cells
 from ..solver.backtracking import Grid, SudokuSolver, is_valid_placement
 from .cnn_digit_reader import CnnDigitReader
 
-SOLVED, AMBIGUOUS, UNSOLVABLE = "solved", "ambiguous", "unsolvable"
+UNIQUE, AMBIGUOUS, UNSOLVABLE = "unique", "ambiguous", "unsolvable"
 
 _CELL = 48  # cell side after the default 1px margin
 # Median digit height / cell side is 0.48–0.69 across the training grids;
@@ -140,7 +140,7 @@ def decode(
     solver = SudokuSolver()
     solution, count = solver.solve_unique(grid)
     if count == 1:
-        return Recognition(grid, solution, SOLVED, metadata)
+        return Recognition(grid, solution, UNIQUE, metadata)
 
     # Ambiguous → a given was missed; unsolvable → a given was misread.
     fill_blanks = count > 1
@@ -175,7 +175,7 @@ def decode(
                     {"row": idx // 9, "col": idx % 9, "from": grid[idx // 9][idx % 9], "to": value}
                     for idx, value in zip(cells, values)
                 ]
-                found = Recognition(candidate, solution, SOLVED, metadata, corrections)
+                found = Recognition(candidate, solution, UNIQUE, metadata, corrections)
         if found is not None:
             return found
 
