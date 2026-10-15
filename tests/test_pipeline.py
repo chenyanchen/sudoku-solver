@@ -1,6 +1,6 @@
 """Tests for OCR decoding: only a puzzle with a unique solution is trusted."""
 
-from backend.ocr.pipeline import AMBIGUOUS, SOLVED, UNSOLVABLE, decode
+from backend.ocr.pipeline import AMBIGUOUS, UNIQUE, UNSOLVABLE, decode
 from backend.solver.backtracking import SudokuSolver
 
 PUZZLE = [
@@ -35,7 +35,7 @@ def _with(grid, row, col, value):
 
 def test_unique_puzzle_is_solved_without_edits():
     result = decode(PUZZLE, _metadata(PUZZLE))
-    assert result.status == SOLVED
+    assert result.status == UNIQUE
     assert result.solution == SudokuSolver().solve(PUZZLE)
     assert result.corrections == []
 
@@ -47,7 +47,7 @@ def test_conflicting_misread_is_replaced_by_candidate():
 
     result = decode(grid, meta)
 
-    assert result.status == SOLVED
+    assert result.status == UNIQUE
     assert result.grid == PUZZLE
     assert result.corrections == [{"row": 0, "col": 0, "from": 8, "to": 6}]
 
@@ -75,7 +75,7 @@ def test_missed_given_is_restored_from_blank_candidate():
 
     result = decode(grid, meta)
 
-    assert result.status == SOLVED
+    assert result.status == UNIQUE
     assert result.grid == PUZZLE
 
 
@@ -157,5 +157,5 @@ def test_inked_blanks_are_filled_beyond_the_edit_budget():
 
     result = decode(grid, meta)
 
-    assert result.status == SOLVED
+    assert result.status == UNIQUE
     assert result.grid == PUZZLE

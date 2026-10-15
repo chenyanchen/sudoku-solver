@@ -28,7 +28,7 @@ from ..models.schemas import (
     StatsResponse,
 )
 from ..ocr.cnn_digit_reader import CnnDigitReader
-from ..ocr.pipeline import SOLVED, UNSOLVABLE, Recognition, recognize
+from ..ocr.pipeline import UNIQUE, UNSOLVABLE, Recognition, recognize
 from ..records import Records
 from ..solver.backtracking import SudokuSolver, is_valid_grid
 
@@ -120,14 +120,14 @@ def read_image(image: np.ndarray) -> GridReading | None:
     detection = _OPENCV.detect(image)
     if detection is not None:
         found = read(detection.corners, detection.detector_name)
-        if found.recognition.status == SOLVED:
+        if found.recognition.status == UNIQUE:
             return found
 
     corner_cnn = _get_corner_cnn()
     corners = corner_cnn.predict(image) if corner_cnn else None
     if corners is not None:
         second = read(corners, "corner_cnn")
-        if second.recognition.status == SOLVED:
+        if second.recognition.status == UNIQUE:
             return second
         if found is None and has_regular_grid_lines(cv2.cvtColor(second.warped, cv2.COLOR_BGR2GRAY)):
             found = second
@@ -264,7 +264,7 @@ def recognize_sudoku(
         ocr_engine="cnn",
         ocr_model_version=result.metadata["model_version"],
         ocr_latency_ms=sum(result.timing.values()),
-        solved=result.status == SOLVED,
+        unique=result.status == UNIQUE,
         status=result.status,
         token=token,
     )

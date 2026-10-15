@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS readings (
     width INTEGER,
     height INTEGER,
     detector TEXT,             -- NULL: no grid found
-    status TEXT,               -- solved / ambiguous / unsolvable; NULL: no grid found
+    status TEXT,               -- unique / ambiguous / unsolvable; NULL: no grid found
     grid TEXT,                 -- recognized givens, JSON
     latency_ms REAL NOT NULL,
     ocr_model TEXT,
@@ -65,6 +65,9 @@ class Records:
         self._image_bytes = sum(p.stat().st_size for p in self.images_dir.iterdir())
         self._db = sqlite3.connect(data_dir / "records.sqlite3", check_same_thread=False)
         self._db.executescript(_SCHEMA)
+        # Readings before 2026-10-15 called a unique reading 'solved'.
+        self._db.execute("UPDATE readings SET status = 'unique' WHERE status = 'solved'")
+        self._db.commit()
         self._lock = threading.Lock()
 
     def add(
@@ -119,7 +122,7 @@ class Records:
             total, solved = self._db.execute(
                 """
                 SELECT COUNT(*), COALESCE(SUM(
-                    r.status IN ('solved', 'ambiguous') AND NOT EXISTS (
+                    r.status IN ('unique', 'ambiguous') AND NOT EXISTS (
                         SELECT 1 FROM corrections c WHERE c.reading_id = r.id AND c.grid != r.grid
                     )
                 ), 0)

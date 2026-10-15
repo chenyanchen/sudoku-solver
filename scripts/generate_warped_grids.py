@@ -88,24 +88,24 @@ def main() -> int:
         grid = result.grid
         givens = result.givens
         avg_conf = result.metadata.get("average_confidence")
-        solved = result.solution is not None
+        unique = result.solution is not None
 
-        # Priority score: 0.0 (needs review) → 1.0 (confident + solvable).
-        # Unsolvable → 0.0; solvable → scale by OCR confidence.
-        priority_score = round(float(avg_conf or 0) if solved else 0.0, 4)
+        # Priority score: 0.0 (needs review) → 1.0 (confident + unique reading).
+        # Not unique → 0.0; unique → scale by OCR confidence.
+        priority_score = round(float(avg_conf or 0) if unique else 0.0, 4)
 
         ocr_data = {
             "grid": grid,
             "givens": givens,
             "confidence": avg_conf,
-            "solved": solved,
+            "unique": unique,
             "priority_score": priority_score,
         }
         (args.dst / f"{stem}_ocr.json").write_text(
             json.dumps(ocr_data, indent=2) + "\n"
         )
 
-        tag = "SOLVED" if solved else "FAILED"
+        tag = "UNIQUE" if unique else "FAILED"
         manifest[warped_name] = img_path.name
         print(f"  {tag:6s} {img_path.name:35s} conf={conf:.3f} givens={givens} score={priority_score}")
         success += 1

@@ -68,11 +68,11 @@ class RecognizeResponse(BaseModel):
     ocr_latency_ms: float | None = Field(
         default=None, description="OCR stage latency in milliseconds"
     )
-    solved: bool = Field(
-        default=False, description="Whether the givens have exactly one solution (OCR's confidence check)"
+    unique: bool = Field(
+        default=False, description="Whether the givens have exactly one solution: evidence they were read right"
     )
     status: str | None = Field(
-        default=None, description="solved, ambiguous (several solutions) or unsolvable"
+        default=None, description="unique, ambiguous (several solutions) or unsolvable"
     )
     token: str | None = Field(
         default=None, description="Authorizes a correction of this reading via /api/v1/sudoku:feedback"
