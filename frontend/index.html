@@ -16,7 +16,7 @@
     <meta property="og:locale" content="{{og_locale}}">
     <meta name="twitter:card" content="summary">
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v={{asset_version}}">
     <script type="application/ld+json">{{json_ld}}</script>
 </head>
 <body>
@@ -102,6 +102,6 @@
     </div>
 
     <script>window.I18N = {{js_strings}};</script>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v={{asset_version}}"></script>
 </body>
 </html>
