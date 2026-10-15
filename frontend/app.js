@@ -126,7 +126,8 @@ class SudokuSolver {
             this.displayGrid(null, 'solvedGrid');
             this.resultsSection.style.display = 'block';
 
-            if (recData.solved) {
+            // Ambiguous givens still get the cells all their solutions share.
+            if (recData.solved || recData.status === 'ambiguous') {
                 await this.solve(recData.grid, t('solved'));
             } else {
                 this.showMessage(t('misread'), 'warning');
@@ -166,6 +167,10 @@ class SudokuSolver {
         if (data.success && data.solved) {
             this.showMessage(successMessage, 'success');
             this.displayGrid(data.solved, 'solvedGrid', grid);
+        } else if (data.partial) {
+            const open = data.partial.flat().filter((v) => v === 0).length;
+            this.showMessage(t('partial', { count: data.solution_count, open }), 'warning');
+            this.displayGrid(data.partial, 'solvedGrid', grid, true);
         } else {
             const reason = { no_solution: 'noSolution', multiple_solutions: 'multipleSolutions', invalid: 'invalid' };
             this.showMessage(t(reason[data.status] || 'noSolution'), 'warning');
@@ -215,7 +220,8 @@ class SudokuSolver {
         return grid;
     }
 
-    displayGrid(gridData, elementId, givens = null) {
+    // `partial`: blank cells are those where the puzzle's solutions differ.
+    displayGrid(gridData, elementId, givens = null, partial = false) {
         const container = document.getElementById(elementId);
         container.innerHTML = '';
         for (let row = 0; row < 9; row++) {
@@ -226,6 +232,8 @@ class SudokuSolver {
                 if (value !== 0) {
                     cell.textContent = value;
                     cell.classList.add(givens && givens[row][col] ? 'given' : 'solved');
+                } else if (partial) {
+                    cell.classList.add('open');
                 }
                 container.appendChild(cell);
             }
