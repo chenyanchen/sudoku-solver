@@ -296,7 +296,10 @@ def main() -> int:
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # MPS trains the separable tiny nets ~50x faster than CPU (depthwise backward is slow there).
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    )
 
     samples = build_samples(
         args.labels, args.input_size,
@@ -353,6 +356,7 @@ def main() -> int:
             "early_stopping_patience": args.patience,
             "val_ratio": args.val_ratio,
             "seed": args.seed,
+            "device": device.type,
             "input_size": args.input_size,
             "optimizer": "AdamW",
             "scheduler": "CosineAnnealingLR",
