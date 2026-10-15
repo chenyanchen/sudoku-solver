@@ -6,7 +6,11 @@ import cv2
 import numpy as np
 import pytest
 
-from scripts.train_cnn_ocr import CellSample, build_samples, grouped_split
+from backend.solver.backtracking import SudokuSolver, is_valid_grid
+from scripts._paths import DEFAULT_CORNERS, load_corner_labels
+from scripts.train_cnn_ocr import REPO_ROOT, CellSample, build_samples, grouped_split
+
+LABELS = json.loads((REPO_ROOT / "data" / "labels" / "sudoku_labels.json").read_text())
 
 
 def test_training_uses_labeled_corners_and_keeps_puzzles_together(tmp_path):
@@ -33,3 +37,12 @@ def test_training_uses_labeled_corners_and_keeps_puzzles_together(tmp_path):
     corners.write_text("image,x_tl,y_tl,x_tr,y_tr,x_br,y_br,x_bl,y_bl\n")
     with pytest.raises(ValueError, match="Missing ground-truth corners"):
         build_samples(labels, 48, corners_path=corners)
+
+
+def test_labels_are_solvable_puzzles_with_reviewed_corners():
+    corners = load_corner_labels(DEFAULT_CORNERS)
+    for name, grid in LABELS.items():
+        assert is_valid_grid(grid), name
+        # 0 solutions means a transcription error; >1 is allowed (an ambiguous puzzle).
+        assert SudokuSolver().count_solutions(grid) >= 1, name
+        assert name.rsplit("/", 1)[-1] in corners, name
