@@ -429,7 +429,7 @@ def _detection_frames(frame_bgra: np.ndarray) -> tuple[np.ndarray, np.ndarray, f
 
 
 def _payload(result: Recognition, min_givens: int) -> Optional[dict[str, Any]]:
-    """Overlay payload for a uniquely solved grid, else None."""
+    """Overlay payload for a unique reading, else None."""
     if result.solution is None or result.givens < min_givens or not result.hints:
         return None
     return {
