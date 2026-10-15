@@ -133,6 +133,8 @@ def decode(
     Tries every combination of up to `max_changes` edits among the `max_cells`
     most doubtful cells, fewest edits first. Cells that are surely not blank
     start with their top candidate, so only a misread among them costs an edit.
+    A correction is trusted only when no other with as few edits leads to a
+    different solution: then the CNN cannot tell which givens were misread.
     """
     grid, metadata = _fill_inked_blanks(grid, metadata)
     solver = SudokuSolver()
@@ -150,6 +152,7 @@ def decode(
     options = _edit_options(grid, predictions, fill_blanks, min_prob)
     doubtful = sorted(options, key=lambda idx: -options[idx][0])[:max_cells]
 
+    found: Recognition | None = None
     for k in range(1, max_changes + 1):
         for cells in itertools.combinations(doubtful, k):
             for values in itertools.product(*(options[idx][1] for idx in cells)):
@@ -162,12 +165,19 @@ def decode(
                 ):
                     continue
                 solution, count = solver.solve_unique(candidate)
-                if count == 1:
-                    corrections = [
-                        {"row": idx // 9, "col": idx % 9, "from": grid[idx // 9][idx % 9], "to": value}
-                        for idx, value in zip(cells, values)
-                    ]
-                    return Recognition(candidate, solution, SOLVED, metadata, corrections)
+                if count != 1:
+                    continue
+                if found is not None:
+                    if solution != found.solution:
+                        return Recognition(grid, None, AMBIGUOUS if fill_blanks else UNSOLVABLE, metadata)
+                    continue
+                corrections = [
+                    {"row": idx // 9, "col": idx % 9, "from": grid[idx // 9][idx % 9], "to": value}
+                    for idx, value in zip(cells, values)
+                ]
+                found = Recognition(candidate, solution, SOLVED, metadata, corrections)
+        if found is not None:
+            return found
 
     return Recognition(grid, None, AMBIGUOUS if fill_blanks else UNSOLVABLE, metadata)
 
