@@ -40,6 +40,12 @@ class SolveResponse(BaseModel):
     solved: list[list[int]] | None = Field(description="Solved grid (if successful)")
     message: str = Field(description="Status message")
     status: str = Field(description="solved, no_solution, multiple_solutions or invalid")
+    partial: list[list[int]] | None = Field(
+        default=None,
+        description="multiple_solutions only: the cells every solution shares (0 where they differ), "
+        "when there are at most 100 solutions",
+    )
+    solution_count: int | None = Field(default=None, description="Number of solutions, with `partial`")
 
 
 class RecognizeResponse(BaseModel):
@@ -69,6 +75,9 @@ class RecognizeResponse(BaseModel):
         default=None, description="OCR stage latency in milliseconds"
     )
     solved: bool = Field(default=False, description="Whether the givens have exactly one solution")
+    status: str | None = Field(
+        default=None, description="solved, ambiguous (several solutions) or unsolvable"
+    )
     token: str | None = Field(
         default=None, description="Authorizes a correction of this reading via /api/v1/sudoku:feedback"
     )

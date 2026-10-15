@@ -163,7 +163,7 @@ async def health_check():
 
 
 @router.post("/api/v1/sudoku:solve", response_model=SolveResponse, tags=["Sudoku"])
-async def solve_sudoku(request: SolveRequest):
+def solve_sudoku(request: SolveRequest):
     """
     Solve a Sudoku puzzle from a JSON grid.
 
@@ -182,13 +182,20 @@ async def solve_sudoku(request: SolveRequest):
             status="invalid",
         )
 
-    solved, solution_count = SudokuSolver().solve_unique(grid)
+    solver = SudokuSolver()
+    solved, solution_count = solver.solve_unique(grid)
     if solved is None:
         if solution_count == 0:
-            message, status = "Puzzle has no solution", "no_solution"
-        else:
-            message, status = "Puzzle has multiple solutions", "multiple_solutions"
-        return SolveResponse(success=False, original=grid, solved=None, message=message, status=status)
+            return SolveResponse(
+                success=False, original=grid, solved=None, message="Puzzle has no solution",
+                status="no_solution",
+            )
+        common = solver.common_cells(grid)
+        return SolveResponse(
+            success=False, original=grid, solved=None, message="Puzzle has multiple solutions",
+            status="multiple_solutions",
+            partial=common[0] if common else None, solution_count=common[1] if common else None,
+        )
 
     return SolveResponse(
         success=True, original=grid, solved=solved, message="Puzzle solved successfully",
@@ -264,6 +271,7 @@ def recognize_sudoku(
         ocr_model_version=result.metadata["model_version"],
         ocr_latency_ms=sum(result.timing.values()),
         solved=result.status == SOLVED,
+        status=result.status,
         token=token,
     )
 
