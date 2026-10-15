@@ -271,7 +271,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--input-size", type=int, default=48)
     parser.add_argument(
-        "--arch", default="custom_cnn_v3",
+        "--arch", default="tiny_dsc_16-p-32-32-p-64-64-p-128-128",
         help="custom_small_cnn, custom_cnn_v3, timm_mobilenetv3, or tiny_cnn_/tiny_dsc_<widths> (see model_arch)",
     )
     parser.add_argument("--patience", type=int, default=12)
