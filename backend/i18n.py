@@ -8,6 +8,7 @@ injected as JSON.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import os
@@ -181,6 +182,7 @@ def render(lang: str) -> str:
         other_lang=TEXT[other]["html_lang"],
         json_ld=_json_ld(lang),
         js_strings=_script_json(JS_TEXT[lang]),
+        asset_version=_asset_version(),
     )
     page = _TEMPLATE.read_text(encoding="utf-8")
     for key, value in values.items():
@@ -188,6 +190,15 @@ def render(lang: str) -> str:
     if "{{" in page:
         raise ValueError(f"Unfilled placeholder in {_TEMPLATE}: {page[page.index('{{'):][:40]}")
     return page
+
+
+def _asset_version() -> str:
+    """Content hash for /static URLs: Cloudflare caches them for hours, so a
+    changed file needs a new URL to reach visitors."""
+    digest = hashlib.sha256()
+    for name in ("app.js", "style.css"):
+        digest.update((_TEMPLATE.parent / name).read_bytes())
+    return digest.hexdigest()[:12]
 
 
 def sitemap() -> str:

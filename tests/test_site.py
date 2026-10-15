@@ -25,6 +25,14 @@ def test_each_language_has_its_own_url_with_alternates():
     assert redirect.status_code == 301 and redirect.headers["location"] == "/zh/"
 
 
+
+def test_static_urls_carry_a_content_hash():
+    # Cloudflare caches /static for hours; a new hash is a new URL.
+    page = client.get("/").text
+    version = i18n._asset_version()
+    assert f'src="/static/app.js?v={version}"' in page and f'href="/static/style.css?v={version}"' in page
+    assert client.get(f"/static/app.js?v={version}").status_code == 200
+
 def test_robots_and_sitemap():
     robots = client.get("/robots.txt").text
     assert "Disallow: /api/" in robots and "sitemap.xml" in robots
