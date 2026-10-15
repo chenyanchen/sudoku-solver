@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -25,8 +26,10 @@ if str(REPO_ROOT) not in sys.path:
 from scripts._provenance import git_state  # noqa: E402
 
 RELEASES_DIR = REPO_ROOT / "models" / "releases"
-# Photos the OCR release gate must read exactly through the production pipeline.
-CNN_GATE_IMAGES = ("IMG_86*.jpg", "IMG_870[0-8].jpg", "sudoku_2.jpg", "sudoku_3.jpg")
+# The OCR release gate: every labeled image, read exactly through the production
+# pipeline, so each image added to the labels is protected from then on. The test
+# set stays out: deciding releases on it would tune the model to it.
+CNN_GATE_LABELS = REPO_ROOT / "data" / "labels" / "sudoku_labels.json"
 
 
 def _validate_release_version(value: str) -> str:
@@ -126,15 +129,14 @@ def release_cnn(run_id: str, release_version: str, release_git: dict[str, str]) 
         if result.returncode != 0:
             raise SystemExit(f"ONNX export failed with code {result.returncode}")
 
-        # Release gate uses original photos through the production detector chain.
-        # A solvable but incorrectly recognized board must not pass.
+        # The detector chain reads CNN_MODEL_PATH too, so it must see the candidate.
         gate_json = Path(tmpdir) / "gate.json"
         subprocess.run([
             sys.executable, str(REPO_ROOT / "scripts" / "eval_cnn_ocr.py"),
             "--cnn-model", str(output_path), "--strict",
+            "--labels", str(CNN_GATE_LABELS),
             "--output-json", str(gate_json),
-            "--image-pattern", *CNN_GATE_IMAGES,
-        ], cwd=REPO_ROOT, check=True)
+        ], cwd=REPO_ROOT, check=True, env={**os.environ, "CNN_MODEL_PATH": str(output_path)})
         gate = json.loads(gate_json.read_text())["cnn"]
 
         split_path = Path(client.download_artifacts(run_id, "split.json", tmpdir))
@@ -153,7 +155,7 @@ def release_cnn(run_id: str, release_version: str, release_git: dict[str, str]) 
                 "preprocessing": "local_adaptive_v1",
                 "val_images": val_images,
                 "release_gate": {
-                    "images": list(CNN_GATE_IMAGES),
+                    "labels": str(CNN_GATE_LABELS.relative_to(REPO_ROOT)),
                     **{k: gate[k] for k in ("pipeline_exact", "solution_exact", "grid_exact", "false_positive_blank")},
                     "total": gate["images"],
                 },
