@@ -140,36 +140,44 @@ def create_model(arch: str, num_classes: int):
 def _tiny_cnn(arch: str, num_classes: int):
     """`tiny_cnn_16-32-64`: a stride-2 3×3 stem to 16 channels, then one 3×3
     conv per width, max-pooling 2× after each until 6×6 (from a 48×48 input).
+    With explicit `p` (2× max-pool) tokens, e.g. `tiny_dsc_16-p-32-32-p-64-p-128`,
+    the stem keeps full resolution and pools only where written.
     `tiny_dsc_` makes every conv after the stem depthwise separable.
     """
     import torch.nn as nn
 
-    widths = [int(w) for w in arch.split("_", 2)[2].split("-")]
+    tokens = arch.split("_", 2)[2].split("-")
     separable = arch.startswith("tiny_dsc_")
-
-    def conv_bn_relu(in_ch: int, out_ch: int, stride: int = 1) -> list:
-        if separable and in_ch > 1:
-            convs = [
-                nn.Conv2d(in_ch, in_ch, 3, stride=stride, padding=1, groups=in_ch, bias=False),
-                nn.BatchNorm2d(in_ch),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(in_ch, out_ch, 1, bias=False),
-            ]
-        else:
-            convs = [nn.Conv2d(in_ch, out_ch, 3, stride=stride, padding=1, bias=False)]
-        return [*convs, nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True)]
-
-    layers = conv_bn_relu(1, widths[0], stride=2)  # 48→24
-    size = 24
-    for in_ch, out_ch in zip(widths, widths[1:]):
-        layers += conv_bn_relu(in_ch, out_ch)
-        if size > 6:
+    explicit = "p" in tokens
+    if not explicit:  # stride-2 stem (48→24), then pool to 6×6 after the next two convs
+        tokens = tokens[:1] + [t for i, w in enumerate(tokens[1:]) for t in ([w, "p"] if i < 2 else [w])]
+    layers: list = []
+    in_ch, stride = 1, 1 if explicit else 2
+    for token in tokens:
+        if token == "p":
             layers.append(nn.MaxPool2d(2))
-            size //= 2
+            continue
+        layers += _conv_bn_relu(in_ch, int(token), separable and in_ch > 1, stride)
+        in_ch, stride = int(token), 1
     return nn.Sequential(
         *layers,
         nn.AdaptiveAvgPool2d(1),
         nn.Flatten(),
         nn.Dropout(0.25),
-        nn.Linear(widths[-1], num_classes),
+        nn.Linear(in_ch, num_classes),
     )
+
+
+def _conv_bn_relu(in_ch: int, out_ch: int, separable: bool, stride: int = 1) -> list:
+    import torch.nn as nn
+
+    if separable:
+        convs = [
+            nn.Conv2d(in_ch, in_ch, 3, stride=stride, padding=1, groups=in_ch, bias=False),
+            nn.BatchNorm2d(in_ch),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_ch, out_ch, 1, bias=False),
+        ]
+    else:
+        convs = [nn.Conv2d(in_ch, out_ch, 3, stride=stride, padding=1, bias=False)]
+    return [*convs, nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True)]
