@@ -32,22 +32,11 @@ class SudokuSolver:
         count = 2 if exhausted else len(found)
         return (found[0] if count == 1 else None), count
 
-    def common_cells(self, grid: Grid, max_solutions: int = 100) -> tuple[Grid, int] | None:
-        """For a puzzle with 2..max_solutions solutions, the cells all of them share.
-
-        Returns (grid with 0 where solutions differ, solution count), or None
-        when there are fewer than 2 solutions or they could not all be found.
-        A missed given only adds solutions, so shared cells hold in the true
-        puzzle too.
-        """
+    def all_solutions(self, grid: Grid, max_solutions: int = 100) -> list[Grid] | None:
+        """Every solution, or None when there are more than max_solutions or
+        the node budget ran out before all were found."""
         found, exhausted = _search(grid, max_solutions + 1, self.max_nodes)
-        if exhausted or not 2 <= len(found) <= max_solutions:
-            return None
-        shared = [
-            [found[0][r][c] if all(s[r][c] == found[0][r][c] for s in found) else 0 for c in range(9)]
-            for r in range(9)
-        ]
-        return shared, len(found)
+        return None if exhausted or len(found) > max_solutions else found
 
 
 class _BudgetExhausted(Exception):

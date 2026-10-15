@@ -190,11 +190,19 @@ def solve_sudoku(request: SolveRequest):
                 success=False, original=grid, solved=None, message="Puzzle has no solution",
                 status="no_solution",
             )
-        common = solver.common_cells(grid)
+        # The givens allow each of these solutions; show one and mark where they differ.
+        solutions = solver.all_solutions(grid)
+        if not solutions:
+            return SolveResponse(
+                success=False, original=grid, solved=None, message="Puzzle has multiple solutions",
+                status="multiple_solutions",
+            )
+        differing = [
+            [r, c] for r in range(9) for c in range(9) if len({s[r][c] for s in solutions}) > 1
+        ]
         return SolveResponse(
-            success=False, original=grid, solved=None, message="Puzzle has multiple solutions",
-            status="multiple_solutions",
-            partial=common[0] if common else None, solution_count=common[1] if common else None,
+            success=False, original=grid, solved=solutions[0], message="Puzzle has multiple solutions",
+            status="multiple_solutions", solution_count=len(solutions), differing_cells=differing,
         )
 
     return SolveResponse(

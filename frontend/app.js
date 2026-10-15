@@ -126,7 +126,7 @@ class SudokuSolver {
             this.displayGrid(null, 'solvedGrid');
             this.resultsSection.style.display = 'block';
 
-            // Ambiguous givens still get the cells all their solutions share.
+            // Ambiguous givens get one of their solutions, with the differing cells marked.
             if (recData.solved || recData.status === 'ambiguous') {
                 await this.solve(recData.grid, t('solved'));
             } else {
@@ -167,10 +167,10 @@ class SudokuSolver {
         if (data.success && data.solved) {
             this.showMessage(successMessage, 'success');
             this.displayGrid(data.solved, 'solvedGrid', grid);
-        } else if (data.partial) {
-            const open = data.partial.flat().filter((v) => v === 0).length;
-            this.showMessage(t('partial', { count: data.solution_count, open }), 'warning');
-            this.displayGrid(data.partial, 'solvedGrid', grid, true);
+        } else if (data.solved) {
+            const open = data.differing_cells;
+            this.showMessage(t('partial', { count: data.solution_count, open: open.length }), 'warning');
+            this.displayGrid(data.solved, 'solvedGrid', grid, open);
         } else {
             const reason = { no_solution: 'noSolution', multiple_solutions: 'multipleSolutions', invalid: 'invalid' };
             this.showMessage(t(reason[data.status] || 'noSolution'), 'warning');
@@ -220,8 +220,9 @@ class SudokuSolver {
         return grid;
     }
 
-    // `partial`: blank cells are those where the puzzle's solutions differ.
-    displayGrid(gridData, elementId, givens = null, partial = false) {
+    // `differing`: [row, col] of cells where the puzzle's solutions differ.
+    displayGrid(gridData, elementId, givens = null, differing = []) {
+        const open = new Set(differing.map(([r, c]) => r * 9 + c));
         const container = document.getElementById(elementId);
         container.innerHTML = '';
         for (let row = 0; row < 9; row++) {
@@ -232,7 +233,8 @@ class SudokuSolver {
                 if (value !== 0) {
                     cell.textContent = value;
                     cell.classList.add(givens && givens[row][col] ? 'given' : 'solved');
-                } else if (partial) {
+                }
+                if (open.has(row * 9 + col)) {
                     cell.classList.add('open');
                 }
                 container.appendChild(cell);
