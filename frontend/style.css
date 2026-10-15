@@ -248,6 +248,10 @@ header h1 {
     color: var(--primary-color);
 }
 
+.sudoku-cell.open {
+    background-color: #fef3c7;
+}
+
 input.sudoku-cell {
     width: 100%;
     border: none;
