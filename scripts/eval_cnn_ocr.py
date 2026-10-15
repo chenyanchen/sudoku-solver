@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--detector", choices=["auto", "gt", "opencv", "corner"], default="auto")
     parser.add_argument("--image-pattern", nargs="+", default=["*"], help="Filename globs, e.g. 'IMG_86*.jpg' 'IMG_870[0-8].jpg'")
     parser.add_argument("--corners", type=Path, default=DEFAULT_CORNERS)
-    parser.add_argument("--strict", action="store_true", help="Exit nonzero unless every grid is exact after decode and solved correctly")
+    parser.add_argument("--strict", action="store_true", help="Exit nonzero unless every label's image was found and read exactly after decode")
     return parser.parse_args()
 
 
@@ -194,7 +194,12 @@ def main() -> int:
             json.dump({"model": str(args.cnn_model.resolve()), "detector": args.detector, "cnn": aggregate, "per_image": per_image}, f, ensure_ascii=False, indent=2)
         print(f"Saved metrics JSON: {args.output_json}")
 
-    return int(args.strict and (aggregate["pipeline_exact"] != len(cnn_metrics) or aggregate["solution_exact"] != len(cnn_metrics)))
+    # A missing image is not a pass: the release gate must cover every label.
+    return int(args.strict and (
+        bool(skipped)
+        or aggregate["pipeline_exact"] != len(cnn_metrics)
+        or aggregate["solution_exact"] != len(cnn_metrics)
+    ))
 
 
 if __name__ == "__main__":
