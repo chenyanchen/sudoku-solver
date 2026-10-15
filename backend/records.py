@@ -2,8 +2,8 @@
 
 Each upload is a reading. Stats count distinct images (by content hash) by
 their latest reading, so re-uploading an image after a model release shows
-the improvement. A reading counts as solved when it produced a unique
-solution and the uploader did not correct its givens.
+the improvement. A reading counts as solved when its givens have a solution
+(the site shows one) and the uploader did not correct them.
 
 Every uploaded image is kept (once per content hash, within a disk budget)
 as training data; readings hold no personal data (no IP, no file name).
@@ -119,7 +119,7 @@ class Records:
             total, solved = self._db.execute(
                 """
                 SELECT COUNT(*), COALESCE(SUM(
-                    r.status = 'solved' AND NOT EXISTS (
+                    r.status IN ('solved', 'ambiguous') AND NOT EXISTS (
                         SELECT 1 FROM corrections c WHERE c.reading_id = r.id AND c.grid != r.grid
                     )
                 ), 0)
