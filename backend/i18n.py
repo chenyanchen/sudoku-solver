@@ -52,10 +52,9 @@ TEXT: dict[str, dict[str, str]] = {
                         "screen. The whole 9×9 grid must be visible and in focus. Handwritten digits are not "
                         "read reliably yet.",
         "faq_wrong_q": "Why is a digit wrong?",
-        "faq_wrong_a": "Glare, blur or an unusual font can make a digit hard to read. A puzzle is solved only "
-                       "when its digits have exactly one solution, so a misread usually shows up as "
-                       "\"no solution\" rather than a wrong answer. Fix the cell and solve again; your "
-                       "correction helps improve recognition.",
+        "faq_wrong_a": "Glare, blur or an unusual font can make a digit hard to read. Compare the recognized "
+                       "puzzle with your image; a misread digit often leaves it with no solution. Fix the "
+                       "cell and solve again; your correction helps improve recognition.",
         "faq_rate_q": "What is the solve rate?",
         "faq_rate_a": "The share of distinct uploaded images that were solved without corrections. We publish "
                       "it so you can watch recognition improve.",
@@ -95,9 +94,8 @@ TEXT: dict[str, dict[str, str]] = {
         "faq_images_a": "截图，以及印刷数独的照片，包括斜拍的照片和翻拍屏幕的照片。需要完整拍到 9×9 网格并且清晰对焦。"
                         "手写数字暂时还不能可靠识别。",
         "faq_wrong_q": "为什么有数字识别错了？",
-        "faq_wrong_a": "反光、模糊或少见的字体都会让数字难以识别。只有当识别出的数字恰好有唯一解时才会给出答案，"
-                       "所以识别错误通常表现为“无解”，而不是给出错误答案。改正那个格子后重新求解即可，"
-                       "你的修改也会帮助我们改进识别。",
+        "faq_wrong_a": "反光、模糊或少见的字体都会让数字难以识别。请对照原图检查识别出的题目，"
+                       "识别错的数字常常会让题目无解。改正那个格子后重新求解即可，你的修改也会帮助我们改进识别。",
         "faq_rate_q": "解出率是什么？",
         "faq_rate_a": "所有上传过的不同图片中，无需修改就被解出的比例。我们公开这个数字，你可以看到识别能力的进步。",
         "faq_privacy_q": "你们会保存什么？",
@@ -117,13 +115,9 @@ JS_TEXT: dict[str, dict[str, str]] = {
         "uploadFailed": "Upload failed ({status})",
         "noGrid": "Could not find a Sudoku grid in the image. Make sure the whole grid is visible.",
         "solved": "Puzzle solved!",
-        "misread": "Some digits may be misread: compare with your image, fix the cells, then solve again.",
         "solvedCorrected": "Puzzle solved with your corrections. Thank you!",
         "digitsOnly": "Cells accept only digits 1–9 (leave blank for empty).",
         "noSolution": "These digits have no solution. Check them against your image.",
-        "multipleSolutions": "These digits have more than one solution. Check for a missed digit.",
-        "partial": "These digits have {count} solutions; here is one. The {open} highlighted cells can take "
-        "other digits in the other solutions. If your puzzle has a single answer, check for a missed digit.",
         "invalid": "Some digits repeat in a row, column or box. Check them against your image.",
         "network": "Could not reach the server: {error}",
         "cell": "Row {row}, column {col}",
@@ -136,13 +130,9 @@ JS_TEXT: dict[str, dict[str, str]] = {
         "uploadFailed": "上传失败（{status}）",
         "noGrid": "图片中没有找到数独网格，请确保完整拍到整个网格。",
         "solved": "求解成功！",
-        "misread": "部分数字可能识别错了：请对照原图，改正格子后重新求解。",
         "solvedCorrected": "已按你的修改求解，谢谢！",
         "digitsOnly": "格子只能填 1–9（空格留空）。",
         "noSolution": "这些数字无解，请对照原图检查。",
-        "multipleSolutions": "这些数字有多个解，请检查是否漏了数字。",
-        "partial": "这些数字有 {count} 个解，下面是其中一个。标黄的 {open} 个格子在其他解里可以填别的数字。"
-        "如果你的题目应该只有一个答案，请检查是否漏了数字。",
         "invalid": "有数字在同一行、列或宫里重复了，请对照原图检查。",
         "network": "无法连接服务器：{error}",
         "cell": "第 {row} 行，第 {col} 列",

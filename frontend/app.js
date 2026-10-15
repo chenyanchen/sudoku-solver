@@ -126,12 +126,7 @@ class SudokuSolver {
             this.displayGrid(null, 'solvedGrid');
             this.resultsSection.style.display = 'block';
 
-            // Ambiguous givens get one of their solutions, with the differing cells marked.
-            if (recData.solved || recData.status === 'ambiguous') {
-                await this.solve(recData.grid, t('solved'));
-            } else {
-                this.showMessage(t('misread'), 'warning');
-            }
+            await this.solve(recData.grid, t('solved'));
         } catch (error) {
             this.showMessage(t('network', { error: error.message }), 'error');
         } finally {
@@ -167,12 +162,8 @@ class SudokuSolver {
         if (data.success && data.solved) {
             this.showMessage(successMessage, 'success');
             this.displayGrid(data.solved, 'solvedGrid', grid);
-        } else if (data.solved) {
-            const open = data.differing_cells;
-            this.showMessage(t('partial', { count: data.solution_count, open: open.length }), 'warning');
-            this.displayGrid(data.solved, 'solvedGrid', grid, open);
         } else {
-            const reason = { no_solution: 'noSolution', multiple_solutions: 'multipleSolutions', invalid: 'invalid' };
+            const reason = { no_solution: 'noSolution', invalid: 'invalid' };
             this.showMessage(t(reason[data.status] || 'noSolution'), 'warning');
             this.displayGrid(null, 'solvedGrid');
         }
@@ -220,9 +211,7 @@ class SudokuSolver {
         return grid;
     }
 
-    // `differing`: [row, col] of cells where the puzzle's solutions differ.
-    displayGrid(gridData, elementId, givens = null, differing = []) {
-        const open = new Set(differing.map(([r, c]) => r * 9 + c));
+    displayGrid(gridData, elementId, givens = null) {
         const container = document.getElementById(elementId);
         container.innerHTML = '';
         for (let row = 0; row < 9; row++) {
@@ -233,9 +222,6 @@ class SudokuSolver {
                 if (value !== 0) {
                     cell.textContent = value;
                     cell.classList.add(givens && givens[row][col] ? 'given' : 'solved');
-                }
-                if (open.has(row * 9 + col)) {
-                    cell.classList.add('open');
                 }
                 container.appendChild(cell);
             }

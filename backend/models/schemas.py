@@ -39,13 +39,7 @@ class SolveResponse(BaseModel):
     original: list[list[int]] = Field(description="Original grid")
     solved: list[list[int]] | None = Field(description="Solved grid (if successful)")
     message: str = Field(description="Status message")
-    status: str = Field(description="solved, no_solution, multiple_solutions or invalid")
-    solution_count: int | None = Field(
-        default=None, description="multiple_solutions with at most 100 solutions: how many; `solved` is one of them",
-    )
-    differing_cells: list[list[int]] | None = Field(
-        default=None, description="With solution_count: [row, col] of cells that differ between solutions",
-    )
+    status: str = Field(description="solved, no_solution or invalid")
 
 
 class RecognizeResponse(BaseModel):
@@ -74,7 +68,9 @@ class RecognizeResponse(BaseModel):
     ocr_latency_ms: float | None = Field(
         default=None, description="OCR stage latency in milliseconds"
     )
-    solved: bool = Field(default=False, description="Whether the givens have exactly one solution")
+    solved: bool = Field(
+        default=False, description="Whether the givens have exactly one solution (OCR's confidence check)"
+    )
     status: str | None = Field(
         default=None, description="solved, ambiguous (several solutions) or unsolvable"
     )
