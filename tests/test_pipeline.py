@@ -90,6 +90,36 @@ def test_unrepairable_grids_report_why():
     assert result.solution is None
 
 
+def test_competing_corrections_are_not_trusted():
+    # A screenshot with three highlighted 1s (r6c9, r7c1, r8c6), each drawn in
+    # a circle the CNN reads as 1/9/6 at ~0.3. Replacing r6c9 and r7c1 also
+    # gives a unique solution, a wrong one; picking it showed wrong hints.
+    truth = [
+        [0, 0, 0, 9, 0, 2, 3, 0, 7],
+        [4, 9, 0, 0, 0, 0, 0, 0, 2],
+        [0, 0, 7, 0, 8, 4, 0, 0, 0],
+        [0, 5, 0, 6, 2, 0, 0, 0, 0],
+        [3, 0, 0, 0, 0, 0, 2, 7, 0],
+        [6, 2, 0, 0, 4, 0, 0, 0, 1],
+        [1, 0, 8, 0, 5, 0, 0, 6, 0],
+        [0, 0, 6, 4, 0, 1, 5, 0, 0],
+        [0, 7, 2, 0, 0, 6, 0, 9, 0],
+    ]
+    grid = _with(_with(truth, 5, 8, 9), 7, 5, 9)
+    meta = _metadata(grid)
+    for (row, col), candidates in {
+        (5, 8): [[9, 0.29], [1, 0.19], [2, 0.18], [6, 0.16]],
+        (6, 0): [[1, 0.27], [9, 0.26], [6, 0.20], [2, 0.09]],
+        (7, 5): [[9, 0.32], [6, 0.21], [1, 0.19], [2, 0.13]],
+    }.items():
+        meta["cell_predictions"][row * 9 + col].update(confidence=candidates[0][1], candidates=candidates)
+
+    result = decode(grid, meta)
+
+    assert result.status == UNSOLVABLE
+    assert result.solution is None
+
+
 def _grid_with_digits(scale):
     import cv2
     import numpy as np
