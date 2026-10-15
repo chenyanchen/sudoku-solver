@@ -21,11 +21,12 @@ def _add(records, image, status):
 
 def test_stats_count_each_image_by_its_latest_reading(tmp_path):
     records = Records(tmp_path)
-    _add(records, b"a", "ambiguous")
-    _add(records, b"a", "solved")  # re-uploaded after a model release
-    _add(records, b"b", None)      # no grid found
-    _add(records, b"c", "solved")
-    assert records.stats() == {"solved": 2, "total": 3, "percentage": 66.7}
+    _add(records, b"a", "unsolvable")
+    _add(records, b"a", "solved")     # re-uploaded after a model release
+    _add(records, b"b", None)         # no grid found
+    _add(records, b"c", "ambiguous")  # several solutions: one is shown
+    _add(records, b"d", "unsolvable")
+    assert records.stats() == {"solved": 2, "total": 4, "percentage": 50.0}
 
 
 def test_a_corrected_reading_is_not_solved(tmp_path):

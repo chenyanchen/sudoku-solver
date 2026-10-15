@@ -28,7 +28,7 @@ from ..models.schemas import (
     StatsResponse,
 )
 from ..ocr.cnn_digit_reader import CnnDigitReader
-from ..ocr.pipeline import SOLVED, Recognition, recognize
+from ..ocr.pipeline import SOLVED, UNSOLVABLE, Recognition, recognize
 from ..records import Records
 from ..solver.backtracking import SudokuSolver, is_valid_grid
 
@@ -182,27 +182,13 @@ def solve_sudoku(request: SolveRequest):
             status="invalid",
         )
 
-    solver = SudokuSolver()
-    solved, solution_count = solver.solve_unique(grid)
+    # Any solution will do: a puzzle with several solutions is still solved by
+    # each of them, and misread digits are for the uploader to correct.
+    solved = SudokuSolver().solve(grid)
     if solved is None:
-        if solution_count == 0:
-            return SolveResponse(
-                success=False, original=grid, solved=None, message="Puzzle has no solution",
-                status="no_solution",
-            )
-        # The givens allow each of these solutions; show one and mark where they differ.
-        solutions = solver.all_solutions(grid)
-        if not solutions:
-            return SolveResponse(
-                success=False, original=grid, solved=None, message="Puzzle has multiple solutions",
-                status="multiple_solutions",
-            )
-        differing = [
-            [r, c] for r in range(9) for c in range(9) if len({s[r][c] for s in solutions}) > 1
-        ]
         return SolveResponse(
-            success=False, original=grid, solved=solutions[0], message="Puzzle has multiple solutions",
-            status="multiple_solutions", solution_count=len(solutions), differing_cells=differing,
+            success=False, original=grid, solved=None, message="Puzzle has no solution",
+            status="no_solution",
         )
 
     return SolveResponse(
@@ -266,8 +252,8 @@ def recognize_sudoku(
             token=token,
         )
     message = f"Recognized {result.givens} givens"
-    if result.status != SOLVED:
-        message += f" ({result.status}: some digits may be misread)"
+    if result.status == UNSOLVABLE:
+        message += " (no solution: some digits may be misread)"
     return RecognizeResponse(
         success=True,
         message=message,

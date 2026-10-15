@@ -32,12 +32,6 @@ class SudokuSolver:
         count = 2 if exhausted else len(found)
         return (found[0] if count == 1 else None), count
 
-    def all_solutions(self, grid: Grid, max_solutions: int = 100) -> list[Grid] | None:
-        """Every solution, or None when there are more than max_solutions or
-        the node budget ran out before all were found."""
-        found, exhausted = _search(grid, max_solutions + 1, self.max_nodes)
-        return None if exhausted or len(found) > max_solutions else found
-
 
 class _BudgetExhausted(Exception):
     pass

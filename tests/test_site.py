@@ -33,6 +33,7 @@ def test_static_urls_carry_a_content_hash():
     assert f'src="/static/app.js?v={version}"' in page and f'href="/static/style.css?v={version}"' in page
     assert client.get(f"/static/app.js?v={version}").status_code == 200
 
+
 def test_robots_and_sitemap():
     robots = client.get("/robots.txt").text
     assert "Disallow: /api/" in robots and "sitemap.xml" in robots
@@ -42,8 +43,10 @@ def test_robots_and_sitemap():
 
 
 def test_solve_reports_why_it_failed():
-    empty = {"grid": {"cells": [[0] * 9 for _ in range(9)]}}
-    assert client.post("/api/v1/sudoku:solve", json=empty).json()["status"] == "multiple_solutions"
     clash = [[0] * 9 for _ in range(9)]
     clash[0][0] = clash[0][1] = 5
     assert client.post("/api/v1/sudoku:solve", json={"grid": {"cells": clash}}).json()["status"] == "invalid"
+    stuck = [[0] * 9 for _ in range(9)]
+    stuck[0][:8] = range(1, 9)
+    stuck[1][8] = 9  # r1c9 can only be 9
+    assert client.post("/api/v1/sudoku:solve", json={"grid": {"cells": stuck}}).json()["status"] == "no_solution"

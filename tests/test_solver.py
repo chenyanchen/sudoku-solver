@@ -172,19 +172,6 @@ def test_solve_unique_rejects_ambiguous_puzzle():
     assert solution is None and count == 2
 
 
-def test_solve_endpoint_reports_multiple_solutions():
-    from fastapi.testclient import TestClient
-    from backend.main import app
-
-    with TestClient(app) as client:
-        body = client.post(
-            "/api/v1/sudoku:solve", json={"grid": {"cells": [[0] * 9 for _ in range(9)]}},
-        ).json()
-    assert body["success"] is False
-    assert body["message"] == "Puzzle has multiple solutions"
-    assert body["solved"] is None  # too many solutions to list
-
-
 # An uploaded puzzle with two solutions: 1 and 2 swap in r8-9 c6/c8.
 AMBIGUOUS = [
     [0, 0, 0, 5, 0, 0, 0, 4, 3], [4, 0, 0, 1, 6, 8, 7, 0, 9], [5, 9, 0, 0, 0, 4, 0, 8, 6],
@@ -193,20 +180,14 @@ AMBIGUOUS = [
 ]
 
 
-def test_all_solutions_lists_every_solution_up_to_a_cap():
-    solutions = SudokuSolver().all_solutions(AMBIGUOUS)
-    assert len(solutions) == 2 and solutions[0] != solutions[1]
-    assert SudokuSolver().all_solutions([[0] * 9 for _ in range(9)]) is None
-
-
-def test_solve_endpoint_shows_one_solution_of_an_ambiguous_puzzle():
+def test_solve_endpoint_returns_a_solution_however_many_there_are():
     from fastapi.testclient import TestClient
     from backend.main import app
 
     with TestClient(app) as client:
-        body = client.post("/api/v1/sudoku:solve", json={"grid": {"cells": AMBIGUOUS}}).json()
-    assert body["status"] == "multiple_solutions" and body["solution_count"] == 2
-    solved = body["solved"]
-    assert all(v for row in solved for v in row) and is_valid_grid(solved)
-    assert all(solved[r][c] == AMBIGUOUS[r][c] for r in range(9) for c in range(9) if AMBIGUOUS[r][c])
-    assert sorted(body["differing_cells"]) == [[7, 5], [7, 7], [8, 5], [8, 7]]
+        for grid in (AMBIGUOUS, [[0] * 9 for _ in range(9)]):
+            body = client.post("/api/v1/sudoku:solve", json={"grid": {"cells": grid}}).json()
+            assert body["success"] and body["status"] == "solved"
+            solved = body["solved"]
+            assert all(v for row in solved for v in row) and is_valid_grid(solved)
+            assert all(solved[r][c] == grid[r][c] for r in range(9) for c in range(9) if grid[r][c])
