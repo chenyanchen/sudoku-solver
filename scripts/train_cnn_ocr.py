@@ -48,6 +48,7 @@ class CellSample:
     image: np.ndarray
     label: int
     source: str  # Same givens share a split, including duplicate source images.
+    jittered: bool = False  # from perturbed corners; training only
 
 
 class SudokuCellDataset:
@@ -127,7 +128,17 @@ def build_samples(
     labels_path: Path,
     input_size: int,
     corners_path: Path = DEFAULT_CORNERS,
+    jitter_copies: int = 0,
+    jitter: float = 0.015,
+    seed: int = 0,
 ) -> list[CellSample]:
+    """Cells warped from the reviewed corners, plus `jitter_copies` warps per
+    image from corners each moved up to `jitter` of the grid's side.
+
+    Detected corners are a few pixels off the reviewed ones, and a model
+    trained on exact crops alone misread a dark-theme 5 as 6 at 1% off.
+    """
+    rng = np.random.default_rng(seed)
     with labels_path.open("r", encoding="utf-8") as f:
         labels_data = json.load(f)
 
@@ -145,17 +156,17 @@ def build_samples(
         if corners is None:
             raise ValueError(f"Missing ground-truth corners for {image_name}")
         h, w = image.shape[:2]
-        warped = warp_grid(image, corners * np.array([w, h]))
+        points = corners * np.array([w, h])
+        side = np.linalg.norm(points - np.roll(points, 1, axis=0), axis=1).mean()
         source = json.dumps(grid)
 
-        cells, _ = ocr_cells(prepare_grid_for_ocr(warped))
-
-        for row in range(9):
-            for col in range(9):
-                label = int(grid[row][col])
-                cell = cells[row * 9 + col]
-                cleaned = clean_cell(cell, cell_size=input_size)
-                samples.append(CellSample(image=cleaned, label=label, source=source))
+        for copy_index in range(1 + jitter_copies):
+            moved = points if copy_index == 0 else points + rng.uniform(-jitter, jitter, points.shape) * side
+            cells, _ = ocr_cells(prepare_grid_for_ocr(warp_grid(image, moved.astype(np.float32))))
+            for row in range(9):
+                for col in range(9):
+                    cleaned = clean_cell(cells[row * 9 + col], cell_size=input_size)
+                    samples.append(CellSample(cleaned, int(grid[row][col]), source, copy_index > 0))
 
     return samples
 
@@ -284,6 +295,10 @@ def parse_args() -> argparse.Namespace:
         "--corners", type=Path, default=DEFAULT_CORNERS,
         help="Reviewed corner CSV; never train on predicted crops",
     )
+    parser.add_argument(
+        "--corner-jitter-copies", type=int, default=0,
+        help="Extra training warps per image from perturbed corners (val uses the reviewed ones)",
+    )
     return parser.parse_args()
 
 
@@ -304,6 +319,8 @@ def main() -> int:
     samples = build_samples(
         args.labels, args.input_size,
         corners_path=args.corners,
+        jitter_copies=args.corner_jitter_copies,
+        seed=args.seed,
     )
     if len(samples) < 50:
         raise RuntimeError(
@@ -311,6 +328,7 @@ def main() -> int:
         )
 
     train_samples, val_samples = grouped_split(samples, args.val_ratio, args.seed)
+    val_samples = [sample for sample in val_samples if not sample.jittered]
     train_dataset = SudokuCellDataset(train_samples, augment=True).impl
     val_dataset = SudokuCellDataset(val_samples, augment=False).impl
 
@@ -365,6 +383,7 @@ def main() -> int:
             "crop_source": "ground_truth",
             "split": "puzzle_group",
             "corners": str(args.corners),
+            "corner_jitter_copies": args.corner_jitter_copies,
         })
         mlflow.set_tags({
             **git_tags,
