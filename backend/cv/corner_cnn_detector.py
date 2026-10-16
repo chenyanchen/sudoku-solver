@@ -22,7 +22,7 @@ DEFAULT_CORNER_CNN_MODEL = (
     / "sudoku_corner_cnn.onnx"
 )
 
-INPUT_SIZE = 256
+INPUT_SIZE = 256  # models exported without a fixed input side
 REFINE_MARGIN = 0.25  # of the quad's extent, on each side
 
 
@@ -38,6 +38,7 @@ class CornerCnnDetector:
     ) -> None:
         self._session = None
         self._input_name = ""
+        self._input_size = INPUT_SIZE
         self._load_error: Optional[str] = None
         self.last_confidence: float = 0.0
 
@@ -59,7 +60,10 @@ class CornerCnnDetector:
         self._session = ort.InferenceSession(
             str(path), providers=["CPUExecutionProvider"]
         )
-        self._input_name = self._session.get_inputs()[0].name
+        model_input = self._session.get_inputs()[0]
+        self._input_name = model_input.name
+        if isinstance(model_input.shape[-1], int):  # (batch, 3, side, side)
+            self._input_size = model_input.shape[-1]
         LOGGER.info("Corner CNN detector loaded: %s", path.name)
 
     def detect(self, image: np.ndarray) -> DetectionResult | None:
@@ -85,15 +89,15 @@ class CornerCnnDetector:
         raw = np.asarray(outputs[0])[0]  # shape: (8,)
 
         # raw is [x_tl, y_tl, x_tr, y_tr, x_br, y_br, x_bl, y_bl] in [0, 1]
-        # relative to the 256x256 letterboxed input
+        # relative to the letterboxed input
         corners_norm = raw.reshape(4, 2)
 
         # Map from letterbox space back to original image coords
         corners_raw = np.zeros((4, 2), dtype=np.float32)
         corners = np.zeros((4, 2), dtype=np.float32)
         for i in range(4):
-            lbx = corners_norm[i, 0] * INPUT_SIZE
-            lby = corners_norm[i, 1] * INPUT_SIZE
+            lbx = corners_norm[i, 0] * self._input_size
+            lby = corners_norm[i, 1] * self._input_size
             corners_raw[i, 0] = (lbx - pad_x) / scale
             corners_raw[i, 1] = (lby - pad_y) / scale
             corners[i, 0] = max(0.0, min(corners_raw[i, 0], w_orig - 1))
@@ -107,7 +111,7 @@ class CornerCnnDetector:
     def refine(self, image: np.ndarray, corners: np.ndarray) -> np.ndarray | None:
         """Corners predicted again on a crop around `corners`, or None.
 
-        At INPUT_SIZE a grid that fills a small part of a photo spans a few
+        At 256px a grid that fills a small part of a photo spans a few
         pixels per cell, and its corners can land a cell off; in the crop the
         grid fills most of the input. Not always closer (some grids moved by
         several percent on the training images), so callers keep both.
@@ -160,21 +164,22 @@ class CornerCnnDetector:
     def _preprocess(
         self, image: np.ndarray
     ) -> tuple[np.ndarray, float, float, float]:
-        """Letterbox resize to INPUT_SIZE x INPUT_SIZE, return (blob, scale, pad_x, pad_y)."""
+        """Letterbox resize to the model's input side, return (blob, scale, pad_x, pad_y)."""
+        size = self._input_size
         h, w = image.shape[:2]
-        scale = INPUT_SIZE / max(h, w)
+        scale = size / max(h, w)
         new_w = int(round(w * scale))
         new_h = int(round(h * scale))
 
         resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-        pad_x = (INPUT_SIZE - new_w) / 2.0
-        pad_y = (INPUT_SIZE - new_h) / 2.0
+        pad_x = (size - new_w) / 2.0
+        pad_y = (size - new_h) / 2.0
         top = int(round(pad_y - 0.1))
         left = int(round(pad_x - 0.1))
         padded = cv2.copyMakeBorder(
-            resized, top, INPUT_SIZE - new_h - top,
-            left, INPUT_SIZE - new_w - left,
+            resized, top, size - new_h - top,
+            left, size - new_w - left,
             cv2.BORDER_CONSTANT, value=(114, 114, 114),
         )
 

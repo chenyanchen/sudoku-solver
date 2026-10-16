@@ -8,6 +8,7 @@ from backend.cv.corner_cnn_detector import CornerCnnDetector
 def test_corners_without_a_grid_are_not_a_detection(monkeypatch):
     detector = CornerCnnDetector.__new__(CornerCnnDetector)
     detector._input_name = "image"
+    detector._input_size = 256
 
     class Session:
         def run(self, *args):
