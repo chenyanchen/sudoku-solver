@@ -175,10 +175,14 @@ class Renderer:
         tight = self.p(0.1)
         ml, mr, mt, mb = ((self.u(0, 0.02) * g for _ in range(4)) if tight
                           else (self.u(0.03, 1.2) * g for _ in range(4)))
-        keypad = None if tight or not self.p(0.35) else r.choice(["right", "below", "row"])
+        # "box": a 3x3 keypad beside the grid, the size of a few cells; Corner CNN
+        # placed corners on such keypads, which look like the grid's 3x3 boxes.
+        keypad = None if tight or not self.p(0.5) else r.choice(["right", "below", "row", "box", "rows"])
         if keypad == "right":
             mr = max(mr, g * self.u(0.25, 0.45))
-        elif keypad in ("below", "row"):
+        elif keypad == "box":
+            mr = max(mr, g * self.u(0.45, 0.8))
+        elif keypad in ("below", "row", "rows"):
             mb = max(mb, g * self.u(0.2, 0.45))
         W, H = int(ml + g + mr), int(mt + g + mb)
         page = np.empty((H, W, 3), np.uint8)
@@ -202,7 +206,7 @@ class Renderer:
                     self.text_block(dr, self.u(0, W / 2), y0 + g + mb * 0.2, self.u(0.2, 0.8) * W, mb * 0.6, faint, cell)
                 elif side == 2 and ml > 20:
                     self.text_block(dr, ml * 0.05, self.u(0, H / 2), ml * 0.8, self.u(0.2, 0.6) * H, faint, cell)
-                elif side == 3 and mr > 20 and keypad != "right":
+                elif side == 3 and mr > 20 and keypad not in ("right", "box"):
                     self.text_block(dr, x0 + g + mr * 0.1, self.u(0, H / 2), mr * 0.8, self.u(0.2, 0.6) * H, faint, cell)
             if keypad:
                 kf = self.font(max(6, int(cell * 0.6)))
@@ -215,21 +219,40 @@ class Renderer:
                         dr.rounded_rectangle([kx, ky, kx + kc, ky + kc * 0.95], radius=kc * 0.15, outline=st["ink"], fill=fill,
                                              width=max(1, int(cell * 0.03)))
                         dr.text((kx + kc / 2, ky + kc / 2), str(i + 1), font=kf, fill=st["ink"], anchor="mm")
+                elif keypad == "box":
+                    kc = min(g * self.u(0.12, 0.2), (mr - 10) / 3.4)
+                    gap = kc * self.u(0.05, 0.25) if self.p(0.6) else 0.0  # gapless: a lined 3x3 grid
+                    side_len = 3 * kc + 2 * gap
+                    panels = 2 if self.p(0.35) and 2.4 * side_len < g else 1
+                    kx = x0 + g + (mr - side_len) * self.u(0.1, 0.5)
+                    ky = y0 + self.u(0, max(0.0, g - panels * side_len * 1.2))
+                    width = max(1, int(cell * self.u(0.03, 0.08)))
+                    for panel in range(panels):
+                        py = ky + panel * side_len * 1.2
+                        for i in range(9):
+                            bx, by = kx + (i % 3) * (kc + gap), py + (i // 3) * (kc + gap)
+                            if gap:
+                                dr.rounded_rectangle([bx, by, bx + kc, by + kc], radius=kc * self.u(0, 0.2),
+                                                     outline=st["ink"], fill=fill, width=width)
+                            else:
+                                dr.rectangle([bx, by, bx + kc, by + kc], outline=st["ink"], fill=fill, width=width)
+                            dr.text((bx + kc / 2, by + kc / 2), str(i + 1), font=self.font(max(6, int(kc * 0.55))),
+                                    fill=st["ink"], anchor="mm")
                 else:
-                    cols = 9 if keypad == "row" else 3
-                    kc = min(g / cols * 0.9, (mb - 10) / (1 if cols == 9 else 3.3))
-                    for i in range(9):
+                    cols = {"row": 9, "rows": 6}.get(keypad, 3)
+                    kc = min(g / cols * 0.9, (mb - 10) / {9: 1, 6: 2.3}.get(cols, 3.3))
+                    for i in range(9 if cols != 6 else 12):
                         kx = x0 + (i % cols) * g / cols + (g / cols - kc) / 2
                         ky = y0 + g + 8 + (i // cols) * kc * 1.1
                         dr.rounded_rectangle([kx, ky, kx + kc, ky + kc], radius=kc * 0.15, outline=st["ink"], fill=fill,
                                              width=max(1, int(cell * 0.03)))
-                        dr.text((kx + kc / 2, ky + kc / 2), str(i + 1), font=kf, fill=st["ink"], anchor="mm")
+                        dr.text((kx + kc / 2, ky + kc / 2), str(i % 9 + 1), font=kf, fill=st["ink"], anchor="mm")
         page[:] = np.asarray(img)
         if not tight and self.p(0.2):  # neighbouring grid, cut by the page edge
             side = self.rng.choice(["l", "r"])
             off = self.u(0.15, 0.6) * cell
             nx = x0 - g - off if side == "l" else x0 + g + off
-            if (side == "l" and ml > off + 5) or (side == "r" and mr > off + 5 and keypad != "right"):
+            if (side == "l" and ml > off + 5) or (side == "r" and mr > off + 5 and keypad not in ("right", "box")):
                 self.draw_grid(page, nx, y0 + self.u(-0.3, 0.3) * g, cell, st, distractor=True)
         if not tight and self.p(0.2):  # decorative frame(s)
             img = Image.fromarray(page)
