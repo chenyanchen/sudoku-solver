@@ -108,7 +108,9 @@ def read_image(image: np.ndarray) -> GridReading | None:
     corners are tried whenever OpenCV's grid does not solve. A unique solution
     is the acceptance test, so Corner CNN skips the grid-regularity check,
     which rejects good corners on photos with moiré. That check still decides
-    whether an unsolved Corner CNN quad counts as a grid at all.
+    whether an unsolved Corner CNN quad counts as a grid at all. Corner CNN's
+    corners refined on a crop around its first quad are tried last: they fix
+    grids that fill a small part of a photo but misplace some others.
     """
     reader = _get_cnn_reader()
 
@@ -125,7 +127,13 @@ def read_image(image: np.ndarray) -> GridReading | None:
 
     corner_cnn = _get_corner_cnn()
     corners = corner_cnn.predict(image) if corner_cnn else None
-    if corners is not None:
+    if corner_cnn is None or corners is None:
+        return found
+    for refined in (False, True):
+        if refined:
+            corners = corner_cnn.refine(image, corners)
+            if corners is None:
+                break
         second = read(corners, "corner_cnn")
         if second.recognition.status == UNIQUE:
             return second

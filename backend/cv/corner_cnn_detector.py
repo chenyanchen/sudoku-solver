@@ -23,6 +23,7 @@ DEFAULT_CORNER_CNN_MODEL = (
 )
 
 INPUT_SIZE = 256
+REFINE_MARGIN = 0.25  # of the quad's extent, on each side
 
 
 class CornerCnnDetector:
@@ -102,6 +103,23 @@ class CornerCnnDetector:
             return None
         self.last_confidence = self._geometric_confidence(corners_raw, corners, w_orig, h_orig)
         return corners
+
+    def refine(self, image: np.ndarray, corners: np.ndarray) -> np.ndarray | None:
+        """Corners predicted again on a crop around `corners`, or None.
+
+        At INPUT_SIZE a grid that fills a small part of a photo spans a few
+        pixels per cell, and its corners can land a cell off; in the crop the
+        grid fills most of the input. Not always closer (some grids moved by
+        several percent on the training images), so callers keep both.
+        """
+        x0, y0 = corners.min(axis=0)
+        x1, y1 = corners.max(axis=0)
+        pad = REFINE_MARGIN * max(x1 - x0, y1 - y0)
+        h, w = image.shape[:2]
+        x0, y0 = int(max(0, x0 - pad)), int(max(0, y0 - pad))
+        x1, y1 = int(min(w, x1 + pad + 1)), int(min(h, y1 + pad + 1))
+        refined = self.predict(image[y0:y1, x0:x1])
+        return None if refined is None else refined + np.float32([x0, y0])
 
     @staticmethod
     def _geometric_confidence(
