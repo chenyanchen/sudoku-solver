@@ -1,4 +1,4 @@
-"""Web reading order: OpenCV first, Corner CNN when OpenCV's grid does not solve."""
+"""Web reading order: OpenCV first, then Corner CNN, then Corner CNN refined on a crop."""
 
 import numpy as np
 import pytest
@@ -21,16 +21,21 @@ class OpenCV:
 
 class CornerCnn:
     calls = 0
+    refines = 0
 
     def predict(self, image):
         CornerCnn.calls += 1
+        return QUAD
+
+    def refine(self, image, corners):
+        CornerCnn.refines += 1
         return QUAD
 
 
 @pytest.fixture
 def setup(monkeypatch):
     def configure(opencv_found, statuses, regular=True):
-        CornerCnn.calls = 0
+        CornerCnn.calls = CornerCnn.refines = 0
         outcomes = iter(statuses)
         monkeypatch.setattr(routes, "_get_cnn_reader", lambda: None)
         monkeypatch.setattr(routes, "_OPENCV", OpenCV(opencv_found))
@@ -51,13 +56,25 @@ def test_unsolved_opencv_grid_is_retried_with_corner_cnn(setup):
     assert routes.read_image(IMAGE).detector_name == "corner_cnn"
 
 
+def test_corner_cnn_quad_that_solves_is_not_refined(setup):
+    setup(False, [UNIQUE])
+    assert routes.read_image(IMAGE).detector_name == "corner_cnn"
+    assert CornerCnn.refines == 0
+
+
+def test_unsolved_corner_cnn_quad_is_retried_refined(setup):
+    setup(True, [AMBIGUOUS, AMBIGUOUS, UNIQUE])
+    assert routes.read_image(IMAGE).recognition.status == UNIQUE
+    assert CornerCnn.refines == 1
+
+
 def test_neither_solves_keeps_opencv_reading(setup):
-    setup(True, [AMBIGUOUS, AMBIGUOUS])
+    setup(True, [AMBIGUOUS, AMBIGUOUS, AMBIGUOUS])
     assert routes.read_image(IMAGE).detector_name == "opencv"
 
 
 def test_unsolved_corner_cnn_quad_counts_only_if_regular(setup):
-    setup(False, [AMBIGUOUS], regular=False)
+    setup(False, [AMBIGUOUS, AMBIGUOUS], regular=False)
     assert routes.read_image(IMAGE) is None
-    setup(False, [AMBIGUOUS], regular=True)
+    setup(False, [AMBIGUOUS, AMBIGUOUS], regular=True)
     assert routes.read_image(IMAGE).detector_name == "corner_cnn"
