@@ -28,7 +28,7 @@ from ..models.schemas import (
     StatsResponse,
 )
 from ..ocr.cnn_digit_reader import CnnDigitReader
-from ..ocr.pipeline import UNIQUE, UNSOLVABLE, Recognition, recognize
+from ..ocr.pipeline import AMBIGUOUS, UNIQUE, UNSOLVABLE, Recognition, recognize
 from ..records import Records
 from ..solver.backtracking import SudokuSolver, is_valid_grid
 
@@ -111,6 +111,11 @@ def read_image(image: np.ndarray) -> GridReading | None:
     whether an unsolved Corner CNN quad counts as a grid at all. Corner CNN's
     corners refined on a crop around its first quad are tried last: they fix
     grids that fill a small part of a photo but misplace some others.
+
+    Some published puzzles are ambiguous, so no reading of them is unique.
+    When nothing solves uniquely, a reading with solutions beats one with
+    none (certainly misread), provided it has a puzzle's worth of givens: an
+    empty or partial grid has solutions too.
     """
     reader = _get_cnn_reader()
 
@@ -137,9 +142,22 @@ def read_image(image: np.ndarray) -> GridReading | None:
         second = read(corners, "corner_cnn")
         if second.recognition.status == UNIQUE:
             return second
-        if found is None and has_regular_grid_lines(cv2.cvtColor(second.warped, cv2.COLOR_BGR2GRAY)):
+        if found is None:
+            if has_regular_grid_lines(cv2.cvtColor(second.warped, cv2.COLOR_BGR2GRAY)):
+                found = second
+        elif _may_be_exact(second) and not _may_be_exact(found):
             found = second
     return found
+
+
+# No puzzle with fewer givens has a unique solution, so none is published.
+MIN_PUZZLE_GIVENS = 17
+
+
+def _may_be_exact(reading: GridReading) -> bool:
+    """A non-unique reading that could still be the puzzle as printed."""
+    result = reading.recognition
+    return result.status == AMBIGUOUS and result.givens >= MIN_PUZZLE_GIVENS
 
 
 def _get_cnn_reader() -> CnnDigitReader:
