@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import tempfile
@@ -160,11 +161,19 @@ def load_dataset(corners_path: Path, images_dir: Path = DATA_IMAGE_DIR):
 
 
 def split_dataset(samples, labels_path: Path, val_ratio: float, seed: int):
-    """Split by puzzle, so copies of one grid (rescaled, re-photographed) stay together."""
+    """Split by puzzle, so copies of one grid (rescaled, re-photographed) stay together.
+
+    Each puzzle's side follows from a hash of its grid and the seed, so adding
+    images never moves existing ones between train and val: a model trained on
+    more data is compared with the previous one on the same val images.
+    """
     grids = {Path(name).name: json.dumps(grid) for name, grid in json.loads(labels_path.read_text()).items()}
-    groups = sorted({grids.get(path.name, path.name) for path, _ in samples})
-    random.Random(seed).shuffle(groups)
-    val_groups = set(groups[: max(1, int(round(len(groups) * val_ratio)))])
+    groups = {grids.get(path.name, path.name) for path, _ in samples}
+
+    def draw(group: str) -> float:
+        return int(hashlib.sha256(f"{seed}:{group}".encode()).hexdigest()[:8], 16) / 2**32
+
+    val_groups = {g for g in groups if draw(g) < val_ratio}
     train = [s for s in samples if grids.get(s[0].name, s[0].name) not in val_groups]
     val = [s for s in samples if grids.get(s[0].name, s[0].name) in val_groups]
     return train, val
