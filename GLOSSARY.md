@@ -47,5 +47,16 @@ The share of distinct uploaded images that are solved uploads.
 **Label**:
 The givens of a training or test image, transcribed from the image. It has at least one solution; several are allowed when the puzzle itself is ambiguous.
 
+**Grid corners**:
+The four corners of a puzzle's 9×9 grid in an image, as reviewed by a person. Every training image needs them.
+_Avoid_: predicted corners (a model's guess, never training data)
+
+**Synthetic image**:
+A generated puzzle image with known grid corners. Used only for training, never to choose or release a model.
+
 **Release gate**:
 The set of labeled images a model must read exactly before it can be released.
+
+**Test set**:
+Labeled images kept apart from training and from the release gate, used only to report how a model does on images it has never been tuned on.
+_Avoid_: validation set (a slice of the training images)
