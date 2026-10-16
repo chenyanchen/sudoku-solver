@@ -34,6 +34,11 @@ def test_training_uses_labeled_corners_and_keeps_puzzles_together(tmp_path):
     assert {s.source for s in train}.isdisjoint(s.source for s in val)
     assert [s.source for s in val] == [s.source for s in grouped_split(samples, 0.2, 42)[1]]
 
+    jittered = build_samples(labels, 48, corners_path=corners, jitter_copies=2)
+    assert len(jittered) == 3 * 81
+    assert [s.jittered for s in jittered] == [False] * 81 + [True] * 162
+    assert all(s.source == samples[0].source for s in jittered)  # copies share their puzzle's split
+
     corners.write_text("image,x_tl,y_tl,x_tr,y_tr,x_br,y_br,x_bl,y_bl\n")
     with pytest.raises(ValueError, match="Missing ground-truth corners"):
         build_samples(labels, 48, corners_path=corners)
