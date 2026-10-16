@@ -36,6 +36,7 @@ def test_tiny_model_takes_any_multiple_of_32():
     assert outputs.shape == (1, 8)
 
 
-def test_tiny_arch_needs_four_widths():
-    with pytest.raises(ValueError, match="four widths"):
-        create_corner_model("tiny_16-32-64")
+@pytest.mark.parametrize("arch", ["tiny_16-32-64", "tiny_16-32-64-128_wide"])
+def test_tiny_arch_needs_four_widths_and_a_known_suffix(arch):
+    with pytest.raises(ValueError, match="expected tiny_"):
+        create_corner_model(arch)
