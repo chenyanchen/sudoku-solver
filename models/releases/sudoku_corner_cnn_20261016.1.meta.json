@@ -1,0 +1,39 @@
+{
+  "model_type": "corner_cnn",
+  "model_version": "20261016.1",
+  "source_run_id": "a8a587460f064b27a62fb6f684c32510",
+  "source_experiment_id": "316961318942125732",
+  "source_metric_name": "warp_iou",
+  "source_metric_value": 0.913406298177337,
+  "source_git_commit": "e50c0dbc42ba3523735aa7d74e747c9bd5e56717",
+  "source_git_dirty": "false",
+  "source_git_diff_sha256": null,
+  "training_data_sha256": {
+    "corners": "77754f3c27e79d068a3d19719ba72eedace69dedeeb8750bd9ede56686c617e7",
+    "synth_labels": "4201725dfa00da193b40d47103443bf43e5d3e9de68da417bb66294c3170db76",
+    "images": "2f40ad19fa68ed176fdb1b99092903274e06b4acad29dea2b7267869719fa4e2"
+  },
+  "training_params": {
+    "num_train": "54",
+    "seed": "42",
+    "backbone_lr": "0.001",
+    "num_synth": "6000",
+    "patience": "40",
+    "input_size": "256",
+    "freeze_epochs": "0",
+    "weight_decay": "0.0001",
+    "num_val": "14",
+    "version": "2.1.0",
+    "epochs": "40",
+    "arch": "heatmap",
+    "heatmap_sigma": "1.0",
+    "batch_size": "32",
+    "val_ratio": "0.2",
+    "device": "mps",
+    "head_lr": "0.001",
+    "real_repeat": "10"
+  },
+  "release_git_commit": "2972d2915934efc15b7405eca8ea09fa82cfc5dc",
+  "release_git_dirty": "false",
+  "released_at_utc": "2026-10-16T07:21:30.594046+00:00"
+}
