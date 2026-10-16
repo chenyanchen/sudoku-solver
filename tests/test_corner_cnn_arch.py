@@ -25,3 +25,17 @@ def test_soft_argmax_finds_a_sharp_peak():
 
     assert torch.allclose(coords[0, 0], torch.tensor([48.5 / 64, 16.5 / 64]), atol=1e-4)
     assert torch.isclose(prob.sum(), torch.tensor(1.0))
+
+
+def test_tiny_model_takes_any_multiple_of_32():
+    model = create_corner_model("tiny_16-32-64-128").eval()
+
+    with torch.no_grad():
+        outputs = model(torch.randn(1, 3, 384, 384))
+
+    assert outputs.shape == (1, 8)
+
+
+def test_tiny_arch_needs_four_widths():
+    with pytest.raises(ValueError, match="four widths"):
+        create_corner_model("tiny_16-32-64")

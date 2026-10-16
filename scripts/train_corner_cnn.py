@@ -44,39 +44,39 @@ def _import_torch():
 # Dataset
 # ---------------------------------------------------------------------------
 
-INPUT_SIZE = 256
+INPUT_SIZE = 256  # default; --input-size
 
 
-def _letterbox(image: np.ndarray) -> tuple[np.ndarray, float, float, float]:
-    """Letterbox resize to INPUT_SIZE x INPUT_SIZE.
+def _letterbox(image: np.ndarray, size: int = INPUT_SIZE) -> tuple[np.ndarray, float, float, float]:
+    """Letterbox resize to size x size.
 
     Returns (padded_image, scale, pad_x, pad_y).
     """
     h, w = image.shape[:2]
-    scale = INPUT_SIZE / max(h, w)
+    scale = size / max(h, w)
     new_w = int(round(w * scale))
     new_h = int(round(h * scale))
     resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-    pad_x = (INPUT_SIZE - new_w) / 2.0
-    pad_y = (INPUT_SIZE - new_h) / 2.0
+    pad_x = (size - new_w) / 2.0
+    pad_y = (size - new_h) / 2.0
     top = int(round(pad_y - 0.1))
     left = int(round(pad_x - 0.1))
     padded = cv2.copyMakeBorder(
-        resized, top, INPUT_SIZE - new_h - top,
-        left, INPUT_SIZE - new_w - left,
+        resized, top, size - new_h - top,
+        left, size - new_w - left,
         cv2.BORDER_CONSTANT, value=(114, 114, 114),
     )
     return padded, scale, float(left), float(top)
 
 
 def _corners_to_letterbox(
-    corners: np.ndarray, w: int, h: int, scale: float, pad_x: float, pad_y: float
+    corners: np.ndarray, w: int, h: int, scale: float, pad_x: float, pad_y: float, size: int = INPUT_SIZE,
 ) -> np.ndarray:
     """Convert normalized [0,1] corners to letterbox-normalized [0,1] coords."""
     lb = np.zeros_like(corners)
-    lb[:, 0] = (corners[:, 0] * w * scale + pad_x) / INPUT_SIZE
-    lb[:, 1] = (corners[:, 1] * h * scale + pad_y) / INPUT_SIZE
+    lb[:, 0] = (corners[:, 0] * w * scale + pad_x) / size
+    lb[:, 1] = (corners[:, 1] * h * scale + pad_y) / size
     return lb.astype(np.float32)
 
 
@@ -86,7 +86,7 @@ def _apply_augmentation(
     """Apply geometric + photometric augmentation to image and corners.
 
     Args:
-        image: (INPUT_SIZE, INPUT_SIZE, 3) uint8 letterboxed image
+        image: (size, size, 3) uint8 letterboxed image
         corners: (4, 2) normalized [0,1] in letterbox space
 
     Returns:
@@ -188,7 +188,7 @@ def load_synthetic(synth_dir: Path):
 class CornerDataset:
     """PyTorch Dataset for corner regression; images are letterboxed once and cached."""
 
-    def __init__(self, samples, augment: bool):
+    def __init__(self, samples, augment: bool, size: int = INPUT_SIZE):
         torch, _, Dataset = _import_torch()
         cache = []
         for img_path, corners in samples:
@@ -196,8 +196,8 @@ class CornerDataset:
             if image is None:
                 raise FileNotFoundError(f"Cannot read: {img_path}")
             h, w = image.shape[:2]
-            padded, scale, pad_x, pad_y = _letterbox(image)
-            cache.append((padded, _corners_to_letterbox(corners, w, h, scale, pad_x, pad_y)))
+            padded, scale, pad_x, pad_y = _letterbox(image, size)
+            cache.append((padded, _corners_to_letterbox(corners, w, h, scale, pad_x, pad_y, size)))
 
         class _Impl(Dataset):
             def __len__(self):
@@ -237,7 +237,7 @@ def heatmap_loss(model, images, targets, sigma: float):
 # Evaluation
 # ---------------------------------------------------------------------------
 
-def compute_metrics(pred: np.ndarray, target: np.ndarray) -> dict:
+def compute_metrics(pred: np.ndarray, target: np.ndarray, size: int = INPUT_SIZE) -> dict:
     """Compute corner_mae and warp_iou.
 
     Args:
@@ -250,11 +250,11 @@ def compute_metrics(pred: np.ndarray, target: np.ndarray) -> dict:
     # Warp IoU: for each sample, compute IoU of the quadrilateral
     ious = []
     for i in range(pred.shape[0]):
-        p_pts = (pred[i].reshape(4, 2) * INPUT_SIZE).astype(np.int32)
-        t_pts = (target[i].reshape(4, 2) * INPUT_SIZE).astype(np.int32)
+        p_pts = (pred[i].reshape(4, 2) * size).astype(np.int32)
+        t_pts = (target[i].reshape(4, 2) * size).astype(np.int32)
 
-        p_mask = np.zeros((INPUT_SIZE, INPUT_SIZE), dtype=np.uint8)
-        t_mask = np.zeros((INPUT_SIZE, INPUT_SIZE), dtype=np.uint8)
+        p_mask = np.zeros((size, size), dtype=np.uint8)
+        t_mask = np.zeros((size, size), dtype=np.uint8)
         cv2.fillConvexPoly(p_mask, p_pts, 1)
         cv2.fillConvexPoly(t_mask, t_pts, 1)
 
@@ -274,7 +274,10 @@ def compute_metrics(pred: np.ndarray, target: np.ndarray) -> dict:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train the Corner CNN")
-    parser.add_argument("--arch", choices=["regress", "heatmap"], default="heatmap")
+    parser.add_argument("--arch", default="heatmap", help="regress, heatmap or tiny_<w4>-<w8>-<w16>-<w32> (corner_cnn_arch)")
+    parser.add_argument("--input-size", type=int, default=INPUT_SIZE, help="Letterboxed input side, a multiple of 32")
+    parser.add_argument("--pretrained", action=argparse.BooleanOptionalAction, default=True,
+                        help="ImageNet weights for the MobileNetV3 archs (tiny_ always trains from scratch)")
     parser.add_argument("--corners", type=Path, default=DEFAULT_CORNERS)
     parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS, help="Groups the val split by puzzle")
     parser.add_argument("--synth", type=Path, default=None,
@@ -317,20 +320,21 @@ def main() -> int:
     samples = load_dataset(args.corners)
     train_samples, val_samples = split_dataset(samples, args.labels, args.val_ratio, args.seed)
     synth_samples = load_synthetic(args.synth) if args.synth else []
-    train_sets = [CornerDataset(train_samples, augment=True).impl] * args.real_repeat
+    size = args.input_size
+    train_sets = [CornerDataset(train_samples, augment=True, size=size).impl] * args.real_repeat
     if synth_samples:
-        train_sets.append(CornerDataset(synth_samples, augment=True).impl)
+        train_sets.append(CornerDataset(synth_samples, augment=True, size=size).impl)
     train_loader = DataLoader(ConcatDataset(train_sets), batch_size=args.batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(
-        CornerDataset(val_samples, augment=False).impl,
+        CornerDataset(val_samples, augment=False, size=size).impl,
         batch_size=args.batch_size, shuffle=False, num_workers=0,
     )
 
     from backend.cv.corner_cnn_arch import create_corner_model
-    model = create_corner_model(args.arch).to(device)
+    model = create_corner_model(args.arch, pretrained=args.pretrained).to(device)
     head = [p for name, p in model.named_parameters() if not name.startswith("backbone.")]
 
-    if args.arch == "heatmap":
+    if args.arch != "regress":  # heatmap and tiny_ archs
         def step(images, targets):
             return heatmap_loss(model, images, targets, args.heatmap_sigma)
     else:
@@ -368,7 +372,9 @@ def main() -> int:
             "num_val": len(val_samples),
             "num_synth": len(synth_samples),
             "real_repeat": args.real_repeat,
-            "input_size": INPUT_SIZE,
+            "input_size": size,
+            "pretrained": args.pretrained and not args.arch.startswith("tiny_"),
+            "num_params": sum(p.numel() for p in model.parameters()),
             "device": device.type,
         })
         tags = {
@@ -420,7 +426,7 @@ def main() -> int:
                     all_preds.append(preds.cpu().numpy())
                     all_targets.append(targets.cpu().numpy())
             val_loss /= max(1, len(val_loader))
-            metrics = compute_metrics(np.concatenate(all_preds), np.concatenate(all_targets))
+            metrics = compute_metrics(np.concatenate(all_preds), np.concatenate(all_targets), size)
             epoch_duration = time.time() - epoch_start
 
             print(
@@ -444,7 +450,7 @@ def main() -> int:
                     "state_dict": {k: v.detach().cpu().clone() for k, v in model.state_dict().items()},
                     "arch": args.arch,
                     "version": args.version,
-                    "input_size": INPUT_SIZE,
+                    "input_size": size,
                     "best_warp_iou": best_warp_iou,
                     "epoch": epoch,
                 }
