@@ -112,6 +112,15 @@ class TestHasRegularGridLines:
             cv2.line(img, (x, 0), (x, 449), 0, 2)
         assert has_regular_grid_lines(img)
 
+    def test_light_lines_on_dark_background(self):
+        """A dark-theme grid: thin light lines, thicker box lines."""
+        img = np.full((450, 450), 40, dtype=np.uint8)
+        for i in range(10):
+            p = min(i * 50, 448)
+            cv2.line(img, (0, p), (449, p), 200, 4 if i % 3 == 0 else 1)
+            cv2.line(img, (p, 0), (p, 449), 200, 4 if i % 3 == 0 else 1)
+        assert has_regular_grid_lines(img)
+
     def test_irregular_lines(self):
         """Lines clustered in the centre should fail (insufficient span)."""
         img = np.ones((450, 450), dtype=np.uint8) * 255
