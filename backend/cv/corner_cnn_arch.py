@@ -13,12 +13,14 @@ Both take a letterboxed RGB image and output 8 values in [0, 1]:
   depthwise-separable backbone trained from scratch, with the given widths at
   strides 4 to 32 (two convs each, after a stride-2 stem to 16 channels).
   Stride 32 lets every corner see the whole grid: locally an outer corner
-  looks like a box corner inside it.
+  looks like a box corner inside it. A ``_ctx`` suffix adds context at
+  stride 32 (dilated separable convs and a global-pool branch): without it
+  the tiny nets placed corners on a keypad next to the grid.
 """
 
 from __future__ import annotations
 
-ARCHS = ("regress", "heatmap", "tiny_16-32-64-128")
+ARCHS = ("regress", "heatmap", "tiny_16-32-64-128", "tiny_16-32-64-128_ctx")
 FPN_CHANNELS = 64
 TINY_FPN_CHANNELS = 32
 
@@ -79,18 +81,43 @@ def create_corner_model(arch: str = "regress", pretrained: bool = True):
         return _heatmap_model(backbone, backbone.feature_info.channels(), FPN_CHANNELS)
 
     if arch.startswith("tiny_"):
-        widths = [int(w) for w in arch[len("tiny_"):].split("-")]
-        if len(widths) != 4:
-            raise ValueError(f"{arch}: expected four widths, for strides 4, 8, 16 and 32")
-        return _heatmap_model(_tiny_backbone(widths), widths, TINY_FPN_CHANNELS)
+        spec, _, suffix = arch[len("tiny_"):].partition("_")
+        widths = [int(w) for w in spec.split("-")]
+        if len(widths) != 4 or suffix not in ("", "ctx"):
+            raise ValueError(f"{arch}: expected tiny_<w4>-<w8>-<w16>-<w32>[_ctx]")
+        return _heatmap_model(_tiny_backbone(widths, context=suffix == "ctx"), widths, TINY_FPN_CHANNELS)
 
     raise ValueError(f"Unknown corner model arch: {arch} (expected one of {ARCHS})")
 
 
-def _tiny_backbone(widths: list[int]):
+def _tiny_backbone(widths: list[int], context: bool = False):
     """Features at strides 4, 8, 16 and 32, as the timm backbone returns them."""
     _, _, nn, _ = _import()
     from backend.ocr.model_arch import _conv_bn_relu
+
+    class Context(nn.Module):
+        """Dilated separable convs and the image's mean feature, in a quarter-width bottleneck, added back."""
+
+        def __init__(self, ch: int):
+            super().__init__()
+            mid = ch // 4
+            self.reduce = nn.Sequential(nn.Conv2d(ch, mid, 1, bias=False), nn.BatchNorm2d(mid), nn.ReLU(inplace=True))
+            self.dilated = nn.ModuleList(nn.Sequential(
+                nn.Conv2d(mid, mid, 3, padding=d, dilation=d, groups=mid, bias=False),
+                nn.BatchNorm2d(mid),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(mid, mid, 1, bias=False),
+                nn.BatchNorm2d(mid),
+                nn.ReLU(inplace=True),
+            ) for d in (2, 4))
+            self.pool = nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Conv2d(mid, mid, 1), nn.ReLU(inplace=True))
+            self.expand = nn.Conv2d(mid, ch, 1)
+
+        def forward(self, x):
+            y = self.reduce(x)
+            for conv in self.dilated:
+                y = y + conv(y)
+            return x + self.expand(y + self.pool(y))
 
     class TinyBackbone(nn.Module):
         def __init__(self):
@@ -104,12 +131,14 @@ def _tiny_backbone(widths: list[int]):
                 ))
                 in_ch = width
             self.stages = nn.ModuleList(stages)
+            self.context = Context(widths[-1]) if context else nn.Identity()
 
         def forward(self, x):
             features, x = [], self.stem(x)
             for stage in self.stages:
                 x = stage(x)
                 features.append(x)
+            features[-1] = self.context(features[-1])
             return features
 
     return TinyBackbone()
