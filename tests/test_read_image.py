@@ -5,7 +5,7 @@ import pytest
 
 from backend.api import routes
 from backend.cv.detector import DetectionResult
-from backend.ocr.pipeline import AMBIGUOUS, UNIQUE, Recognition
+from backend.ocr.pipeline import AMBIGUOUS, UNIQUE, UNSOLVABLE, Recognition
 
 QUAD = np.float32([[10, 10], [90, 10], [90, 90], [10, 90]])
 IMAGE = np.full((100, 100, 3), 255, np.uint8)
@@ -32,6 +32,13 @@ class CornerCnn:
         return QUAD
 
 
+def _recognition(outcome):
+    """A status, or (status, number of givens)."""
+    status, givens = outcome if isinstance(outcome, tuple) else (outcome, 0)
+    grid = [[1 if r * 9 + c < givens else 0 for c in range(9)] for r in range(9)]
+    return Recognition(grid, None, status, {})
+
+
 @pytest.fixture
 def setup(monkeypatch):
     def configure(opencv_found, statuses, regular=True):
@@ -40,7 +47,7 @@ def setup(monkeypatch):
         monkeypatch.setattr(routes, "_get_cnn_reader", lambda: None)
         monkeypatch.setattr(routes, "_OPENCV", OpenCV(opencv_found))
         monkeypatch.setattr(routes, "_get_corner_cnn", lambda: CornerCnn())
-        monkeypatch.setattr(routes, "recognize", lambda reader, warped: Recognition([], None, next(outcomes), {}))
+        monkeypatch.setattr(routes, "recognize", lambda reader, warped: _recognition(next(outcomes)))
         monkeypatch.setattr(routes, "has_regular_grid_lines", lambda gray: regular)
     return configure
 
@@ -78,3 +85,15 @@ def test_unsolved_corner_cnn_quad_counts_only_if_regular(setup):
     assert routes.read_image(IMAGE) is None
     setup(False, [AMBIGUOUS, AMBIGUOUS], regular=True)
     assert routes.read_image(IMAGE).detector_name == "corner_cnn"
+
+
+def test_ambiguous_reading_beats_unsolvable_one(setup):
+    """An ambiguous puzzle never reads as unique; an unsolvable reading is certainly wrong."""
+    setup(True, [UNSOLVABLE, (AMBIGUOUS, 34), (AMBIGUOUS, 34)])
+    assert routes.read_image(IMAGE).detector_name == "corner_cnn"
+
+
+def test_partial_grid_does_not_beat_unsolvable_reading(setup):
+    """A quad over part of the grid reads few givens, which have solutions too."""
+    setup(True, [UNSOLVABLE, (AMBIGUOUS, 5), (AMBIGUOUS, 16)])
+    assert routes.read_image(IMAGE).detector_name == "opencv"
