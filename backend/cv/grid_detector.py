@@ -289,12 +289,15 @@ def has_regular_grid_lines(gray: np.ndarray) -> bool:
 
     Passes when both directions have at most 2 lines missing, or one has at
     most 1 missing (thin lines in the other direction can be lost in border
-    texture).
+    texture). Lines may be dark on light or light on dark (dark themes).
     """
     h, w = gray.shape[:2]
-    h_peaks, v_peaks = _detect_grid_lines(gray)
-    h_hits, v_hits = _lattice_hits(h_peaks, h), _lattice_hits(v_peaks, w)
-    return min(h_hits, v_hits) >= 8 or max(h_hits, v_hits) >= 9
+    for image in (gray, 255 - gray):
+        h_peaks, v_peaks = _detect_grid_lines(image)
+        h_hits, v_hits = _lattice_hits(h_peaks, h), _lattice_hits(v_peaks, w)
+        if min(h_hits, v_hits) >= 8 or max(h_hits, v_hits) >= 9:
+            return True
+    return False
 
 
 _LINE_TOL = 0.25  # cells
