@@ -227,7 +227,7 @@ mlruns/
 data/warped_grids/
 data/yolo_grid/
 data/corner_cnn/
-data/synth_corner/
+data/synth_corner*/
 models/yolo_runs/
 runs/
 *.pt
