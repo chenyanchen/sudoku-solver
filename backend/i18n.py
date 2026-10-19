@@ -1,9 +1,10 @@
 """The site's two languages: English at /, Simplified Chinese at /zh/.
 
 Each language is its own URL (with hreflang alternates), so search engines
-index both. Pages are rendered once from frontend/index.html; `{{key}}` is
-replaced with the HTML-escaped text, and the frontend's own strings are
-injected as JSON.
+index both. The solver page is rendered once from frontend/index.html;
+`{{key}}` is replaced with the HTML-escaped text, and the frontend's own
+strings are injected as JSON. Articles are frontend/article.html around a
+body from frontend/articles/<slug>.<lang>.html, kept as HTML.
 """
 
 from __future__ import annotations
@@ -17,7 +18,8 @@ from pathlib import Path
 
 BASE_URL = os.getenv("SUDOKU_BASE_URL", "https://sudokusolver.dpdns.org").rstrip("/")
 PATHS = {"en": "/", "zh": "/zh/"}
-_TEMPLATE = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
+_FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
+_TEMPLATE = _FRONTEND / "index.html"
 
 TEXT: dict[str, dict[str, str]] = {
     "en": {
@@ -25,13 +27,15 @@ TEXT: dict[str, dict[str, str]] = {
         "og_locale": "en_US",
         "other_lang_name": "中文",
         "title": "Sudoku Solver – Solve a Sudoku from a Photo or Screenshot",
-        "description": "Upload a photo or screenshot of a Sudoku puzzle and get the solution in seconds. "
-                       "Fix any misread digit and solve again. Free, no sign-up.",
+        "description": "Upload a photo or screenshot of a Sudoku puzzle, or type it in, and get the solution in "
+                       "seconds. Fix any misread digit and solve again. Free, no sign-up.",
         "h1": "Sudoku Solver",
         "subtitle": "Upload a photo or screenshot of a Sudoku puzzle to solve it",
         "upload_text": "Click to upload or drag and drop",
         "upload_hint": "JPG, PNG or WEBP, up to 10 MB",
         "storage_notice": "Uploaded images are stored and used only to improve recognition.",
+        "manual_button": "No image? Type in the puzzle",
+        "share_button": "Share the solution",
         "original_image": "Your image",
         "detected_grid": "Detected grid",
         "solve_button": "Solve again",
@@ -63,18 +67,21 @@ TEXT: dict[str, dict[str, str]] = {
                          "No IP address and no file name. Images are used only to improve recognition "
                          "and are never published.",
         "footer": "Recognition: OpenCV, a grid-corner CNN and a digit CNN, running on our server.",
+        "how_link": "How the recognition works",
     },
     "zh": {
         "html_lang": "zh-Hans",
         "og_locale": "zh_CN",
         "other_lang_name": "English",
         "title": "数独求解器 – 拍照或截图即可解数独",
-        "description": "上传数独的照片或截图，几秒内得到答案。识别错的数字可以直接改正后重新求解。免费，无需注册。",
+        "description": "上传数独的照片或截图，或者手动输入题目，几秒内得到答案。识别错的数字可以直接改正后重新求解。免费，无需注册。",
         "h1": "数独求解器",
         "subtitle": "上传数独的照片或截图，立即求解",
         "upload_text": "点击上传，或把图片拖到这里",
         "upload_hint": "支持 JPG、PNG、WEBP，最大 10 MB",
         "storage_notice": "上传的图片会被保存，仅用于改进识别。",
+        "manual_button": "没有图片？手动输入题目",
+        "share_button": "分享答案",
         "original_image": "你的图片",
         "detected_grid": "识别到的网格",
         "solve_button": "重新求解",
@@ -102,6 +109,7 @@ TEXT: dict[str, dict[str, str]] = {
         "faq_privacy_a": "你上传的图片、是否解出、耗时，以及你改正过的数字。不记录 IP 地址和文件名。"
                          "图片只用于改进识别，不会公开。",
         "footer": "识别：OpenCV、网格角点 CNN 与数字 CNN，运行在我们的服务器上。",
+        "how_link": "识别是怎么做的",
     },
 }
 
@@ -121,6 +129,16 @@ JS_TEXT: dict[str, dict[str, str]] = {
         "invalid": "Some digits repeat in a row, column or box. Check them against your image.",
         "network": "Could not reach the server: {error}",
         "cell": "Row {row}, column {col}",
+        "manualTitle": "Your puzzle",
+        "manualHint": "Type the given digits; arrow keys move between cells.",
+        "manualSolve": "Solve",
+        "recognizedTitle": "Recognized puzzle",
+        "recognizedHint": "Misread a digit? Click a cell to fix it, then solve again.",
+        "resolve": "Solve with my corrections",
+        "tooFewGivens": "Enter at least 17 digits: a puzzle with fewer has more than one solution.",
+        "shareText": "Solved with Sudoku Solver: photo in, solution out.",
+        "shareFile": "sudoku-solution.png",
+        "brand": "Sudoku Solver",
     },
     "zh": {
         "stats": "已解出 {solved} / {total} 道上传的题目（{percentage}%）",
@@ -136,6 +154,16 @@ JS_TEXT: dict[str, dict[str, str]] = {
         "invalid": "有数字在同一行、列或宫里重复了，请对照原图检查。",
         "network": "无法连接服务器：{error}",
         "cell": "第 {row} 行，第 {col} 列",
+        "manualTitle": "你的题目",
+        "manualHint": "输入题目给出的数字，方向键可在格子间移动。",
+        "manualSolve": "求解",
+        "recognizedTitle": "识别出的题目",
+        "recognizedHint": "有数字识别错了？点击格子改正，再重新求解。",
+        "resolve": "按我的修改求解",
+        "tooFewGivens": "请至少输入 17 个数字：少于 17 个的题目不止一个解。",
+        "shareText": "用数独求解器解出来的：拍张照，答案就出来了。",
+        "shareFile": "sudoku-solution.png",
+        "brand": "数独求解器",
     },
 }
 
@@ -170,15 +198,77 @@ def render(lang: str) -> str:
         url_zh=BASE_URL + PATHS["zh"],
         other_url=PATHS[other],
         other_lang=TEXT[other]["html_lang"],
+        how_url=ARTICLE_PATHS["how-it-works"][lang],
+        manifest_url=PATHS[lang] + "manifest.webmanifest",
         json_ld=_json_ld(lang),
         js_strings=_script_json(JS_TEXT[lang]),
         asset_version=_asset_version(),
     )
-    page = _TEMPLATE.read_text(encoding="utf-8")
+    return _fill(_TEMPLATE, values)
+
+
+# Articles: their own URL per language, listed in the sitemap.
+ARTICLE_PATHS = {
+    "how-it-works": {"en": "/how-it-works", "zh": "/zh/how-it-works"},
+}
+
+ARTICLE_TEXT: dict[str, dict[str, dict[str, str]]] = {
+    "how-it-works": {
+        "en": {
+            "title": "How a Photo Becomes a Solved Sudoku – Sudoku Solver",
+            "description": "Grid detection with OpenCV and a corner-heatmap CNN, a 38K-parameter digit CNN, "
+                           "and the unique solution as the acceptance test: how Sudoku Solver reads photos "
+                           "and screenshots.",
+            "back": "Solve a Sudoku",
+        },
+        "zh": {
+            "title": "一张照片如何变成解好的数独 – 数独求解器",
+            "description": "OpenCV 与角点热力图 CNN 找网格，3.8 万参数的数字 CNN 读数字，用唯一解作为验收标准："
+                           "数独求解器是怎样识别照片和截图的。",
+            "back": "去解一道数独",
+        },
+    },
+}
+
+
+@cache
+def render_article(slug: str, lang: str) -> str:
+    other = "zh" if lang == "en" else "en"
+    paths = ARTICLE_PATHS[slug]
+    text = ARTICLE_TEXT[slug][lang]
+    values = {key: html.escape(value) for key, value in text.items()}
+    values.update(
+        html_lang=TEXT[lang]["html_lang"],
+        og_locale=TEXT[lang]["og_locale"],
+        url=BASE_URL + paths[lang],
+        url_en=BASE_URL + paths["en"],
+        url_zh=BASE_URL + paths["zh"],
+        other_url=paths[other],
+        other_lang=TEXT[other]["html_lang"],
+        other_lang_name=TEXT[lang]["other_lang_name"],
+        home_url=PATHS[lang],
+        footer=html.escape(TEXT[lang]["footer"]),
+        json_ld=_script_json({
+            "@context": "https://schema.org",
+            "@type": "TechArticle",
+            "headline": text["title"],
+            "description": text["description"],
+            "url": BASE_URL + paths[lang],
+            "inLanguage": TEXT[lang]["html_lang"],
+            "author": {"@type": "Person", "name": "Yanchen Chen"},
+        }),
+        asset_version=_asset_version(),
+        body=(_FRONTEND / "articles" / f"{slug}.{lang}.html").read_text(encoding="utf-8"),
+    )
+    return _fill(_FRONTEND / "article.html", values)
+
+
+def _fill(template: Path, values: dict[str, str]) -> str:
+    page = template.read_text(encoding="utf-8")
     for key, value in values.items():
         page = page.replace("{{" + key + "}}", value)
     if "{{" in page:
-        raise ValueError(f"Unfilled placeholder in {_TEMPLATE}: {page[page.index('{{'):][:40]}")
+        raise ValueError(f"Unfilled placeholder in {template}: {page[page.index('{{'):][:40]}")
     return page
 
 
@@ -191,12 +281,44 @@ def _asset_version() -> str:
     return digest.hexdigest()[:12]
 
 
+def manifest(lang: str) -> dict:
+    """Web app manifest: installable, and a share target, so a screenshot can
+    be shared straight to the solver (frontend/sw.js receives it)."""
+    return {
+        "name": TEXT[lang]["h1"],
+        "short_name": TEXT[lang]["h1"],
+        "description": TEXT[lang]["description"],
+        "lang": TEXT[lang]["html_lang"],
+        "id": PATHS[lang],
+        "start_url": PATHS[lang],
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#f8fafc",
+        "theme_color": "#3b82f6",
+        "icons": [
+            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": "/static/icon-maskable-512.png", "sizes": "512x512", "type": "image/png",
+             "purpose": "maskable"},
+        ],
+        "share_target": {
+            "action": PATHS[lang] + "share-target",
+            "method": "POST",
+            "enctype": "multipart/form-data",
+            "params": {"files": [{"name": "image", "accept": ["image/*"]}]},
+        },
+    }
+
+
 def sitemap() -> str:
-    alternates = "".join(
-        f'<xhtml:link rel="alternate" hreflang="{TEXT[lang]["html_lang"]}" href="{BASE_URL + path}"/>'
-        for lang, path in PATHS.items()
-    )
-    urls = "".join(f"<url><loc>{BASE_URL + path}</loc>{alternates}</url>" for path in PATHS.values())
+    pages = [PATHS, *ARTICLE_PATHS.values()]
+    urls = ""
+    for paths in pages:
+        alternates = "".join(
+            f'<xhtml:link rel="alternate" hreflang="{TEXT[lang]["html_lang"]}" href="{BASE_URL + path}"/>'
+            for lang, path in paths.items()
+        )
+        urls += "".join(f"<url><loc>{BASE_URL + path}</loc>{alternates}</url>" for path in paths.values())
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '

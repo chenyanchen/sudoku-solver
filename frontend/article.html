@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="{{html_lang}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}}</title>
+    <meta name="description" content="{{description}}">
+    <link rel="canonical" href="{{url}}">
+    <link rel="alternate" hreflang="en" href="{{url_en}}">
+    <link rel="alternate" hreflang="zh-Hans" href="{{url_zh}}">
+    <link rel="alternate" hreflang="x-default" href="{{url_en}}">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="{{title}}">
+    <meta property="og:description" content="{{description}}">
+    <meta property="og:url" content="{{url}}">
+    <meta property="og:locale" content="{{og_locale}}">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <meta name="theme-color" content="#3b82f6">
+    <link rel="stylesheet" href="/static/style.css?v={{asset_version}}">
+    <script type="application/ld+json">{{json_ld}}</script>
+</head>
+<body>
+    <div class="container">
+        <nav class="lang-switch"><a href="{{home_url}}">← {{back}}</a> · <a href="{{other_url}}" hreflang="{{other_lang}}" lang="{{other_lang}}">{{other_lang_name}}</a></nav>
+        <main>
+            <article class="article">
+{{body}}
+                <p><a class="btn btn-primary cta" href="{{home_url}}">{{back}}</a></p>
+            </article>
+        </main>
+        <footer>
+            <p>{{footer}}</p>
+        </footer>
+    </div>
+</body>
+</html>

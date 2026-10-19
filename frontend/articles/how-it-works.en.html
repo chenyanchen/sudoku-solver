@@ -1,0 +1,39 @@
+                <h1>How a photo becomes a solved Sudoku</h1>
+                <p class="lede">You upload a photo of a newspaper puzzle or a screenshot of an app, and a second later the solution appears. Here is what happens in between, and how we make sure a misread digit does not turn into a wrong answer.</p>
+
+                <figure>
+                    <img src="/static/articles/img/pipeline-paper.webp" width="1608" height="360" alt="A photo of a paper Sudoku with the detected grid outlined, the grid straightened, the grid in black and white, and the solved grid">
+                    <figcaption>Find the grid → straighten it → binarize → read and solve. Photo: “sudoku paper puzzle” by Scientific Quilter, CC BY 2.0.</figcaption>
+                </figure>
+
+                <h2>1. Find the grid</h2>
+                <p>The first try is classic computer vision with OpenCV: find the largest four-sided outline and check that it really is a Sudoku. A Sudoku has its lines at ten evenly spaced positions in each direction, so after straightening the candidate we look for exactly that. A decorative frame around the puzzle, or a single 3×3 box, fails the check; in that case we fit the 9×9 line lattice around what was found.</p>
+                <p>Image size matters more than you would think. A 12-megapixel photo of a laptop screen picks up moiré patterns, while a small screenshot has 1-pixel lines that a filter can erase. So the detector tries the image at full resolution and at 1280 pixels wide, and keeps the first grid with regular lines.</p>
+                <p>OpenCV finds the grid in roughly nine of ten photos. For the rest, such as glare across the lines or a puzzle in a plastic sleeve, a small neural network predicts the four corners directly. It outputs a heatmap per corner rather than coordinates, which turned out to be far more precise: its median corner error on our test photos is about 1% of the grid’s side.</p>
+
+                <h2>2. Straighten and clean up</h2>
+                <p>The four corners give a perspective transform, which maps the grid to a flat 450×450 image, cut from the full-resolution photo so that small digits stay sharp. The image is then converted to pure black and white with an adaptive threshold, which compares each pixel with its neighbourhood. That removes shadows, the yellow tint of newsprint, and the colour of an app’s theme.</p>
+
+                <figure>
+                    <img src="/static/articles/img/pipeline-screen.webp" width="1608" height="360" alt="A photo of a laptop screen taken at an angle, showing a Sudoku game, with the grid detected, straightened, binarized and solved">
+                    <figcaption>The same steps on a photo of a laptop screen taken at an angle.</figcaption>
+                </figure>
+
+                <h2>3. Read the digits</h2>
+                <p>Each of the 81 cells is cut out and resized to 48×48 pixels, and a convolutional network decides whether it is blank or holds a digit from 1 to 9. The network is tiny, with 38,000 parameters, and reads all 81 cells in about 8 milliseconds on our two-core server. It was trained on our own labeled screenshots and photos, with corners deliberately moved by up to 1.5% so that it copes with slightly misplaced grids.</p>
+                <p>Small fonts get special treatment: when the digits in a grid are smaller than anything seen in training, the cells are zoomed in first.</p>
+
+                <h2>4. The solution is the test</h2>
+                <p>A Sudoku you can publish has exactly one solution. That gives us a free check on the reading: if the digits we read have exactly one solution, the reading is almost certainly right. If they have none, a digit was misread; if they have many, a digit was probably missed.</p>
+                <p>In both cases the solver does not give up. The network gives each cell a ranked list of candidates, so we search for the smallest change, at most two cells, that leads to exactly one solution, trying the network’s second guesses first. If the OpenCV grid still does not solve, the corner network gets its turn on the same photo.</p>
+                <p>The solver itself is a backtracking search over bitmasks that always fills the cell with the fewest legal digits first. A typical puzzle takes well under a millisecond.</p>
+
+                <h2>5. How we keep it honest</h2>
+                <ul>
+                    <li>A new digit model is released only if it reads every labeled image exactly. An image that once failed and was fixed stays fixed.</li>
+                    <li>A separate test set of photos and screenshots is never used for training or for picking models. It is only measured.</li>
+                    <li>The page shows the live solve rate over all distinct uploaded images, failures included.</li>
+                    <li>When a digit is wrong you can fix it and solve again. Corrections become training data.</li>
+                </ul>
+                <p>It still struggles with handwritten digits, heavy blur, and grids that are cut off at the edge of the photo. If one of your puzzles fails, uploading it helps: it is exactly the kind of image the next model needs.</p>
+                <p>The code is open source on <a href="https://github.com/chenyanchen/sudoku-solver">GitHub</a>.</p>
