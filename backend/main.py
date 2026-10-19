@@ -101,6 +101,11 @@ def share_target_fallback(request: Request):
     return RedirectResponse(request.url.path.removesuffix("share-target"), status_code=303)
 
 
+@page(f"/{i18n.INDEXNOW_KEY}.txt", response_class=PlainTextResponse)
+def indexnow_key():
+    return i18n.INDEXNOW_KEY
+
+
 @page("/robots.txt", response_class=PlainTextResponse)
 def robots():
     return i18n.robots()

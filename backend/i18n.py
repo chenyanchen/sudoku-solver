@@ -326,5 +326,14 @@ def sitemap() -> str:
     )
 
 
+# IndexNow (Bing, Yandex, …): the key is public by design; search engines
+# fetch it from /<key>.txt to verify that URL submissions come from the site.
+INDEXNOW_KEY = "0ce5f78acfb90d59db3a0b62f6d71f3d"
+
+
+def all_urls() -> list[str]:
+    return [BASE_URL + path for paths in (PATHS, *ARTICLE_PATHS.values()) for path in paths.values()]
+
+
 def robots() -> str:
     return f"User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: {BASE_URL}/sitemap.xml\n"
