@@ -6,10 +6,16 @@ Run after a deploy that adds or changes pages:
 """
 
 import json
+import sys
 import urllib.request
+from pathlib import Path
 from urllib.parse import urlparse
 
-from backend import i18n
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from backend import i18n  # noqa: E402
 
 
 def main() -> None:
