@@ -2,6 +2,8 @@
 
 A universal Sudoku solver — from web uploads to real-time screen overlays, with a roadmap toward mobile and wearable devices.
 
+**Try it: [sudokusolver.dpdns.org](https://sudokusolver.dpdns.org)** ([中文](https://sudokusolver.dpdns.org/zh/)) — upload a photo or screenshot, or type a puzzle in. [How it works](https://sudokusolver.dpdns.org/how-it-works).
+
 ## Photo baseline
 
 Release `20261015.2` reads all 62 labeled images exactly after decode (the release gate) and all 15 images of the independent test set. The labeled images are training data, not a generalization benchmark; the test set is. Decorative borders (247sudoku's bamboo frame, `IMG_8709`–`IMG_8711`, `sudoku_21`) are handled by snapping to the grid-line lattice; `IMG_8712`, with glare over the grid, is read from Corner CNN's corners when OpenCV's grid does not solve.
