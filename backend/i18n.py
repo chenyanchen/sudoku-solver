@@ -189,19 +189,25 @@ def _script_json(data: object) -> str:
 
 
 @cache
-def render(lang: str) -> str:
+def render(lang: str, prefix: str = "", api_base: str = "") -> str:
+    """The solver page. `prefix` is the path the site is served under and
+    `api_base` the API's origin: both empty on our server; the static copy on
+    GitHub Pages (scripts/build_static_site.py) lives under /sudoku-solver and
+    calls this site's API. Canonical URLs always name this site."""
     other = "zh" if lang == "en" else "en"
     values = {key: html.escape(value) for key, value in TEXT[lang].items()}
     values.update(
         url=BASE_URL + PATHS[lang],
         url_en=BASE_URL + PATHS["en"],
         url_zh=BASE_URL + PATHS["zh"],
-        other_url=PATHS[other],
+        other_url=prefix + PATHS[other],
         other_lang=TEXT[other]["html_lang"],
-        how_url=ARTICLE_PATHS["how-it-works"][lang],
-        manifest_url=PATHS[lang] + "manifest.webmanifest",
+        how_url=prefix + ARTICLE_PATHS["how-it-works"][lang],
+        manifest_url=prefix + PATHS[lang] + "manifest.webmanifest",
+        static=prefix + "/static",
         json_ld=_json_ld(lang),
         js_strings=_script_json(JS_TEXT[lang]),
+        site=_script_json({"prefix": prefix, "api": api_base}),
         asset_version=_asset_version(),
     )
     return _fill(_TEMPLATE, values)
@@ -232,7 +238,7 @@ ARTICLE_TEXT: dict[str, dict[str, dict[str, str]]] = {
 
 
 @cache
-def render_article(slug: str, lang: str) -> str:
+def render_article(slug: str, lang: str, prefix: str = "") -> str:
     other = "zh" if lang == "en" else "en"
     paths = ARTICLE_PATHS[slug]
     text = ARTICLE_TEXT[slug][lang]
@@ -243,10 +249,11 @@ def render_article(slug: str, lang: str) -> str:
         url=BASE_URL + paths[lang],
         url_en=BASE_URL + paths["en"],
         url_zh=BASE_URL + paths["zh"],
-        other_url=paths[other],
+        other_url=prefix + paths[other],
         other_lang=TEXT[other]["html_lang"],
         other_lang_name=TEXT[lang]["other_lang_name"],
-        home_url=PATHS[lang],
+        home_url=prefix + PATHS[lang],
+        static=prefix + "/static",
         footer=html.escape(TEXT[lang]["footer"]),
         json_ld=_script_json({
             "@context": "https://schema.org",
@@ -258,7 +265,8 @@ def render_article(slug: str, lang: str) -> str:
             "author": {"@type": "Person", "name": "Yanchen Chen"},
         }),
         asset_version=_asset_version(),
-        body=(_FRONTEND / "articles" / f"{slug}.{lang}.html").read_text(encoding="utf-8"),
+        body=(_FRONTEND / "articles" / f"{slug}.{lang}.html").read_text(encoding="utf-8")
+        .replace("{{static}}", prefix + "/static"),
     )
     return _fill(_FRONTEND / "article.html", values)
 
@@ -281,28 +289,29 @@ def _asset_version() -> str:
     return digest.hexdigest()[:12]
 
 
-def manifest(lang: str) -> dict:
+def manifest(lang: str, prefix: str = "") -> dict:
     """Web app manifest: installable, and a share target, so a screenshot can
     be shared straight to the solver (frontend/sw.js receives it)."""
+    home = prefix + PATHS[lang]
     return {
         "name": TEXT[lang]["h1"],
         "short_name": TEXT[lang]["h1"],
         "description": TEXT[lang]["description"],
         "lang": TEXT[lang]["html_lang"],
-        "id": PATHS[lang],
-        "start_url": PATHS[lang],
-        "scope": "/",
+        "id": home,
+        "start_url": home,
+        "scope": prefix + "/",
         "display": "standalone",
         "background_color": "#f8fafc",
         "theme_color": "#3b82f6",
         "icons": [
-            {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
-            {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
-            {"src": "/static/icon-maskable-512.png", "sizes": "512x512", "type": "image/png",
+            {"src": prefix + "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": prefix + "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": prefix + "/static/icon-maskable-512.png", "sizes": "512x512", "type": "image/png",
              "purpose": "maskable"},
         ],
         "share_target": {
-            "action": PATHS[lang] + "share-target",
+            "action": home + "share-target",
             "method": "POST",
             "enctype": "multipart/form-data",
             "params": {"files": [{"name": "image", "accept": ["image/*"]}]},
