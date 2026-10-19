@@ -218,14 +218,14 @@ header h1 {
 
 .sudoku-grid {
     display: grid;
-    grid-template-columns: repeat(9, 1fr);
+    grid-template-columns: repeat(9, minmax(0, 1fr));  /* inputs' default width would widen 1fr columns */
     gap: 1px;
     width: 100%;
     max-width: var(--panel-size);
     background-color: var(--grid-border);
     border: 3px solid var(--grid-border);
     border-radius: 0.25rem;
-    overflow: hidden;
+    overflow: clip;  /* not hidden: focusing a cell input would scroll a hidden-overflow grid */
 }
 
 .sudoku-cell {
@@ -236,6 +236,7 @@ header h1 {
     justify-content: center;
     font-size: 1.2rem;
     font-weight: 500;
+    line-height: 1;
     color: var(--text-primary);
 }
 
@@ -250,12 +251,15 @@ header h1 {
 
 input.sudoku-cell {
     width: 100%;
+    min-width: 0;
+    min-height: 0;
     border: none;
     text-align: center;
     padding: 0;
     font: inherit;
     font-size: 1.2rem;
     font-weight: 700;
+    line-height: 1;
     cursor: pointer;
 }
 
@@ -402,4 +406,105 @@ footer {
 
 .info ol {
     padding-left: 1.5rem;
+}
+
+.manual {
+    margin-top: 0.5rem;
+    text-align: center;
+}
+
+.link-button {
+    background: none;
+    border: none;
+    padding: 0.25rem;
+    font: inherit;
+    font-size: 0.95rem;
+    color: var(--primary-color);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+}
+
+.share-button {
+    margin-top: 1rem;
+}
+
+footer a {
+    color: var(--primary-color);
+}
+
+/* Articles */
+.article {
+    margin-top: 1rem;
+    padding: 2rem;
+    background-color: var(--card-bg);
+    border-radius: 0.75rem;
+    line-height: 1.75;
+}
+
+.article h1 {
+    font-size: 2rem;
+    line-height: 1.3;
+    margin-bottom: 1rem;
+}
+
+.article h2 {
+    font-size: 1.35rem;
+    margin: 2rem 0 0.75rem;
+}
+
+.article p,
+.article li {
+    margin-bottom: 0.9rem;
+}
+
+.article ul,
+.article ol {
+    padding-left: 1.5rem;
+}
+
+.article figure {
+    margin: 1.5rem 0;
+}
+
+.article figure img {
+    width: 100%;
+    height: auto;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-color);
+}
+
+.article figcaption {
+    margin-top: 0.4rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.article code {
+    font-size: 0.9em;
+    background-color: #f1f5f9;
+    padding: 0.1em 0.3em;
+    border-radius: 0.25rem;
+}
+
+.article .lede {
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+}
+
+.article .cta {
+    width: auto;
+    margin-top: 1rem;
+    text-decoration: none;
+}
+
+@media (max-width: 640px) {
+    .article {
+        padding: 1.25rem;
+    }
+
+    .article h1 {
+        font-size: 1.6rem;
+    }
 }

@@ -3,9 +3,16 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 
 from . import i18n
@@ -53,6 +60,40 @@ def index_zh():
 @app.get("/zh", include_in_schema=False)
 def index_zh_slash():
     return RedirectResponse("/zh/", status_code=301)
+
+
+@app.get("/how-it-works", response_class=HTMLResponse, include_in_schema=False)
+def how_it_works_en():
+    return i18n.render_article("how-it-works", "en")
+
+
+@app.get("/zh/how-it-works", response_class=HTMLResponse, include_in_schema=False)
+def how_it_works_zh():
+    return i18n.render_article("how-it-works", "zh")
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def manifest_en():
+    return JSONResponse(i18n.manifest("en"), media_type="application/manifest+json")
+
+
+@app.get("/zh/manifest.webmanifest", include_in_schema=False)
+def manifest_zh():
+    return JSONResponse(i18n.manifest("zh"), media_type="application/manifest+json")
+
+
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    # Served from the root so its scope covers the share-target URLs.
+    return FileResponse(_FRONTEND_DIR / "sw.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.post("/share-target", include_in_schema=False)
+@app.post("/zh/share-target", include_in_schema=False)
+def share_target_fallback(request: Request):
+    """The service worker answers shares; this only runs before it is active."""
+    return RedirectResponse(request.url.path.removesuffix("share-target"), status_code=303)
 
 
 @app.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)
