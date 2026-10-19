@@ -47,42 +47,47 @@ app.include_router(router)
 app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIR)), name="static")
 
 
-@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def page(path: str, **kwargs):
+    """A site route: GET and HEAD (crawlers and uptime checks send HEAD)."""
+    return app.api_route(path, methods=["GET", "HEAD"], include_in_schema=False, **kwargs)
+
+
+@page("/", response_class=HTMLResponse)
 def index_en():
     return i18n.render("en")
 
 
-@app.get("/zh/", response_class=HTMLResponse, include_in_schema=False)
+@page("/zh/", response_class=HTMLResponse)
 def index_zh():
     return i18n.render("zh")
 
 
-@app.get("/zh", include_in_schema=False)
+@page("/zh")
 def index_zh_slash():
     return RedirectResponse("/zh/", status_code=301)
 
 
-@app.get("/how-it-works", response_class=HTMLResponse, include_in_schema=False)
+@page("/how-it-works", response_class=HTMLResponse)
 def how_it_works_en():
     return i18n.render_article("how-it-works", "en")
 
 
-@app.get("/zh/how-it-works", response_class=HTMLResponse, include_in_schema=False)
+@page("/zh/how-it-works", response_class=HTMLResponse)
 def how_it_works_zh():
     return i18n.render_article("how-it-works", "zh")
 
 
-@app.get("/manifest.webmanifest", include_in_schema=False)
+@page("/manifest.webmanifest")
 def manifest_en():
     return JSONResponse(i18n.manifest("en"), media_type="application/manifest+json")
 
 
-@app.get("/zh/manifest.webmanifest", include_in_schema=False)
+@page("/zh/manifest.webmanifest")
 def manifest_zh():
     return JSONResponse(i18n.manifest("zh"), media_type="application/manifest+json")
 
 
-@app.get("/sw.js", include_in_schema=False)
+@page("/sw.js")
 def service_worker():
     # Served from the root so its scope covers the share-target URLs.
     return FileResponse(_FRONTEND_DIR / "sw.js", media_type="text/javascript",
@@ -96,12 +101,12 @@ def share_target_fallback(request: Request):
     return RedirectResponse(request.url.path.removesuffix("share-target"), status_code=303)
 
 
-@app.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)
+@page("/robots.txt", response_class=PlainTextResponse)
 def robots():
     return i18n.robots()
 
 
-@app.get("/sitemap.xml", include_in_schema=False)
+@page("/sitemap.xml")
 def sitemap():
     return Response(i18n.sitemap(), media_type="application/xml")
 
