@@ -81,3 +81,9 @@ def test_solve_reports_why_it_failed():
     stuck[0][:8] = range(1, 9)
     stuck[1][8] = 9  # r1c9 can only be 9
     assert client.post("/api/v1/sudoku:solve", json={"grid": {"cells": stuck}}).json()["status"] == "no_solution"
+
+
+def test_pages_answer_head_requests():
+    # Crawlers and uptime checks send HEAD; FastAPI's GET routes alone answer 405.
+    for path in ("/", "/zh/", "/how-it-works", "/robots.txt", "/sitemap.xml"):
+        assert client.head(path).status_code == 200, path
