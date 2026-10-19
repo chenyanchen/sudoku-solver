@@ -1,8 +1,8 @@
 """Build the static copy of the site served by GitHub Pages.
 
-The pages are the server's own (backend/i18n.py) under a path prefix, with
-API calls sent to the server, so github.io serves the same solver without a
-backend. Canonical URLs keep naming the server's site.
+This is the public site (i18n.BASE_URL): the server's own pages
+(backend/i18n.py) under a path prefix, with API calls sent to the server
+(i18n.API_URL), whose page URLs redirect here.
 
     python scripts/build_static_site.py --out _site
 
@@ -57,6 +57,9 @@ def build(out: Path, prefix: str, api_base: str) -> None:
         shutil.copy2(frontend / name, out / "static" / name)
     shutil.copytree(frontend / "articles" / "img", out / "static" / "articles" / "img")
     shutil.copy2(frontend / "sw.js", out / "sw.js")
+    (out / "sitemap.xml").write_text(i18n.sitemap(), encoding="utf-8")
+    # IndexNow verifies submissions under this path with the key file here.
+    (out / f"{i18n.INDEXNOW_KEY}.txt").write_text(i18n.INDEXNOW_KEY, encoding="utf-8")
     (out / ".nojekyll").touch()
 
 
@@ -64,7 +67,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=REPO_ROOT / "_site")
     parser.add_argument("--prefix", default="/sudoku-solver", help="path the site is served under")
-    parser.add_argument("--api", default=i18n.BASE_URL, help="origin of the API")
+    parser.add_argument("--api", default=i18n.API_URL, help="origin of the API")
     args = parser.parse_args()
     build(args.out, args.prefix.rstrip("/"), args.api.rstrip("/"))
     print(f"Built {args.out}")
