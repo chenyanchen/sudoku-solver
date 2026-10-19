@@ -16,6 +16,9 @@
     <meta property="og:locale" content="{{og_locale}}">
     <meta name="twitter:card" content="summary">
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <link rel="manifest" href="{{manifest_url}}">
+    <meta name="theme-color" content="#3b82f6">
     <link rel="stylesheet" href="/static/style.css?v={{asset_version}}">
     <script type="application/ld+json">{{json_ld}}</script>
 </head>
@@ -39,6 +42,7 @@
                     <p class="upload-hint">{{upload_hint}}</p>
                 </div>
                 <p class="notice">{{storage_notice}}</p>
+                <p class="manual"><button type="button" id="manualButton" class="link-button">{{manual_button}}</button></p>
             </div>
 
             <div class="preview-section" id="previewSection" style="display: none;">
@@ -61,14 +65,15 @@
             <div class="results-section" id="resultsSection" style="display: none;">
                 <div class="grids-container">
                     <div class="grid-card">
-                        <h3>{{recognized_puzzle}}</h3>
+                        <h3 id="puzzleTitle">{{recognized_puzzle}}</h3>
                         <div id="originalGrid" class="sudoku-grid"></div>
-                        <p class="hint">{{fix_hint}}</p>
+                        <p class="hint" id="puzzleHint">{{fix_hint}}</p>
                         <button id="resolveButton" class="btn btn-secondary" disabled>{{resolve_button}}</button>
                     </div>
                     <div class="grid-card">
                         <h3>{{solution}}</h3>
                         <div id="solvedGrid" class="sudoku-grid"></div>
+                        <button id="shareButton" class="btn btn-secondary share-button" hidden>{{share_button}}</button>
                     </div>
                 </div>
             </div>
@@ -97,7 +102,7 @@
         </main>
 
         <footer>
-            <p>{{footer}}</p>
+            <p>{{footer}} <a href="{{how_url}}">{{how_link}}</a></p>
         </footer>
     </div>
 
