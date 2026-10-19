@@ -2,7 +2,7 @@
                 <p class="lede">You upload a photo of a newspaper puzzle or a screenshot of an app, and a second later the solution appears. Here is what happens in between, and how we make sure a misread digit does not turn into a wrong answer.</p>
 
                 <figure>
-                    <img src="/static/articles/img/pipeline-paper.webp" width="1608" height="360" alt="A photo of a paper Sudoku with the detected grid outlined, the grid straightened, the grid in black and white, and the solved grid">
+                    <img src="{{static}}/articles/img/pipeline-paper.webp" width="1608" height="360" alt="A photo of a paper Sudoku with the detected grid outlined, the grid straightened, the grid in black and white, and the solved grid">
                     <figcaption>Find the grid → straighten it → binarize → read and solve. Photo: “sudoku paper puzzle” by Scientific Quilter, CC BY 2.0.</figcaption>
                 </figure>
 
@@ -15,7 +15,7 @@
                 <p>The four corners give a perspective transform, which maps the grid to a flat 450×450 image, cut from the full-resolution photo so that small digits stay sharp. The image is then converted to pure black and white with an adaptive threshold, which compares each pixel with its neighbourhood. That removes shadows, the yellow tint of newsprint, and the colour of an app’s theme.</p>
 
                 <figure>
-                    <img src="/static/articles/img/pipeline-screen.webp" width="1608" height="360" alt="A photo of a laptop screen taken at an angle, showing a Sudoku game, with the grid detected, straightened, binarized and solved">
+                    <img src="{{static}}/articles/img/pipeline-screen.webp" width="1608" height="360" alt="A photo of a laptop screen taken at an angle, showing a Sudoku game, with the grid detected, straightened, binarized and solved">
                     <figcaption>The same steps on a photo of a laptop screen taken at an angle.</figcaption>
                 </figure>
 
