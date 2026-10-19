@@ -97,13 +97,33 @@ def test_indexnow_key_is_served():
 def test_static_copy_for_github_pages(tmp_path):
     from scripts.build_static_site import build
 
-    build(tmp_path, "/sudoku-solver", i18n.BASE_URL)
+    build(tmp_path, "/sudoku-solver", i18n.API_URL)
     zh = (tmp_path / "zh" / "index.html").read_text()
     # Links stay under the prefix; the API and canonical URLs name the server.
     assert 'href="/sudoku-solver/static/style.css' in zh and 'href="/sudoku-solver/zh/how-it-works"' in zh
-    assert f'"api": "{i18n.BASE_URL}"' in zh and f'<link rel="canonical" href="{i18n.BASE_URL}/zh/">' in zh
+    assert f'"api": "{i18n.API_URL}"' in zh and f'<link rel="canonical" href="{i18n.BASE_URL}/zh/">' in zh
     article = (tmp_path / "how-it-works.html").read_text()
     for src in re.findall(r'<img src="/sudoku-solver/([^"]+)"', article):
         assert (tmp_path / src).is_file()
-    for name in ("sw.js", "static/app.js", "manifest.webmanifest", ".nojekyll"):
+    for name in ("sw.js", "static/app.js", "manifest.webmanifest", ".nojekyll", "sitemap.xml"):
         assert (tmp_path / name).is_file()
+    assert (tmp_path / f"{i18n.INDEXNOW_KEY}.txt").read_text() == i18n.INDEXNOW_KEY
+
+
+def test_production_pages_redirect_to_the_public_site(monkeypatch):
+    monkeypatch.setenv("SUDOKU_REDIRECT_PAGES", "1")
+    for path in ("/", "/zh/", "/how-it-works", "/zh/how-it-works", "/sitemap.xml"):
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 301 and response.headers["location"] == i18n.BASE_URL + path
+    # The API stays.
+    assert client.get("/api/v1/stats").status_code == 200
+
+
+def test_analytics_beacon_only_with_a_token(monkeypatch):
+    assert "cloudflareinsights" not in i18n.render("en", "/p", "https://api")
+    monkeypatch.setattr(i18n, "CF_BEACON_TOKEN", "abc")
+    i18n.render.cache_clear()
+    try:
+        assert "&quot;token&quot;: &quot;abc&quot;" in i18n.render("en", "/p", "https://api")
+    finally:
+        i18n.render.cache_clear()

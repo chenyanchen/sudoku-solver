@@ -16,7 +16,14 @@ import os
 from functools import cache
 from pathlib import Path
 
-BASE_URL = os.getenv("SUDOKU_BASE_URL", "https://sudokusolver.dpdns.org").rstrip("/")
+# The public site: the static pages on GitHub Pages (scripts/build_static_site.py).
+# Canonical URLs, the sitemap and promotion all name it.
+BASE_URL = os.getenv("SUDOKU_BASE_URL", "https://chenyanchen.github.io/sudoku-solver").rstrip("/")
+# Our server: the API behind those pages. Its own page URLs redirect to BASE_URL.
+API_URL = os.getenv("SUDOKU_API_URL", "https://sudokusolver.dpdns.org").rstrip("/")
+# Cloudflare Web Analytics for the static pages (the server's pages got the
+# beacon from Cloudflare's proxy); empty: no beacon.
+CF_BEACON_TOKEN = ""
 PATHS = {"en": "/", "zh": "/zh/"}
 _FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
 _TEMPLATE = _FRONTEND / "index.html"
@@ -208,9 +215,18 @@ def render(lang: str, prefix: str = "", api_base: str = "") -> str:
         json_ld=_json_ld(lang),
         js_strings=_script_json(JS_TEXT[lang]),
         site=_script_json({"prefix": prefix, "api": api_base}),
+        analytics=_analytics(),
         asset_version=_asset_version(),
     )
     return _fill(_TEMPLATE, values)
+
+
+def _analytics() -> str:
+    if not CF_BEACON_TOKEN:
+        return ""
+    beacon = html.escape(json.dumps({"token": CF_BEACON_TOKEN}))
+    return (f'<script defer src="https://static.cloudflareinsights.com/beacon.min.js" '
+            f'data-cf-beacon="{beacon}"></script>')
 
 
 # Articles: their own URL per language, listed in the sitemap.
@@ -264,6 +280,7 @@ def render_article(slug: str, lang: str, prefix: str = "") -> str:
             "inLanguage": TEXT[lang]["html_lang"],
             "author": {"@type": "Person", "name": "Yanchen Chen"},
         }),
+        analytics=_analytics(),
         asset_version=_asset_version(),
         body=(_FRONTEND / "articles" / f"{slug}.{lang}.html").read_text(encoding="utf-8")
         .replace("{{static}}", prefix + "/static"),
@@ -345,4 +362,6 @@ def all_urls() -> list[str]:
 
 
 def robots() -> str:
+    """The server's robots.txt: its pages redirect to BASE_URL, whose sitemap
+    is listed by the robots.txt at the root of chenyanchen.github.io."""
     return f"User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: {BASE_URL}/sitemap.xml\n"

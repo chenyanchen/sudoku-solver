@@ -2,7 +2,7 @@
 
 A universal Sudoku solver — from web uploads to real-time screen overlays, with a roadmap toward mobile and wearable devices.
 
-**Try it: [sudokusolver.dpdns.org](https://sudokusolver.dpdns.org)** ([中文](https://sudokusolver.dpdns.org/zh/)) — upload a photo or screenshot, or type a puzzle in. [How it works](https://sudokusolver.dpdns.org/how-it-works).
+**Try it: [chenyanchen.github.io/sudoku-solver](https://chenyanchen.github.io/sudoku-solver/)** ([中文](https://chenyanchen.github.io/sudoku-solver/zh/)) — upload a photo or screenshot, or type a puzzle in. [How it works](https://chenyanchen.github.io/sudoku-solver/how-it-works).
 
 ## Photo baseline
 

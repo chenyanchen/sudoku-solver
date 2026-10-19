@@ -1,5 +1,6 @@
 """Main FastAPI application for Sudoku Solver."""
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -52,14 +53,22 @@ def page(path: str, **kwargs):
     return app.api_route(path, methods=["GET", "HEAD"], include_in_schema=False, **kwargs)
 
 
+def _moved(path: str) -> RedirectResponse | None:
+    """In production (SUDOKU_REDIRECT_PAGES set) the pages live on the public
+    site (GitHub Pages) and this server is only its API; locally it serves them."""
+    if os.getenv("SUDOKU_REDIRECT_PAGES"):
+        return RedirectResponse(i18n.BASE_URL + path, status_code=301)
+    return None
+
+
 @page("/", response_class=HTMLResponse)
 def index_en():
-    return i18n.render("en")
+    return _moved("/") or i18n.render("en")
 
 
 @page("/zh/", response_class=HTMLResponse)
 def index_zh():
-    return i18n.render("zh")
+    return _moved("/zh/") or i18n.render("zh")
 
 
 @page("/zh")
@@ -69,12 +78,12 @@ def index_zh_slash():
 
 @page("/how-it-works", response_class=HTMLResponse)
 def how_it_works_en():
-    return i18n.render_article("how-it-works", "en")
+    return _moved("/how-it-works") or i18n.render_article("how-it-works", "en")
 
 
 @page("/zh/how-it-works", response_class=HTMLResponse)
 def how_it_works_zh():
-    return i18n.render_article("how-it-works", "zh")
+    return _moved("/zh/how-it-works") or i18n.render_article("how-it-works", "zh")
 
 
 @page("/manifest.webmanifest")
@@ -113,7 +122,7 @@ def robots():
 
 @page("/sitemap.xml")
 def sitemap():
-    return Response(i18n.sitemap(), media_type="application/xml")
+    return _moved("/sitemap.xml") or Response(i18n.sitemap(), media_type="application/xml")
 
 
 if __name__ == "__main__":
