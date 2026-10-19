@@ -1,6 +1,8 @@
 // Sudoku Solver Frontend Application
 
 const I18N = window.I18N || {};
+// Where the page and the API live; both empty on our server (see i18n.render).
+const SITE = window.SITE || { prefix: '', api: '' };
 
 // Localized string with {name} placeholders filled from `values`.
 function t(key, values = {}) {
@@ -62,7 +64,7 @@ class SudokuSolver {
         this.loadStats();
 
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js').catch(() => {});
+            navigator.serviceWorker.register(SITE.prefix + '/sw.js').catch(() => {});
         }
         if (new URLSearchParams(location.search).has('shared')) {
             history.replaceState(null, '', location.pathname);
@@ -112,7 +114,7 @@ class SudokuSolver {
 
     async loadStats() {
         try {
-            const data = await (await fetch('/api/v1/stats')).json();
+            const data = await (await fetch(SITE.api + '/api/v1/stats')).json();
             if (data.total > 0) {
                 this.stats.textContent = t('stats', data);
                 this.stats.hidden = false;
@@ -161,7 +163,7 @@ class SudokuSolver {
             const formData = new FormData();
             formData.append('image', this.selectedFile);
 
-            const recResp = await fetch('/api/v1/sudoku:recognize', { method: 'POST', body: formData });
+            const recResp = await fetch(SITE.api + '/api/v1/sudoku:recognize', { method: 'POST', body: formData });
             if (!recResp.ok) {
                 const err = await recResp.json().catch(() => ({}));
                 this.showMessage(err.detail || t('uploadFailed', { status: recResp.status }), 'error');
@@ -205,7 +207,7 @@ class SudokuSolver {
         }
         if (this.token) {
             // The corrected givens are training data; failures here do not block solving.
-            fetch('/api/v1/sudoku:feedback', {
+            fetch(SITE.api + '/api/v1/sudoku:feedback', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token: this.token, grid: { cells: grid } }),
@@ -215,7 +217,7 @@ class SudokuSolver {
     }
 
     async solve(grid, successMessage) {
-        const resp = await fetch('/api/v1/sudoku:solve', {
+        const resp = await fetch(SITE.api + '/api/v1/sudoku:solve', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ grid: { cells: grid } }),

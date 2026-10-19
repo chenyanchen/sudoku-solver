@@ -2,7 +2,7 @@
                 <p class="lede">上传一张报纸数独的照片或 App 截图，一秒左右答案就出来了。这篇文章讲中间发生了什么，以及我们怎样保证一个认错的数字不会变成一个错误的答案。</p>
 
                 <figure>
-                    <img src="/static/articles/img/pipeline-paper.webp" width="1608" height="360" alt="一张纸质数独的照片：标出检测到的网格，拉正后的网格，黑白化后的网格，以及解好的网格">
+                    <img src="{{static}}/articles/img/pipeline-paper.webp" width="1608" height="360" alt="一张纸质数独的照片：标出检测到的网格，拉正后的网格，黑白化后的网格，以及解好的网格">
                     <figcaption>找到网格 → 拉正 → 黑白化 → 识别并求解。照片：Scientific Quilter，“sudoku paper puzzle”，CC BY 2.0。</figcaption>
                 </figure>
 
@@ -15,7 +15,7 @@
                 <p>有了四个角点就能做透视变换，把网格映射成一张 450×450 的正方形图片。这一步从原分辨率的照片上截取，小数字也能保持清晰。然后用自适应阈值把图片转成纯黑白：每个像素和它周围的区域比较，阴影、报纸的泛黄、App 的主题色都被去掉了。</p>
 
                 <figure>
-                    <img src="/static/articles/img/pipeline-screen.webp" width="1608" height="360" alt="斜着拍电脑屏幕上的数独游戏：检测网格、拉正、黑白化并求解">
+                    <img src="{{static}}/articles/img/pipeline-screen.webp" width="1608" height="360" alt="斜着拍电脑屏幕上的数独游戏：检测网格、拉正、黑白化并求解">
                     <figcaption>同样的步骤，用在一张斜拍电脑屏幕的照片上。</figcaption>
                 </figure>
 

@@ -92,3 +92,18 @@ def test_pages_answer_head_requests():
 def test_indexnow_key_is_served():
     assert client.get(f"/{i18n.INDEXNOW_KEY}.txt").text == i18n.INDEXNOW_KEY
     assert len(i18n.all_urls()) == client.get("/sitemap.xml").text.count("<loc>")
+
+
+def test_static_copy_for_github_pages(tmp_path):
+    from scripts.build_static_site import build
+
+    build(tmp_path, "/sudoku-solver", i18n.BASE_URL)
+    zh = (tmp_path / "zh" / "index.html").read_text()
+    # Links stay under the prefix; the API and canonical URLs name the server.
+    assert 'href="/sudoku-solver/static/style.css' in zh and 'href="/sudoku-solver/zh/how-it-works"' in zh
+    assert f'"api": "{i18n.BASE_URL}"' in zh and f'<link rel="canonical" href="{i18n.BASE_URL}/zh/">' in zh
+    article = (tmp_path / "how-it-works.html").read_text()
+    for src in re.findall(r'<img src="/sudoku-solver/([^"]+)"', article):
+        assert (tmp_path / src).is_file()
+    for name in ("sw.js", "static/app.js", "manifest.webmanifest", ".nojekyll"):
+        assert (tmp_path / name).is_file()
