@@ -87,3 +87,8 @@ def test_pages_answer_head_requests():
     # Crawlers and uptime checks send HEAD; FastAPI's GET routes alone answer 405.
     for path in ("/", "/zh/", "/how-it-works", "/robots.txt", "/sitemap.xml"):
         assert client.head(path).status_code == 200, path
+
+
+def test_indexnow_key_is_served():
+    assert client.get(f"/{i18n.INDEXNOW_KEY}.txt").text == i18n.INDEXNOW_KEY
+    assert len(i18n.all_urls()) == client.get("/sitemap.xml").text.count("<loc>")
