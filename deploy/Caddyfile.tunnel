@@ -1,0 +1,24 @@
+# Installed as /etc/caddy/Caddyfile by `setup-server.sh --tunnel`. No port is
+# open to the internet: cloudflared (cloudflared.yml) is the only client, so its
+# CF-Connecting-IP header is trustworthy: the app rate-limits by that client IP.
+# Caddy stays in front of the app for the upload limit and the headers.
+{
+	auto_https off
+}
+
+http://:8080 {
+	bind 127.0.0.1
+	encode zstd gzip
+	request_body {
+		max_size 11MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	reverse_proxy 127.0.0.1:8000 {
+		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+	}
+}
