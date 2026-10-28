@@ -12,6 +12,12 @@ DATA_IMAGE_DIR = REPO_ROOT / "data" / "raw" / "images"
 DEFAULT_CORNERS = REPO_ROOT / "data" / "labels" / "sudoku_corners.csv"
 
 
+def repo_relative(path: Path) -> str:
+    """Path relative to the repo (or just its name outside it): records leave no local paths."""
+    path = path.resolve()
+    return str(path.relative_to(REPO_ROOT)) if path.is_relative_to(REPO_ROOT) else path.name
+
+
 def load_corner_labels(path: Path) -> dict[str, np.ndarray]:
     """Read normalized TL/TR/BR/BL labels without relying on ignored image copies."""
     result = {}

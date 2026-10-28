@@ -16,6 +16,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from backend.ocr.model_arch import create_model
+from scripts._onnx import strip_stack_traces
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,6 +71,7 @@ def main() -> int:
         dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
         opset_version=args.opset,
     )
+    strip_stack_traces(args.output)
 
     session = ort.InferenceSession(str(args.output), providers=["CPUExecutionProvider"])
     with torch.no_grad():

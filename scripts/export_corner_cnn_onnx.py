@@ -14,6 +14,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from backend.cv.corner_cnn_arch import create_corner_model
+from scripts._onnx import strip_stack_traces
 
 
 def parse_args():
@@ -68,6 +69,7 @@ def export_checkpoint(args: argparse.Namespace) -> Path:
 def main() -> int:
     args = parse_args()
     output = export_checkpoint(args)
+    strip_stack_traces(output)
 
     print(f"Exported ONNX: {output}")
     return 0
