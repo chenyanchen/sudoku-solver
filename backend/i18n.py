@@ -16,11 +16,11 @@ import os
 from functools import cache
 from pathlib import Path
 
-# The public site: the static pages on GitHub Pages (scripts/build_static_site.py).
-# Canonical URLs, the sitemap and promotion all name it.
-BASE_URL = os.getenv("SUDOKU_BASE_URL", "https://chenyanchen.github.io/sudoku-solver").rstrip("/")
+# The public site: the static pages on GitHub Pages (scripts/build_static_site.py)
+# behind Cloudflare. Canonical URLs, the sitemap and promotion all name it.
+BASE_URL = os.getenv("SUDOKU_BASE_URL", "https://sudokusolver.siliconseries.com").rstrip("/")
 # Our server: the API behind those pages. Its own page URLs redirect to BASE_URL.
-API_URL = os.getenv("SUDOKU_API_URL", "https://sudokusolver.dpdns.org").rstrip("/")
+API_URL = os.getenv("SUDOKU_API_URL", "https://sudokusolver-api.siliconseries.com").rstrip("/")
 # Cloudflare Web Analytics for the static pages (the server's pages got the
 # beacon from Cloudflare's proxy); empty: no beacon.
 CF_BEACON_TOKEN = ""
@@ -198,9 +198,8 @@ def _script_json(data: object) -> str:
 @cache
 def render(lang: str, prefix: str = "", api_base: str = "") -> str:
     """The solver page. `prefix` is the path the site is served under and
-    `api_base` the API's origin: both empty on our server; the static copy on
-    GitHub Pages (scripts/build_static_site.py) lives under /sudoku-solver and
-    calls this site's API. Canonical URLs always name this site."""
+    `api_base` the API's origin: both empty on our server; the static copy
+    (scripts/build_static_site.py) calls this site's API. Canonical URLs always name this site."""
     other = "zh" if lang == "en" else "en"
     values = {key: html.escape(value) for key, value in TEXT[lang].items()}
     values.update(
@@ -362,6 +361,5 @@ def all_urls() -> list[str]:
 
 
 def robots() -> str:
-    """The server's robots.txt: its pages redirect to BASE_URL, whose sitemap
-    is listed by the robots.txt at the root of chenyanchen.github.io."""
+    """robots.txt of the server and of the static copy, both naming BASE_URL's sitemap."""
     return f"User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: {BASE_URL}/sitemap.xml\n"

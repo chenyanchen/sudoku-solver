@@ -1,5 +1,5 @@
-# The static copy of the site on GitHub Pages (chenyanchen.github.io/sudoku-solver):
-# the server's pages under a path prefix, calling the server's API.
+# The public site on GitHub Pages (custom domain sudokusolver.siliconseries.com,
+# proxied by Cloudflare): the server's pages, calling the server's API.
 name: Pages
 
 on:

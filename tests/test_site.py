@@ -107,6 +107,8 @@ def test_static_copy_for_github_pages(tmp_path):
         assert (tmp_path / src).is_file()
     for name in ("sw.js", "static/app.js", "manifest.webmanifest", ".nojekyll", "sitemap.xml"):
         assert (tmp_path / name).is_file()
+    # The site is at its host's root, so crawlers find its sitemap in its own robots.txt.
+    assert f"Sitemap: {i18n.BASE_URL}/sitemap.xml" in (tmp_path / "robots.txt").read_text()
     assert (tmp_path / f"{i18n.INDEXNOW_KEY}.txt").read_text() == i18n.INDEXNOW_KEY
 
 
