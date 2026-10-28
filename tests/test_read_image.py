@@ -8,6 +8,7 @@ from backend.cv.detector import DetectionResult
 from backend.ocr.pipeline import AMBIGUOUS, UNIQUE, UNSOLVABLE, Recognition
 
 QUAD = np.float32([[10, 10], [90, 10], [90, 90], [10, 90]])
+OPENCV_QUAD = np.float32([[20, 20], [40, 20], [40, 40], [20, 40]])
 IMAGE = np.full((100, 100, 3), 255, np.uint8)
 
 
@@ -16,7 +17,7 @@ class OpenCV:
         self.found = found
 
     def detect(self, image):
-        return DetectionResult(QUAD, "opencv") if self.found else None
+        return DetectionResult(OPENCV_QUAD, "opencv") if self.found else None
 
 
 class CornerCnn:
@@ -42,13 +43,23 @@ def _recognition(outcome):
 @pytest.fixture
 def setup(monkeypatch):
     def configure(opencv_found, statuses, regular=True):
+        """`regular`: whether every warp has regular grid lines, or the detectors whose do."""
         CornerCnn.calls = CornerCnn.refines = 0
         outcomes = iter(statuses)
         monkeypatch.setattr(routes, "_get_cnn_reader", lambda: None)
         monkeypatch.setattr(routes, "_OPENCV", OpenCV(opencv_found))
         monkeypatch.setattr(routes, "_get_corner_cnn", lambda: CornerCnn())
         monkeypatch.setattr(routes, "recognize", lambda reader, warped: _recognition(next(outcomes)))
-        monkeypatch.setattr(routes, "has_regular_grid_lines", lambda gray: regular)
+        # Each warp is filled with the value of the detector whose quad it came from.
+        monkeypatch.setattr(
+            routes, "warp_grid",
+            lambda image, corners: np.full((450, 450, 3), 1 if corners is OPENCV_QUAD else 2, np.uint8),
+        )
+        names = {1: "opencv", 2: "corner_cnn"}
+        monkeypatch.setattr(
+            routes, "has_regular_grid_lines",
+            lambda gray: regular if isinstance(regular, bool) else names[gray[0, 0]] in regular,
+        )
     return configure
 
 
@@ -97,3 +108,9 @@ def test_partial_grid_does_not_beat_unsolvable_reading(setup):
     """A quad over part of the grid reads few givens, which have solutions too."""
     setup(True, [UNSOLVABLE, (AMBIGUOUS, 5), (AMBIGUOUS, 16)])
     assert routes.read_image(IMAGE).detector_name == "opencv"
+
+
+def test_regular_corner_cnn_grid_beats_irregular_opencv_quad(setup):
+    """OpenCV's fallback quad may be one cell: its blank reading is no use."""
+    setup(True, [AMBIGUOUS, UNSOLVABLE, UNSOLVABLE], regular={"corner_cnn"})
+    assert routes.read_image(IMAGE).detector_name == "corner_cnn"
