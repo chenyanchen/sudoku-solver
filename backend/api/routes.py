@@ -115,7 +115,9 @@ def read_image(image: np.ndarray) -> GridReading | None:
     Some published puzzles are ambiguous, so no reading of them is unique.
     When nothing solves uniquely, a reading with solutions beats one with
     none (certainly misread), provided it has a puzzle's worth of givens: an
-    empty or partial grid has solutions too.
+    empty or partial grid has solutions too. Otherwise a warp with regular
+    grid lines beats one without: OpenCV's fallback quad is often a single
+    cell or 3x3 box, whose blank reading leaves the uploader nothing to fix.
     """
     reader = _get_cnn_reader()
 
@@ -129,6 +131,7 @@ def read_image(image: np.ndarray) -> GridReading | None:
         found = read(detection.corners, detection.detector_name)
         if found.recognition.status == UNIQUE:
             return found
+    best = _rank(found)
 
     corner_cnn = _get_corner_cnn()
     corners = corner_cnn.predict(image) if corner_cnn else None
@@ -142,16 +145,24 @@ def read_image(image: np.ndarray) -> GridReading | None:
         second = read(corners, "corner_cnn")
         if second.recognition.status == UNIQUE:
             return second
-        if found is None:
-            if has_regular_grid_lines(cv2.cvtColor(second.warped, cv2.COLOR_BGR2GRAY)):
-                found = second
-        elif _may_be_exact(second) and not _may_be_exact(found):
-            found = second
+        rank = _rank(second)
+        if rank > best:
+            found, best = second, rank
     return found
 
 
 # No puzzle with fewer givens has a unique solution, so none is published.
 MIN_PUZZLE_GIVENS = 17
+
+
+def _rank(reading: GridReading | None) -> int:
+    """How worth showing an unsolved reading is; an unsolved Corner CNN quad
+    must outrank OpenCV's reading (or its absence) to replace it."""
+    if reading is None:
+        return 0
+    if _may_be_exact(reading):
+        return 2
+    return int(has_regular_grid_lines(cv2.cvtColor(reading.warped, cv2.COLOR_BGR2GRAY)))
 
 
 def _may_be_exact(reading: GridReading) -> bool:
