@@ -2,7 +2,7 @@
 
 A universal Sudoku solver — from web uploads to real-time screen overlays, with a roadmap toward mobile and wearable devices.
 
-**Try it: [chenyanchen.github.io/sudoku-solver](https://chenyanchen.github.io/sudoku-solver/)** ([中文](https://chenyanchen.github.io/sudoku-solver/zh/)) — upload a photo or screenshot, or type a puzzle in. [How it works](https://chenyanchen.github.io/sudoku-solver/how-it-works).
+**Try it: [sudokusolver.siliconseries.com](https://sudokusolver.siliconseries.com/)** ([中文](https://sudokusolver.siliconseries.com/zh/)) — upload a photo or screenshot, or type a puzzle in. [How it works](https://sudokusolver.siliconseries.com/how-it-works).
 
 ## Photo baseline
 
