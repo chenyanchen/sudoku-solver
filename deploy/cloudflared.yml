@@ -1,0 +1,8 @@
+# Installed as /etc/cloudflared/config.yml by `setup-server.sh --tunnel`, with
+# the tunnel's id filled in. Every hostname routed to the tunnel reaches Caddy.
+tunnel: TUNNEL_ID
+credentials-file: /etc/cloudflared/sudoku-solver.json
+# QUIC (UDP 7844) is throttled or blocked on some networks; HTTP/2 runs over TCP.
+protocol: http2
+ingress:
+  - service: http://127.0.0.1:8080
