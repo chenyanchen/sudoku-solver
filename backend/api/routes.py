@@ -110,7 +110,10 @@ def read_image(image: np.ndarray) -> GridReading | None:
     which rejects good corners on photos with moiré. That check still decides
     whether an unsolved Corner CNN quad counts as a grid at all. Corner CNN's
     corners refined on a crop around its first quad are tried last: they fix
-    grids that fill a small part of a photo but misplace some others.
+    grids that fill a small part of a photo but misplace some others. They are
+    read even when the first quad solves: a quad a few percent off cuts the
+    digits along one edge, and the givens left can still have one solution.
+    The refined reading wins only with the same solution and more givens.
 
     Some published puzzles are ambiguous, so no reading of them is unique.
     When nothing solves uniquely, a reading with solutions beats one with
@@ -137,6 +140,7 @@ def read_image(image: np.ndarray) -> GridReading | None:
     corners = corner_cnn.predict(image) if corner_cnn else None
     if corner_cnn is None or corners is None:
         return found
+    solved = None
     for refined in (False, True):
         if refined:
             corners = corner_cnn.refine(image, corners)
@@ -144,11 +148,16 @@ def read_image(image: np.ndarray) -> GridReading | None:
                 break
         second = read(corners, "corner_cnn")
         if second.recognition.status == UNIQUE:
-            return second
+            if solved is None:
+                solved = second
+            elif (second.recognition.solution == solved.recognition.solution
+                  and second.recognition.givens > solved.recognition.givens):
+                return second
+            continue
         rank = _rank(second)
         if rank > best:
             found, best = second, rank
-    return found
+    return solved or found
 
 
 # No puzzle with fewer givens has a unique solution, so none is published.

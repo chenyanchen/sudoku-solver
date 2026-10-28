@@ -34,10 +34,10 @@ class CornerCnn:
 
 
 def _recognition(outcome):
-    """A status, or (status, number of givens)."""
-    status, givens = outcome if isinstance(outcome, tuple) else (outcome, 0)
+    """A status, (status, number of givens), or (status, givens, solution)."""
+    status, givens, solution = (outcome + (None,))[:3] if isinstance(outcome, tuple) else (outcome, 0, None)
     grid = [[1 if r * 9 + c < givens else 0 for c in range(9)] for r in range(9)]
-    return Recognition(grid, None, status, {})
+    return Recognition(grid, solution, status, {})
 
 
 @pytest.fixture
@@ -70,14 +70,31 @@ def test_solved_by_opencv_skips_corner_cnn(setup):
 
 
 def test_unsolved_opencv_grid_is_retried_with_corner_cnn(setup):
-    setup(True, [AMBIGUOUS, UNIQUE])
+    setup(True, [AMBIGUOUS, UNIQUE, AMBIGUOUS])
     assert routes.read_image(IMAGE).detector_name == "corner_cnn"
 
 
-def test_corner_cnn_quad_that_solves_is_not_refined(setup):
-    setup(False, [UNIQUE])
-    assert routes.read_image(IMAGE).detector_name == "corner_cnn"
-    assert CornerCnn.refines == 0
+SOLUTION = [[1] * 9] * 9
+OTHER_SOLUTION = [[2] * 9] * 9
+
+
+def test_refined_reading_with_more_givens_of_same_solution_wins(setup):
+    """A quad a little off cuts edge digits; the givens left may still solve."""
+    setup(False, [(UNIQUE, 30, SOLUTION), (UNIQUE, 33, SOLUTION)])
+    assert routes.read_image(IMAGE).recognition.givens == 33
+
+
+@pytest.mark.parametrize("refined", [
+    (UNIQUE, 33, OTHER_SOLUTION),  # one reading is wrong; trust the first quad
+    (UNIQUE, 30, SOLUTION),
+    (UNSOLVABLE, 33),
+])
+def test_first_corner_cnn_reading_that_solves_is_kept(setup, refined):
+    setup(False, [(UNIQUE, 30, SOLUTION), refined])
+    reading = routes.read_image(IMAGE)
+    assert reading.recognition.status == UNIQUE
+    assert reading.recognition.givens == 30
+    assert reading.recognition.solution == SOLUTION
 
 
 def test_unsolved_corner_cnn_quad_is_retried_refined(setup):
