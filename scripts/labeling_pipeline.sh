@@ -30,8 +30,6 @@ case "${1:-help}" in
     ;;
 
   train)
-    export MLFLOW_TRACKING_URI="file://${REPO_ROOT}/mlruns"
-
     echo "=== Training Corner CNN ==="
     uv run --extra ml python scripts/synth_corner_data.py --count 6000 --seed 0
     uv run --extra ml python scripts/train_corner_cnn.py --synth data/synth_corner --version 2.0.0
@@ -44,7 +42,6 @@ case "${1:-help}" in
     ;;
 
   release)
-    export MLFLOW_TRACKING_URI="file://${REPO_ROOT}/mlruns"
     shift
     uv run python scripts/release_model.py "$@"
     ;;
@@ -70,12 +67,11 @@ Workflow:
   3. Connect in Label Studio: Settings → Model → http://localhost:9090
   4. Import images, label 4 corners (TL, TR, BR, BL)
   5. Train: $0 train
-  6. Review metrics: mlflow ui --port 5000 --backend-store-uri file://\$(pwd)/mlruns
+  6. Review metrics: mlflow ui --port 5000 --backend-store-uri mlruns
 
 Environment variables:
   CNN_MODEL_PATH      (required for backend)
   CORNER_CNN_MODEL    (required for backend)
-  MLFLOW_TRACKING_URI (default: file://\$REPO_ROOT/mlruns)
 USAGE
     ;;
 esac

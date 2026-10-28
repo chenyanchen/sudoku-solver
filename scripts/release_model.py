@@ -24,6 +24,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts._provenance import git_state  # noqa: E402
+from scripts._tracking import use_repo_mlruns  # noqa: E402
 
 RELEASES_DIR = REPO_ROOT / "models" / "releases"
 # The OCR release gate: every labeled image, read exactly through the production
@@ -235,6 +236,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    use_repo_mlruns()
     release_git, _ = git_state(args.allow_dirty)
     if args.model == "cnn":
         return release_cnn(args.run_id, args.version, release_git)
