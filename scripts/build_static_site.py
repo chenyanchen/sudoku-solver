@@ -61,6 +61,9 @@ def build(out: Path, prefix: str, api_base: str) -> None:
     (out / "robots.txt").write_text(i18n.robots(), encoding="utf-8")
     # IndexNow verifies submissions under this path with the key file here.
     (out / f"{i18n.INDEXNOW_KEY}.txt").write_text(i18n.INDEXNOW_KEY, encoding="utf-8")
+    # Search Console verifies the site by this file at its root; keep it.
+    for verification in frontend.glob("google*.html"):
+        shutil.copy2(verification, out / verification.name)
     (out / ".nojekyll").touch()
 
 
