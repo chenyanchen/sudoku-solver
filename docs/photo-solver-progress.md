@@ -55,16 +55,14 @@ uv run --extra dev pytest tests/test_photo_solver.py -q
 训练（自动记录数据哈希和 `split.json`）：
 
 ```bash
-MLFLOW_TRACKING_URI="file://$PWD/mlruns" \
-  uv run --extra ml python scripts/train_cnn_ocr.py \
+uv run --extra ml python scripts/train_cnn_ocr.py \
   --version 3.5.2 --epochs 60 --patience 20
 ```
 
 发布时仍需显式指定训练 run：
 
 ```bash
-MLFLOW_TRACKING_URI="file://$PWD/mlruns" \
-  uv run --extra ml python scripts/release_model.py cnn \
+uv run --extra ml python scripts/release_model.py cnn \
   --run-id <VERIFIED_RUN_ID> --version <YYYYMMDD.N>
 ```
 

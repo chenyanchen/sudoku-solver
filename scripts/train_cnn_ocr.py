@@ -21,6 +21,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts._paths import DEFAULT_CORNERS, load_corner_labels, repo_relative, resolve_image_path
 from scripts._provenance import file_sha256, git_state
+from scripts._tracking import use_repo_mlruns
 
 from backend.ocr.pipeline import ocr_cells, prepare_grid_for_ocr
 from backend.cv.cell_extractor import clean_cell
@@ -361,7 +362,7 @@ def main() -> int:
         optimizer, T_max=args.epochs
     )
 
-    mlflow.set_experiment("sudoku-cnn-ocr")
+    use_repo_mlruns("sudoku-cnn-ocr")
     with mlflow.start_run() as run:
         mlflow.log_params({
             "lr": args.lr,

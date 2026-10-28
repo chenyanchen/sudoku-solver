@@ -27,6 +27,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts._paths import DATA_IMAGE_DIR, DEFAULT_CORNERS, load_corner_labels
 from scripts._provenance import file_sha256, file_sha256_many, git_state
+from scripts._tracking import use_repo_mlruns
 
 DEFAULT_LABELS = REPO_ROOT / "data" / "labels" / "sudoku_labels.json"
 
@@ -353,7 +354,7 @@ def main() -> int:
     ], weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
-    mlflow.set_experiment("sudoku-corner-cnn")
+    use_repo_mlruns("sudoku-corner-cnn")
     with mlflow.start_run() as run:
         mlflow.log_params({
             "arch": args.arch,

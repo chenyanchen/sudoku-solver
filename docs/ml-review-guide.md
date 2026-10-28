@@ -557,8 +557,7 @@ OpenCV clean_cell → CNN 分类 → 数独规则 rerank → solver repair
 本地查看：
 
 ```bash
-MLFLOW_TRACKING_URI="file://$(pwd)/mlruns" \
-uv run --extra ml mlflow ui --port 5000
+uv run --extra ml mlflow ui --backend-store-uri mlruns --port 5000   # from the repo root
 ```
 
 ### 11.2 PyTorch → ONNX
