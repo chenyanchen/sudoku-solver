@@ -112,3 +112,14 @@ def test_cnn_release_checks_photos_before_changing_canonical(tmp_path, monkeypat
         assert metadata["release_git_commit"] == "d00d"
         assert metadata["release_gate"]["pipeline_exact"] == 16
         assert metadata["release_gate"]["labels"] == "data/labels/sudoku_labels.json"
+
+
+def test_released_files_contain_no_local_paths():
+    # torch.onnx.export records stack traces and training logs resolved paths;
+    # both leak the exporting machine's absolute paths into the public repo.
+    releases = release_model.RELEASES_DIR
+    files = sorted(releases.glob("*.onnx")) + sorted(releases.glob("*.meta.json"))
+    assert files
+    for path in files:
+        data = path.read_bytes()
+        assert b"/Users/" not in data and b"/home/" not in data, path.name

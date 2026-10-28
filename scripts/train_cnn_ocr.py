@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts._paths import DEFAULT_CORNERS, load_corner_labels, resolve_image_path
+from scripts._paths import DEFAULT_CORNERS, load_corner_labels, repo_relative, resolve_image_path
 from scripts._provenance import file_sha256, git_state
 
 from backend.ocr.pipeline import ocr_cells, prepare_grid_for_ocr
@@ -382,7 +382,7 @@ def main() -> int:
             "num_val_samples": len(val_samples),
             "crop_source": "ground_truth",
             "split": "puzzle_group",
-            "corners": str(args.corners),
+            "corners": repo_relative(args.corners),
             "corner_jitter_copies": args.corner_jitter_copies,
         })
         mlflow.set_tags({

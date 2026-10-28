@@ -619,8 +619,8 @@ git commit -m "feat: upgrade YoloGridDetector to support 16 keypoints"
 
 ```yaml
 # data/yolo_grid/sudoku_grid.yaml
-# Absolute path set to avoid ultralytics CWD resolution issues
-path: /Users/nle/go/src/github.com/chenyanchen/sudoku-solver/data/yolo_grid
+# Absolute path to the repo's data/yolo_grid, to avoid ultralytics CWD resolution issues
+path: <repo>/data/yolo_grid
 train: images/train
 val: images/train
 

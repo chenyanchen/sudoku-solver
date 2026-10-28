@@ -31,7 +31,7 @@
   "training_params": {
     "split": "puzzle_group",
     "seed": "42",
-    "corners": "/Users/nle/go/src/github.com/chenyanchen/sudoku-solver/data/labels/sudoku_corners.csv",
+    "corners": "data/labels/sudoku_corners.csv",
     "optimizer": "AdamW",
     "label_smoothing": "0.1",
     "input_size": "48",
