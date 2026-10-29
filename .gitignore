@@ -236,5 +236,6 @@ runs/
 # live in data/testset/labels.json and data/labels/sudoku_labels.json.
 data/testset/local/
 data/raw/images/local/
+data/production/
 
 .DS_Store

@@ -74,6 +74,10 @@ The API runs on one 2-core/2 GB VPS (the pages are on GitHub Pages): uvicorn (1 
 - `data/labels/sudoku_labels.json`: ground-truth grids, the digits as printed. Every label must have at least one solution: zero means a transcription error (the solver caught two). Several solutions are allowed when the puzzle itself is ambiguous; check such a label against the image, since a missed digit causes them too.
 - `data/labels/sudoku_corners.csv`: reviewed grid corners. Required for every training image; never train on predicted crops.
 - `data/testset/`: independent test set (never train or tune on it; see its README), with reviewed `corners.csv`. `local/` holds non-redistributable images and is gitignored. Evaluate with `scripts/eval_cnn_ocr.py --labels data/testset/labels.json` and `scripts/eval_corner_cnn.py --model <onnx>`.
+- `data/production/` (gitignored): a local copy of the server's `SUDOKU_DATA_DIR` (`records.sqlite3`, `images/` named by SHA-256) for looking at real uploads. Refresh with a consistent snapshot of the live database:
+  ```bash
+  ssh <host> 'sqlite3 /var/lib/sudoku-solver/records.sqlite3 ".backup /tmp/records-snapshot.sqlite3"' && rsync -a <host>:/tmp/records-snapshot.sqlite3 data/production/records.sqlite3 && rsync -a <host>:/var/lib/sudoku-solver/images/ data/production/images/ && ssh <host> 'rm /tmp/records-snapshot.sqlite3'
+  ```
 - `data/raw/images/`: training screenshots and photos; non-redistributable ones are in gitignored `local/` (labels keyed `local/<name>`). OCR and Corner CNN training both read these with `sudoku_corners.csv`; the ML Backend's `/fit` writes corners there. `data/yolo_grid/`: legacy YOLO keypoint data.
 
 ## Environment Variables
