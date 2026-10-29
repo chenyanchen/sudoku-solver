@@ -51,3 +51,13 @@ def test_labels_are_solvable_puzzles_with_reviewed_corners():
         # 0 solutions means a transcription error; >1 is allowed (an ambiguous puzzle).
         assert SudokuSolver().count_solutions(grid) >= 1, name
         assert name.rsplit("/", 1)[-1] in corners, name
+
+
+def test_corner_labels_may_lie_past_a_cropped_edge(tmp_path):
+    header = "image,x_tl,y_tl,x_tr,y_tr,x_br,y_br,x_bl,y_bl\n"
+    corners = tmp_path / "corners.csv"
+    corners.write_text(header + "crop.png,0.07,0.12,0.70,0.12,0.70,1.03,0.07,1.03\n")
+    assert load_corner_labels(corners)["crop.png"][2, 1] == pytest.approx(1.03)
+    corners.write_text(header + "pixels.png,31,38,314,38,314,327,30,327\n")  # not normalized
+    with pytest.raises(ValueError):
+        load_corner_labels(corners)
