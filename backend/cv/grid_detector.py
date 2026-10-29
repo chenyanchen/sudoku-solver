@@ -357,27 +357,56 @@ def _fit_lattice(
     canvas = cv2.warpPerspective(
         image, canvas_to_image, (size, size), flags=cv2.WARP_INVERSE_MAP | cv2.INTER_AREA,
     )
-    binary = cv2.adaptiveThreshold(
-        cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY), 255,
-        cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 15, 10,
-    )
-    h_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (px, 1)))
-    v_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, px)))
-
+    gray = cv2.cvtColor(canvas, cv2.COLOR_BGR2GRAY)
+    # The canvas reaches past the image when a screenshot crops the grid.
+    # Lines there cannot be seen, so they do not count as missing; the image's
+    # own edge, a few pixels in, is no evidence of a line either.
+    inside = cv2.erode(cv2.warpPerspective(
+        np.full(image.shape[:2], 255, np.uint8), canvas_to_image, (size, size),
+        flags=cv2.WARP_INVERSE_MAP | cv2.INTER_NEAREST,
+    ), np.ones((7, 7), np.uint8)) > 0
     a, b, c = (int(round((margin + cells * f) * px)) for f in (0.1, 0.5, 0.9))
     centres = ((a + b) / 2, (b + c) / 2)
     min_hits = lines - 2 if lines > 4 else lines
-    rows, cols = [], []
-    for lo, hi in ((a, b), (b, c)):
-        rows.append(_fit_lines(_coverage_peaks(h_lines[:, lo:hi].mean(axis=1) / 255, 0.5), px, lines, min_hits))
-        cols.append(_fit_lines(_coverage_peaks(v_lines[lo:hi, :].mean(axis=0) / 255, 0.5), px, lines, min_hits))
-    if None in rows or None in cols:
-        return None
-    # Both strips must have found the same lines, not lattices a line apart.
-    if max(abs(rows[0][k] - rows[1][k]) for k in (0, 1)) > px / 2:
-        return None
-    if max(abs(cols[0][k] - cols[1][k]) for k in (0, 1)) > px / 2:
-        return None
+    # Where the quad puts the lattice: a fit as good as another but whole
+    # cells away is usually an edge beside the grid (a panel, a screenshot's
+    # crop) taken for its outermost line.
+    prior = (margin * px, (margin + cells) * px) if lines == cells + 1 else None
+    # Lines may be dark on light, or light gaps between darker tiles.
+    for lines_gray in (gray, 255 - gray):
+        binary = cv2.adaptiveThreshold(
+            lines_gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 15, 10,
+        )
+        h_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (px, 1)))
+        v_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, px)))
+        rows, cols = [], []
+        for lo, hi in ((a, b), (b, c)):
+            seen = inside[:, lo:hi].mean(axis=1) > 0.5
+            rows.append(_fit_lines(
+                _coverage_peaks(h_lines[:, lo:hi].mean(axis=1) / 255 * seen, 0.5),
+                px, lines, min_hits, prior, seen,
+            ))
+            seen = inside[lo:hi, :].mean(axis=0) > 0.5
+            cols.append(_fit_lines(
+                _coverage_peaks(v_lines[lo:hi, :].mean(axis=0) / 255 * seen, 0.5),
+                px, lines, min_hits, prior, seen,
+            ))
+        if None in rows or None in cols:
+            continue
+        # Both strips must have found the same lines, not lattices a line apart.
+        if max(abs(rows[0][k] - rows[1][k]) for k in (0, 1)) > px / 2:
+            continue
+        if max(abs(cols[0][k] - cols[1][k]) for k in (0, 1)) > px / 2:
+            continue
+        return _lattice_corners(rows, cols, centres, canvas_to_image, margin * px, lines)
+    return None
+
+
+def _lattice_corners(
+    rows: list, cols: list, centres: Tuple[float, float], canvas_to_image: np.ndarray,
+    origin: float, lines: int,
+) -> Tuple[np.ndarray, Tuple[float, float]]:
+    """The fitted lattice's corners in the image, and the quad's offset from it in cells."""
 
     def h_line(k: int) -> np.ndarray:
         return np.cross([centres[0], rows[0][k], 1.0], [centres[1], rows[1][k], 1.0])
@@ -389,7 +418,7 @@ def _fit_lattice(
     rect = np.float32([p[:2] / p[2] for p in points])
     fitted = cv2.perspectiveTransform(rect.reshape(-1, 1, 2), canvas_to_image).reshape(4, 2)
     offsets = tuple(
-        (margin * px - (fit[0][0] + fit[1][0]) / 2)
+        (origin - (fit[0][0] + fit[1][0]) / 2)
         / ((fit[0][1] + fit[1][1] - fit[0][0] - fit[1][0]) / 2 / (lines - 1))
         for fit in (cols, rows)
     )
@@ -406,14 +435,17 @@ def _coverage_peaks(profile: np.ndarray, threshold: float) -> np.ndarray:
 
 def _fit_lines(
     peaks: np.ndarray, spacing: float, count: int, min_hits: int,
+    prior: Optional[Tuple[float, float]] = None, seen: Optional[np.ndarray] = None,
 ) -> Optional[Tuple[float, float]]:
     """(first, last) of `count` equally spaced lines (spacing ±25%) fitted to `peaks`.
 
     Up to count - min_hits lines may be missing (faint or hidden by glare).
-    Each pair of peaks proposes a spacing and phase; the proposal matching
-    the most peaks, then with the smallest residual, wins.
+    Each pair of peaks proposes a spacing and phase. The proposal missing the
+    fewest lines where `seen` (by position) says a line could be seen wins,
+    then the one fewest whole lines from `prior`'s (first, last), then the
+    one matching the most peaks, then the one with the smallest residual.
     """
-    best: Optional[Tuple[Tuple[int, float], Tuple[float, float]]] = None
+    best: Optional[Tuple[Tuple[int, int, int, float], Tuple[float, float]]] = None
     for i in range(len(peaks)):
         for j in range(i + 1, len(peaks)):
             gaps = round((peaks[j] - peaks[i]) / spacing)
@@ -428,12 +460,19 @@ def _fit_lines(
                 hit = np.nonzero(dist.min(axis=0) < 0.15 * step)[0]
                 if len(hit) < min_hits:
                     continue
+                visible = np.ones(count, bool) if seen is None else np.array([
+                    0 <= round(y) < len(seen) and bool(seen[round(y)]) for y in lines
+                ])
+                visible[hit] = True
+                misses = count - len(hit) - int((~visible).sum())
                 matched = peaks[dist[:, hit].argmin(axis=0)]
                 slope, start = np.polyfit(hit, matched, 1)
                 residual = float(np.abs(start + slope * hit - matched).mean())
-                key = (len(hit), -residual)
+                end = start + (count - 1) * slope
+                shift = 0 if prior is None else round(abs(start - prior[0] + end - prior[1]) / 2 / slope)
+                key = (-misses, -shift, len(hit), -residual)
                 if best is None or key > best[0]:
-                    best = (key, (float(start), float(start + (count - 1) * slope)))
+                    best = (key, (float(start), float(end)))
     return None if best is None else best[1]
 
 

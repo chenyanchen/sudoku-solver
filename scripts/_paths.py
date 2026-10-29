@@ -10,6 +10,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_IMAGE_DIR = REPO_ROOT / "data" / "raw" / "images"
 DEFAULT_CORNERS = REPO_ROOT / "data" / "labels" / "sudoku_corners.csv"
+_MAX_CORNER_REACH = 0.7  # from the image centre: corners up to 0.2 past an edge
 
 
 def repo_relative(path: Path) -> str:
@@ -28,7 +29,8 @@ def load_corner_labels(path: Path) -> dict[str, np.ndarray]:
                 [float(row[f"x_{corner}"]), float(row[f"y_{corner}"])]
                 for corner in ("tl", "tr", "br", "bl")
             ], dtype=np.float32)
-            if name in result or not np.isfinite(corners).all() or np.any((corners < 0) | (corners > 1)):
+            # Normalized; a screenshot may crop the grid, putting corners past its edge.
+            if name in result or not np.isfinite(corners).all() or np.any(np.abs(corners - 0.5) > _MAX_CORNER_REACH):
                 raise ValueError(f"Duplicate or invalid corner label: {name}")
             result[name] = corners
     return result

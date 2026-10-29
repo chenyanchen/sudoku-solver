@@ -17,7 +17,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
 from ..cv.corner_cnn_detector import CornerCnnDetector
 from ..cv.detector import warp_grid
-from ..cv.grid_detector import has_regular_grid_lines
+from ..cv.grid_detector import has_regular_grid_lines, snap_to_lattice
 from ..cv.opencv_detector import OpenCVGridDetector
 from ..models.schemas import (
     FeedbackRequest,
@@ -114,6 +114,9 @@ def read_image(image: np.ndarray) -> GridReading | None:
     read even when the first quad solves: a quad a few percent off cuts the
     digits along one edge, and the givens left can still have one solution.
     The refined reading wins only with the same solution and more givens.
+    A Corner CNN quad that does not solve is snapped to the grid lattice
+    around it: the lattice extends past the image when a screenshot crops
+    the grid, where Corner CNN cannot put a corner.
 
     Some published puzzles are ambiguous, so no reading of them is unique.
     When nothing solves uniquely, a reading with solutions beats one with
@@ -127,6 +130,19 @@ def read_image(image: np.ndarray) -> GridReading | None:
     def read(corners: np.ndarray, name: str) -> GridReading:
         warped = warp_grid(image, corners)
         return GridReading(recognize(reader, warped), warped, name)
+
+    def read_corner_cnn(corners: np.ndarray) -> GridReading:
+        """Corner CNN's quad, or the grid lattice fitted around it if that reads better."""
+        reading = read(corners, "corner_cnn")
+        if reading.recognition.status == UNIQUE:
+            return reading
+        lattice = snap_to_lattice(image, corners, cells=9)
+        if lattice is None:
+            return reading
+        snapped = read(lattice[1], "corner_cnn")
+        if snapped.recognition.status == UNIQUE or _rank(snapped) > _rank(reading):
+            return snapped
+        return reading
 
     found = None
     detection = _OPENCV.detect(image)
@@ -146,7 +162,7 @@ def read_image(image: np.ndarray) -> GridReading | None:
             corners = corner_cnn.refine(image, corners)
             if corners is None:
                 break
-        second = read(corners, "corner_cnn")
+        second = read_corner_cnn(corners)
         if second.recognition.status == UNIQUE:
             if solved is None:
                 solved = second

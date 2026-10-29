@@ -42,3 +42,27 @@ def test_shrinks_a_frame_to_the_grid():
 
 def test_rejects_a_3x3_block_off_the_box_boundaries():
     assert snap_to_lattice(_grid_image(), _block(1, 1, 3), cells=3) is None
+
+
+def _tiles_image(height: int) -> np.ndarray:
+    """Dark tiles on a light board (a game's grid has no drawn lines), with a
+    panel one cell above and left of it: an edge spaced like a grid line."""
+    img = np.full((560, 560, 3), 200, np.uint8)
+    for k in range(-1, 9):
+        a = ORIGIN + k * CELL + 3
+        cv2.rectangle(img, (ORIGIN + 3, a), (ORIGIN + 9 * CELL - 3, a + CELL - 6), (60, 60, 60), -1)
+        cv2.rectangle(img, (a, ORIGIN + 3), (a + CELL - 6, ORIGIN + 9 * CELL - 3), (60, 60, 60), -1)
+    for row in range(9):
+        for col in range(9):
+            x, y = ORIGIN + col * CELL, ORIGIN + row * CELL
+            cv2.rectangle(img, (x, y), (x + CELL, y + CELL), (200, 200, 200), 6)
+    return img[:height]
+
+
+def test_extends_a_cropped_grid_past_the_image():
+    """A screenshot cut through the last row: its bottom line is past the image."""
+    image = _tiles_image(height=450)
+    rough = np.float32([[103, 104], [456, 98], [468, 449], [98, 449]])  # corners stop at the edge
+    result = snap_to_lattice(image, rough, cells=9)
+    assert result is not None
+    assert np.abs(result[1] - TRUTH).max() < TOLERANCE
