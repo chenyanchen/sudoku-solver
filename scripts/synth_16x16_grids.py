@@ -26,24 +26,27 @@ from PIL import Image, ImageDraw, ImageFont
 
 SIZE, BOX = 16, 4
 SYMBOLS = "123456789ABCDEFG"  # value v is SYMBOLS[v - 1]
-SYSTEM_FONTS = [
-    "/System/Library/Fonts/Helvetica.ttc",
-    "/System/Library/Fonts/HelveticaNeue.ttc",
-    "/System/Library/Fonts/SFNS.ttf",
-    "/System/Library/Fonts/SFNSRounded.ttf",
-    "/System/Library/Fonts/SFCompact.ttf",
-    "/System/Library/Fonts/Avenir.ttc",
-    "/System/Library/Fonts/Avenir Next.ttc",
-    "/System/Library/Fonts/Geneva.ttf",
-    "/System/Library/Fonts/Supplemental/Arial.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-    "/System/Library/Fonts/Supplemental/Tahoma.ttf",
-    "/System/Library/Fonts/Supplemental/Verdana.ttf",
-    "/System/Library/Fonts/Supplemental/Trebuchet MS.ttf",
-    "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf",
-    "/System/Library/Fonts/Supplemental/Futura.ttc",
-    "/System/Library/Fonts/Supplemental/GillSans.ttc",
-]
+# Sans, serif, slab, monospace, condensed, rounded and hand-drawn faces: with
+# 22 sans faces only, held-out serif and monospace grids rarely read. Some
+# families are kept out on purpose to measure how well other fonts read:
+# Arial Rounded, Georgia, Comic Sans, Menlo, Monaco, SF Mono, Optima, Skia,
+# Courier New and Impact.
+_SYS, _SUP = "/System/Library/Fonts/", "/System/Library/Fonts/Supplemental/"
+SYSTEM_FONTS = [_SYS + f for f in (
+    "Helvetica.ttc", "HelveticaNeue.ttc", "SFNS.ttf", "SFNSRounded.ttf", "SFCompact.ttf",
+    "SFCompactRounded.ttf", "Avenir.ttc", "Avenir Next.ttc", "Avenir Next Condensed.ttc",
+    "Geneva.ttf", "LucidaGrande.ttc", "NewYork.ttf", "Palatino.ttc", "Courier.ttc",
+    "MarkerFelt.ttc", "Noteworthy.ttc", "Hiragino Sans GB.ttc", "ヒラギノ角ゴシック W3.ttc",
+    "ヒラギノ角ゴシック W6.ttc", "STHeiti Medium.ttc",
+)] + [_SUP + f for f in (
+    "Arial.ttf", "Arial Bold.ttf", "Arial Black.ttf", "Arial Narrow.ttf", "Tahoma.ttf",
+    "Tahoma Bold.ttf", "Verdana.ttf", "Verdana Bold.ttf", "Trebuchet MS.ttf", "Trebuchet MS Bold.ttf",
+    "DIN Alternate Bold.ttf", "DIN Condensed Bold.ttf", "Futura.ttc", "GillSans.ttc",
+    "Microsoft Sans Serif.ttf", "PTSans.ttc", "Seravek.ttc", "Times New Roman.ttf",
+    "Times New Roman Bold.ttf", "PTSerif.ttc", "Baskerville.ttc", "Charter.ttc", "Cochin.ttc",
+    "Didot.ttc", "Hoefler Text.ttc", "Iowan Old Style.ttc", "STIXTwoText.ttf", "Rockwell.ttc",
+    "SuperClarendon.ttc", "AmericanTypewriter.ttc", "Andale Mono.ttf", "PTMono.ttc", "Chalkboard.ttc",
+)]
 
 
 def solved_grid(rng: random.Random) -> list[list[int]]:
