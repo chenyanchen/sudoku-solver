@@ -303,18 +303,18 @@ input.sudoku-cell.edited {
     cursor: not-allowed;
 }
 
-/* Thicker borders for 3x3 boxes */
-.sudoku-cell:nth-child(3n) {
+/* Thicker lines between boxes (3x3 or 4x4), set per cell by app.js */
+.sudoku-cell.box-right {
     border-right: 2px solid var(--grid-border);
 }
 
-.sudoku-cell:nth-child(9n) {
-    border-right: none;
+.sudoku-cell.box-bottom {
+    border-bottom: 2px solid var(--grid-border);
 }
 
-.sudoku-grid .sudoku-cell:nth-child(n+19):nth-child(-n+27),
-.sudoku-grid .sudoku-cell:nth-child(n+46):nth-child(-n+54) {
-    border-bottom: 2px solid var(--grid-border);
+.sudoku-grid.size-16 .sudoku-cell,
+.sudoku-grid.size-16 input.sudoku-cell {
+    font-size: 0.8rem;
 }
 
 .message-section {
@@ -364,6 +364,11 @@ footer {
 
     .sudoku-cell {
         font-size: 1rem;
+    }
+
+    .sudoku-grid.size-16 .sudoku-cell,
+    .sudoku-grid.size-16 input.sudoku-cell {
+        font-size: 0.65rem;
     }
 }
 

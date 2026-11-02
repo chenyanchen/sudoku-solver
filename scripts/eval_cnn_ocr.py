@@ -20,6 +20,7 @@ from scripts._paths import DEFAULT_CORNERS, load_corner_labels, resolve_image_pa
 from backend.api.routes import read_image
 from backend.ocr.pipeline import decode, read_grid
 from backend.ocr.cnn_digit_reader import CnnDigitReader, DEFAULT_CNN_MODEL
+from backend.cv.cell_extractor import CELL_PX
 from backend.cv.detector import warp_grid
 from backend.cv.opencv_detector import OpenCVGridDetector
 from backend.cv.corner_cnn_detector import CornerCnnDetector
@@ -53,19 +54,19 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_warped_grid(image_path: Path, detector=None, corners=None):
+def load_warped_grid(image_path: Path, detector=None, corners=None, size: int = 9):
     image = cv2.imread(str(image_path))
     if image is None:
         raise FileNotFoundError(f"Cannot load image: {image_path}")
 
     if corners is not None:
         h, w = image.shape[:2]
-        grid_image = warp_grid(image, corners * np.array([w, h]))
+        grid_image = warp_grid(image, corners * np.array([w, h]), CELL_PX * size)
     elif detector is not None:
         detection = detector.detect(image)
         if detection is None:
             raise ValueError(f"Failed to detect Sudoku grid: {image_path}")
-        grid_image = warp_grid(image, detection.corners)
+        grid_image = warp_grid(image, detection.corners, CELL_PX * size)
     else:
         reading = read_image(image)  # the web path, Corner CNN retry included
         if reading is None:
@@ -81,9 +82,12 @@ def evaluate_single_grid(pred, truth):
     digit9_total = 0
     digit9_hit = 0
     fp_blank = 0
+    size = len(truth)
+    if len(pred) != size:  # read as a grid of the other size
+        pred = [[0] * size for _ in range(size)]
 
-    for r in range(9):
-        for c in range(9):
+    for r in range(size):
+        for c in range(size):
             t = int(truth[r][c])
             p = int(pred[r][c])
             if t != 0:
@@ -166,9 +170,10 @@ def main() -> int:
             continue
         try:
             corners = corners_by_name[image_path.name] if args.detector == "gt" else None
-            warped = load_warped_grid(image_path, detector, corners)
+            size = len(truth)
+            warped = load_warped_grid(image_path, detector, corners, size)
             # Raw CNN metrics, then the production result after decode().
-            cnn_grid, metadata = read_grid(cnn_reader, warped)
+            cnn_grid, metadata = read_grid(cnn_reader, warped, size)
             cnn_m = evaluate_single_grid(cnn_grid, truth)
             result = decode(cnn_grid, metadata)
             cnn_m["pipeline_exact"] = result.grid == truth
@@ -176,7 +181,7 @@ def main() -> int:
             cnn_m["solution_exact"] = result.solution == solver.solve_unique(truth)[0]
             cnn_m["predicted"] = cnn_grid
         except (ValueError, FileNotFoundError, KeyError) as exc:
-            cnn_m = evaluate_single_grid([[0] * 9 for _ in range(9)], truth)
+            cnn_m = evaluate_single_grid([[0] * len(truth) for _ in truth], truth)
             cnn_m.update(pipeline_exact=False, solution_exact=False, error=str(exc))
         cnn_metrics.append(cnn_m)
         per_image[image_name] = cnn_m

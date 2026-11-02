@@ -2,6 +2,7 @@
 
 Usage:
     uv run python scripts/release_model.py cnn --run-id <id> --version <YYYYMMDD.N>
+    uv run python scripts/release_model.py cnn16 --run-id <id> --version <YYYYMMDD.N>
     uv run python scripts/release_model.py corner-cnn --run-id <id> --version <YYYYMMDD.N>
 """
 
@@ -31,6 +32,12 @@ RELEASES_DIR = REPO_ROOT / "models" / "releases"
 # pipeline, so each image added to the labels is protected from then on. The test
 # set stays out: deciding releases on it would tune the model to it.
 CNN_GATE_LABELS = REPO_ROOT / "data" / "labels" / "sudoku_labels.json"
+# OCR models by grid size: (file name prefix, gate labels, env var the web path reads).
+# The 16x16 model trains on synthetic grids, so its gate is the real 16x16 uploads.
+CNN_KINDS = {
+    "cnn": ("sudoku_digit_cnn", CNN_GATE_LABELS, "CNN_MODEL_PATH"),
+    "cnn16": ("sudoku_16x16_cnn", REPO_ROOT / "data" / "labels" / "sudoku16_labels.json", "CNN16_MODEL_PATH"),
+}
 
 
 def _validate_release_version(value: str) -> str:
@@ -91,7 +98,8 @@ def _write_release_metadata(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-def release_cnn(run_id: str, release_version: str, release_git: dict[str, str]) -> int:
+def release_cnn(run_id: str, release_version: str, release_git: dict[str, str], kind: str = "cnn") -> int:
+    prefix, gate_labels, model_env = CNN_KINDS[kind]
     client = MlflowClient()
     run = client.get_run(run_id)
 
@@ -116,7 +124,7 @@ def release_cnn(run_id: str, release_version: str, release_git: dict[str, str]) 
         pt_path = Path(local_path)
 
         # Run export
-        output_path = RELEASES_DIR / f"sudoku_digit_cnn_{release_version}.onnx"
+        output_path = RELEASES_DIR / f"{prefix}_{release_version}.onnx"
         if output_path.exists():
             raise SystemExit(f"Release already exists: {output_path}")
         result = subprocess.run(
@@ -130,14 +138,14 @@ def release_cnn(run_id: str, release_version: str, release_git: dict[str, str]) 
         if result.returncode != 0:
             raise SystemExit(f"ONNX export failed with code {result.returncode}")
 
-        # The detector chain reads CNN_MODEL_PATH too, so it must see the candidate.
+        # The web path reads the model from the environment, so it must see the candidate.
         gate_json = Path(tmpdir) / "gate.json"
         subprocess.run([
             sys.executable, str(REPO_ROOT / "scripts" / "eval_cnn_ocr.py"),
             "--cnn-model", str(output_path), "--strict",
-            "--labels", str(CNN_GATE_LABELS),
+            "--labels", str(gate_labels),
             "--output-json", str(gate_json),
-        ], cwd=REPO_ROOT, check=True, env={**os.environ, "CNN_MODEL_PATH": str(output_path)})
+        ], cwd=REPO_ROOT, check=True, env={**os.environ, model_env: str(output_path)})
         gate = json.loads(gate_json.read_text())["cnn"]
 
         split_path = Path(client.download_artifacts(run_id, "split.json", tmpdir))
@@ -145,7 +153,7 @@ def release_cnn(run_id: str, release_version: str, release_git: dict[str, str]) 
 
         _write_release_metadata(
             artifact_path=output_path,
-            model_type="cnn",
+            model_type=kind,
             model_version=release_version,
             run=run,
             metric_name="score",
@@ -156,13 +164,13 @@ def release_cnn(run_id: str, release_version: str, release_git: dict[str, str]) 
                 "preprocessing": "local_adaptive_v1",
                 "val_images": val_images,
                 "release_gate": {
-                    "labels": str(CNN_GATE_LABELS.relative_to(REPO_ROOT)),
+                    "labels": str(gate_labels.relative_to(REPO_ROOT)),
                     **{k: gate[k] for k in ("pipeline_exact", "solution_exact", "grid_exact", "false_positive_blank")},
                     "total": gate["images"],
                 },
             },
         )
-        canonical = RELEASES_DIR / "sudoku_digit_cnn.onnx"
+        canonical = RELEASES_DIR / f"{prefix}.onnx"
         canonical.unlink(missing_ok=True)
         canonical.symlink_to(output_path.name)
 
@@ -222,7 +230,7 @@ def release_corner_cnn(run_id: str, release_version: str, release_git: dict[str,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Release model from MLflow")
-    parser.add_argument("model", choices=["cnn", "corner-cnn"], help="Model type to release")
+    parser.add_argument("model", choices=[*CNN_KINDS, "corner-cnn"], help="Model type to release")
     parser.add_argument(
         "--version",
         required=True,
@@ -238,8 +246,8 @@ def main() -> int:
 
     use_repo_mlruns()
     release_git, _ = git_state(args.allow_dirty)
-    if args.model == "cnn":
-        return release_cnn(args.run_id, args.version, release_git)
+    if args.model in CNN_KINDS:
+        return release_cnn(args.run_id, args.version, release_git, args.model)
     return release_corner_cnn(args.run_id, args.version, release_git)
 
 
