@@ -153,3 +153,16 @@ def test_16x16_reading_replaces_only_an_unsolved_or_missing_9x9_one(monkeypatch,
     result = routes._read_upright(IMAGE)
     assert (len(result.recognition.grid) if result else None) == expected
     assert bool(tried) == (nine != UNIQUE)
+
+
+@pytest.mark.parametrize("status, read", [(UNIQUE, True), (AMBIGUOUS, False), (UNSOLVABLE, False)])
+def test_quad_that_fits_no_16x16_lattice_counts_only_if_it_solves(monkeypatch, status, read):
+    """Faint lines can defeat the lattice fit around a right quad; a wrong quad must not pass for a grid."""
+    monkeypatch.setattr(routes, "_get_cnn16_reader", lambda: object())
+    monkeypatch.setattr(routes, "snap_to_lattice", lambda *args, **kwargs: None)
+    monkeypatch.setattr(routes, "warp_grid", lambda image, corners, side: np.zeros((side, side, 3), np.uint8))
+    monkeypatch.setattr(
+        routes, "recognize",
+        lambda reader, warped, size: Recognition([[0] * size for _ in range(size)], None, status, {}),
+    )
+    assert (routes._read_16x16(IMAGE, [(QUAD, "opencv")]) is not None) == read
