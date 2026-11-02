@@ -15,7 +15,7 @@ from typing import Any
 import cv2
 import numpy as np
 
-from ..cv.cell_extractor import extract_cells
+from ..cv.cell_extractor import CELL_PX, extract_cells
 from ..solver.backtracking import Grid, SudokuSolver, is_valid_placement
 from .cnn_digit_reader import CnnDigitReader
 
@@ -49,9 +49,10 @@ class Recognition:
     def hints(self) -> list[dict[str, int]]:
         if self.solution is None:
             return []
+        size = len(self.grid)
         return [
             {"row": r, "col": c, "digit": self.solution[r][c]}
-            for r in range(9) for c in range(9) if self.grid[r][c] == 0
+            for r in range(size) for c in range(size) if self.grid[r][c] == 0
         ]
 
 
@@ -67,9 +68,9 @@ def prepare_grid_for_ocr(grid_img: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
 
 
-def read_grid(reader: CnnDigitReader, warped: np.ndarray) -> tuple[Grid, dict[str, Any]]:
-    """Raw CNN reading of a warped grid (no Sudoku constraints applied)."""
-    cells, zoomed = ocr_cells(prepare_grid_for_ocr(warped))
+def read_grid(reader: CnnDigitReader, warped: np.ndarray, size: int = 9) -> tuple[Grid, dict[str, Any]]:
+    """Raw CNN reading of a warped size x size grid (no Sudoku constraints applied)."""
+    cells, zoomed = ocr_cells(prepare_grid_for_ocr(warped), size)
     # Zoomed digits are outside the training distribution: accept lower
     # confidence and rely on decode()'s uniqueness check to reject misreads.
     return reader.recognize_grid_with_metadata(
@@ -77,26 +78,26 @@ def read_grid(reader: CnnDigitReader, warped: np.ndarray) -> tuple[Grid, dict[st
     )
 
 
-def ocr_cells(ocr_grid: np.ndarray) -> tuple[list[np.ndarray], bool]:
-    """Cut 81 cells, zooming in when digits are smaller than in the training data.
+def ocr_cells(ocr_grid: np.ndarray, size: int = 9) -> tuple[list[np.ndarray], bool]:
+    """Cut size x size cells, zooming in when digits are smaller than in the training data.
 
     Returns (cells, zoomed). Training and inference must both use this.
     """
-    heights = _digit_heights(ocr_grid)
+    heights = _digit_heights(ocr_grid, size)
     if len(heights) < 5:
-        return extract_cells(ocr_grid), False
+        return extract_cells(ocr_grid, size=size), False
     height = float(np.median(heights))
     if height / _CELL >= _SMALL_DIGIT_HEIGHT:
-        return extract_cells(ocr_grid), False
-    margin = round((50 - height / _TRAIN_DIGIT_HEIGHT) / 2)
-    return extract_cells(ocr_grid, margin), True
+        return extract_cells(ocr_grid, size=size), False
+    margin = round((CELL_PX - height / _TRAIN_DIGIT_HEIGHT) / 2)
+    return extract_cells(ocr_grid, margin, size), True
 
 
-def _digit_heights(ocr_grid: np.ndarray) -> list[int]:
+def _digit_heights(ocr_grid: np.ndarray, size: int) -> list[int]:
     """Height of the tallest interior ink blob in each cell that has one."""
     gray = cv2.cvtColor(ocr_grid, cv2.COLOR_BGR2GRAY)
     heights = []
-    for cell in extract_cells(gray):
+    for cell in extract_cells(gray, size=size):
         count, _, stats, _ = cv2.connectedComponentsWithStats((cell < 128).astype(np.uint8))
         tallest = max(
             (h for x, y, w, h, _ in stats[1:count]
@@ -110,10 +111,11 @@ def _digit_heights(ocr_grid: np.ndarray) -> list[int]:
 
 def recognize(
     reader: CnnDigitReader, warped: np.ndarray, max_changes: int = 2, max_cells: int = 10,
+    size: int = 9,
 ) -> Recognition:
-    """Recognize and solve a 450x450 warped grid."""
+    """Recognize and solve a warped size x size grid (CELL_PX per cell)."""
     t0 = time.perf_counter()
-    grid, metadata = read_grid(reader, warped)
+    grid, metadata = read_grid(reader, warped, size)
     t1 = time.perf_counter()
     result = decode(grid, metadata, max_changes, max_cells)
     t2 = time.perf_counter()
@@ -144,8 +146,9 @@ def decode(
 
     # Ambiguous → a given was missed; unsolvable → a given was misread.
     fill_blanks = count > 1
+    size = len(grid)
     givens = sum(value != 0 for row in grid for value in row)
-    if fill_blanks and givens + max_changes < 17:  # no unique puzzle has < 17 givens
+    if fill_blanks and size == 9 and givens + max_changes < 17:  # no unique 9x9 puzzle has < 17 givens
         return Recognition(grid, None, AMBIGUOUS, metadata)
 
     predictions = metadata["cell_predictions"]
@@ -158,9 +161,9 @@ def decode(
             for values in itertools.product(*(options[idx][1] for idx in cells)):
                 candidate = [row[:] for row in grid]
                 for idx, value in zip(cells, values):
-                    candidate[idx // 9][idx % 9] = value
+                    candidate[idx // size][idx % size] = value
                 if not all(
-                    is_valid_placement(candidate, idx // 9, idx % 9, value)
+                    is_valid_placement(candidate, idx // size, idx % size, value)
                     for idx, value in zip(cells, values)
                 ):
                     continue
@@ -172,7 +175,7 @@ def decode(
                         return Recognition(grid, None, AMBIGUOUS if fill_blanks else UNSOLVABLE, metadata)
                     continue
                 corrections = [
-                    {"row": idx // 9, "col": idx % 9, "from": grid[idx // 9][idx % 9], "to": value}
+                    {"row": idx // size, "col": idx % size, "from": grid[idx // size][idx % size], "to": value}
                     for idx, value in zip(cells, values)
                 ]
                 found = Recognition(candidate, solution, UNIQUE, metadata, corrections)
