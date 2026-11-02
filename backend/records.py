@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS corrections (
 );
 """
 
+# No puzzle with fewer givens has a unique solution, so none is published.
+MIN_PUZZLE_GIVENS = 17
+
 _IMAGE_TYPES = {b"\xff\xd8\xff": ".jpg", b"\x89PNG": ".png", b"GIF8": ".gif", b"BM": ".bmp"}
 
 
@@ -118,16 +121,23 @@ class Records:
         return True
 
     def stats(self) -> dict[str, float | int]:
+        """Images whose latest reading solved, uncorrected. An ambiguous reading
+        counts when it has a puzzle's worth of givens: some published puzzles
+        are ambiguous, but a partial grid, or no Sudoku at all, has solutions too."""
         with self._lock:
             total, solved = self._db.execute(
                 """
                 SELECT COUNT(*), COALESCE(SUM(
-                    r.status IN ('unique', 'ambiguous') AND NOT EXISTS (
+                    (r.status = 'unique' OR (r.status = 'ambiguous' AND (
+                        SELECT COUNT(*) FROM json_each(r.grid) AS row, json_each(row.value) AS cell
+                        WHERE cell.value != 0
+                    ) >= ?)) AND NOT EXISTS (
                         SELECT 1 FROM corrections c WHERE c.reading_id = r.id AND c.grid != r.grid
                     )
                 ), 0)
                 FROM readings r
                 WHERE r.id IN (SELECT MAX(id) FROM readings GROUP BY image_sha256)
-                """
+                """,
+                (MIN_PUZZLE_GIVENS,),
             ).fetchone()
         return {"solved": solved, "total": total, "percentage": round(100 * solved / total, 1) if total else 0.0}
