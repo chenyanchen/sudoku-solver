@@ -9,6 +9,30 @@ function t(key, values = {}) {
     return (I18N[key] || key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
 }
 
+// Grids are 9x9 or 16x16; a 16x16 grid's values 10-16 are shown as A-G.
+const SYMBOLS = '123456789ABCDEFG';
+const symbol = (value) => (value ? SYMBOLS[value - 1] : '');
+const boxSide = (size) => Math.round(Math.sqrt(size));
+
+// Value of a typed character in a grid of `size`, or 0 if it is not one.
+function parseSymbol(text, size) {
+    const index = SYMBOLS.indexOf(text.toUpperCase());
+    return index >= 0 && index < size ? index + 1 : 0;
+}
+
+// Cell classes that draw the thicker lines between boxes.
+function boxClasses(cell, row, col, size) {
+    const box = boxSide(size);
+    if (col % box === box - 1 && col < size - 1) cell.classList.add('box-right');
+    if (row % box === box - 1 && row < size - 1) cell.classList.add('box-bottom');
+}
+
+function layoutGrid(container, size) {
+    container.innerHTML = '';
+    container.style.gridTemplateColumns = `repeat(${size}, minmax(0, 1fr))`;
+    container.classList.toggle('size-16', size === 16);
+}
+
 class SudokuSolver {
     constructor() {
         this.uploadArea = document.getElementById('uploadArea');
@@ -24,6 +48,7 @@ class SudokuSolver {
         this.stats = document.getElementById('stats');
         this.manualButton = document.getElementById('manualButton');
         this.shareButton = document.getElementById('shareButton');
+        this.sizeButton = document.getElementById('sizeButton');
         this.puzzleTitle = document.getElementById('puzzleTitle');
         this.puzzleHint = document.getElementById('puzzleHint');
         this.selectedFile = null;
@@ -31,6 +56,7 @@ class SudokuSolver {
         this.recognized = null;      // givens as recognized
         this.manual = false;         // the puzzle was typed in, not recognized
         this.solution = null;        // { givens, solved } of the last solution shown
+        this.size = 9;               // cells per side of the puzzle shown
 
         this.init();
     }
@@ -60,6 +86,7 @@ class SudokuSolver {
         this.solveButton.addEventListener('click', () => this.solvePuzzle());
         this.resolveButton.addEventListener('click', () => this.solveCorrected());
         this.manualButton.addEventListener('click', () => this.startManual());
+        this.sizeButton.addEventListener('click', () => this.startManual(this.size === 9 ? 16 : 9));
         this.shareButton.addEventListener('click', () => this.shareSolution());
         this.loadStats();
 
@@ -89,14 +116,15 @@ class SudokuSolver {
         }
     }
 
-    startManual() {
+    startManual(size = 9) {
         this.manual = true;
         this.token = null;
         this.selectedFile = null;
         this.clearMessages();
         this.previewSection.style.display = 'none';
+        this.size = size;
         this.setPuzzleMode();
-        this.displayEditableGrid(Array.from({ length: 9 }, () => Array(9).fill(0)));
+        this.displayEditableGrid(Array.from({ length: size }, () => Array(size).fill(0)));
         this.displayGrid(null, 'solvedGrid');
         this.resolveButton.disabled = false;
         this.resultsSection.style.display = 'block';
@@ -106,7 +134,10 @@ class SudokuSolver {
 
     setPuzzleMode() {
         this.puzzleTitle.textContent = t(this.manual ? 'manualTitle' : 'recognizedTitle');
-        this.puzzleHint.textContent = t(this.manual ? 'manualHint' : 'recognizedHint');
+        const manualHint = this.size === 16 ? 'manualHint16' : 'manualHint';
+        this.puzzleHint.textContent = t(this.manual ? manualHint : 'recognizedHint');
+        this.sizeButton.hidden = !this.manual;
+        this.sizeButton.textContent = t(this.size === 9 ? 'size16' : 'size9');
         this.resolveButton.textContent = t(this.manual ? 'manualSolve' : 'resolve');
         this.shareButton.hidden = true;
         this.solution = null;
@@ -198,10 +229,10 @@ class SudokuSolver {
     async solveCorrected() {
         const grid = this.readEditableGrid();
         if (!grid) {
-            this.showMessage(t('digitsOnly'), 'error');
+            this.showMessage(t(this.size === 16 ? 'symbolsOnly16' : 'digitsOnly'), 'error');
             return;
         }
-        if (this.manual && grid.flat().filter(Boolean).length < 17) {
+        if (this.manual && this.size === 9 && grid.flat().filter(Boolean).length < 17) {
             this.showMessage(t('tooFewGivens'), 'warning');
             return;
         }
@@ -243,30 +274,35 @@ class SudokuSolver {
     }
 
     displayEditableGrid(grid) {
+        const size = grid.length;
+        this.size = size;
         const container = document.getElementById('originalGrid');
-        container.innerHTML = '';
-        for (let row = 0; row < 9; row++) {
-            for (let col = 0; col < 9; col++) {
+        layoutGrid(container, size);
+        for (let row = 0; row < size; row++) {
+            for (let col = 0; col < size; col++) {
                 const input = document.createElement('input');
                 input.className = 'sudoku-cell given';
-                input.inputMode = 'numeric';
+                boxClasses(input, row, col, size);
+                input.inputMode = size === 9 ? 'numeric' : 'text';
+                input.autocapitalize = 'characters';
                 input.maxLength = 1;
                 input.setAttribute('aria-label', t('cell', { row: row + 1, col: col + 1 }));
-                input.value = grid[row][col] || '';
+                input.value = symbol(grid[row][col]);
                 input.addEventListener('focus', () => input.select());
                 input.addEventListener('input', () => {
-                    input.value = input.value.replace(/[^1-9]/g, '').slice(-1);
-                    input.classList.toggle('edited', !this.manual && (Number(input.value) || 0) !== grid[row][col]);
+                    const value = parseSymbol(input.value.slice(-1), size);
+                    input.value = symbol(value);
+                    input.classList.toggle('edited', !this.manual && value !== grid[row][col]);
                     this.resolveButton.disabled = false;
-                    if (input.value && this.manual) this.focusCell(row * 9 + col + 1);
+                    if (input.value && this.manual) this.focusCell(row * size + col + 1);
                 });
                 input.addEventListener('keydown', (e) => {
-                    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -9, ArrowDown: 9 }[e.key];
+                    const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -size, ArrowDown: size }[e.key];
                     if (step) {
                         e.preventDefault();
-                        this.focusCell(row * 9 + col + step);
+                        this.focusCell(row * size + col + step);
                     } else if (e.key === 'Backspace' && !input.value) {
-                        this.focusCell(row * 9 + col - 1);
+                        this.focusCell(row * size + col - 1);
                     } else if (e.key === 'Enter') {
                         this.solveCorrected();
                     }
@@ -285,28 +321,32 @@ class SudokuSolver {
 
     readEditableGrid() {
         const inputs = document.querySelectorAll('#originalGrid input');
+        const size = this.size;
         const grid = [];
-        for (let i = 0; i < 81; i++) {
-            const value = inputs[i].value === '' ? 0 : Number(inputs[i].value);
-            if (!Number.isInteger(value) || value < 0 || value > 9) {
+        for (let i = 0; i < size * size; i++) {
+            const text = inputs[i].value;
+            const value = text === '' ? 0 : parseSymbol(text, size);
+            if (text !== '' && value === 0) {
                 return null;
             }
-            if (i % 9 === 0) grid.push([]);
+            if (i % size === 0) grid.push([]);
             grid[grid.length - 1].push(value);
         }
         return grid;
     }
 
     displayGrid(gridData, elementId, givens = null) {
+        const size = gridData ? gridData.length : this.size;
         const container = document.getElementById(elementId);
-        container.innerHTML = '';
-        for (let row = 0; row < 9; row++) {
-            for (let col = 0; col < 9; col++) {
+        layoutGrid(container, size);
+        for (let row = 0; row < size; row++) {
+            for (let col = 0; col < size; col++) {
                 const cell = document.createElement('div');
                 cell.className = 'sudoku-cell';
+                boxClasses(cell, row, col, size);
                 const value = gridData ? gridData[row][col] : 0;
                 if (value !== 0) {
-                    cell.textContent = value;
+                    cell.textContent = symbol(value);
                     cell.classList.add(givens && givens[row][col] ? 'given' : 'solved');
                 }
                 container.appendChild(cell);
@@ -338,7 +378,8 @@ class SudokuSolver {
 
     drawSolution() {
         const { givens, solved } = this.solution;
-        const cell = 100, pad = 60, top = 140, side = cell * 9;
+        const size = solved.length, box = boxSide(size);
+        const pad = 60, top = 140, side = 900, cell = side / size;
         const canvas = document.createElement('canvas');
         canvas.width = side + pad * 2;
         canvas.height = top + side + 130;
@@ -353,21 +394,21 @@ class SudokuSolver {
         ctx.fillText(t('brand'), canvas.width / 2, top / 2 + 10);
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(pad, top, side, side);
-        for (let row = 0; row < 9; row++) {
-            for (let col = 0; col < 9; col++) {
+        for (let row = 0; row < size; row++) {
+            for (let col = 0; col < size; col++) {
                 const x = pad + col * cell, y = top + row * cell;
                 if (givens[row][col]) {
                     ctx.fillStyle = '#f1f5f9';
                     ctx.fillRect(x, y, cell, cell);
                 }
                 ctx.fillStyle = givens[row][col] ? '#1e293b' : '#3b82f6';
-                ctx.font = `${givens[row][col] ? 700 : 500} 60px ${font}`;
-                ctx.fillText(String(solved[row][col]), x + cell / 2, y + cell / 2 + 3);
+                ctx.font = `${givens[row][col] ? 700 : 500} ${Math.round(cell * 0.6)}px ${font}`;
+                ctx.fillText(symbol(solved[row][col]), x + cell / 2, y + cell / 2 + 3);
             }
         }
-        for (let i = 0; i <= 9; i++) {
-            ctx.strokeStyle = i % 3 === 0 ? '#334155' : '#94a3b8';
-            ctx.lineWidth = i % 3 === 0 ? 6 : 2;
+        for (let i = 0; i <= size; i++) {
+            ctx.strokeStyle = i % box === 0 ? '#334155' : '#94a3b8';
+            ctx.lineWidth = i % box === 0 ? 6 : 2;
             ctx.beginPath();
             ctx.moveTo(pad + i * cell, top);
             ctx.lineTo(pad + i * cell, top + side);

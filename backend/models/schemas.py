@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 class SudokuGrid(BaseModel):
     """A Sudoku grid."""
 
-    cells: list[list[int]] = Field(description="9x9 grid (0 for empty cells)")
+    cells: list[list[int]] = Field(
+        description="9x9 or 16x16 grid (0 for empty cells; in a 16x16 grid 10-16 are the letters A-G)"
+    )
 
     class Config:
         json_schema_extra = {
@@ -48,7 +50,7 @@ class RecognizeResponse(BaseModel):
     success: bool = Field(description="Whether recognition was successful")
     message: str = Field(description="Status message")
     grid: list[list[int]] | None = Field(
-        default=None, description="9x9 recognized grid (0 for empty cells)"
+        default=None, description="Recognized 9x9 or 16x16 grid (0 for empty cells, 10-16 for A-G)"
     )
     detected_image: str | None = Field(
         default=None, description="Base64 encoded detected grid image"

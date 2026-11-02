@@ -132,3 +132,24 @@ def test_regular_corner_cnn_grid_beats_irregular_opencv_quad(setup):
     """OpenCV's fallback quad may be one cell: its blank reading is no use."""
     setup(True, [AMBIGUOUS, UNSOLVABLE, UNSOLVABLE], regular={"corner_cnn"})
     assert routes.read_image(IMAGE).detector_name == "corner_cnn"
+
+
+@pytest.mark.parametrize("nine, sixteen, expected", [
+    (UNIQUE, UNIQUE, 9),          # a solved 9x9 grid is never read as 16x16
+    (UNSOLVABLE, UNIQUE, 16),     # a 16x16 grid misread as 9x9
+    (UNSOLVABLE, AMBIGUOUS, 9),   # neither solves: keep the 9x9 reading
+    (None, AMBIGUOUS, 16),        # no 9x9 grid at all: show the 16x16 one to correct
+    (None, None, None),
+])
+def test_16x16_reading_replaces_only_an_unsolved_or_missing_9x9_one(monkeypatch, nine, sixteen, expected):
+    def reading(status, size):
+        if status is None:
+            return None
+        grid = [[0] * size for _ in range(size)]
+        return routes.GridReading(Recognition(grid, None, status, {}), IMAGE, "opencv")
+    tried = []
+    monkeypatch.setattr(routes, "_read_9x9", lambda image: (reading(nine, 9), [(QUAD, "opencv")]))
+    monkeypatch.setattr(routes, "_read_16x16", lambda image, quads: tried.append(quads) or reading(sixteen, 16))
+    result = routes._read_upright(IMAGE)
+    assert (len(result.recognition.grid) if result else None) == expected
+    assert bool(tried) == (nine != UNIQUE)
