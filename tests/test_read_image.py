@@ -46,6 +46,7 @@ def setup(monkeypatch):
         """`regular`: whether every warp has regular grid lines, or the detectors whose do."""
         CornerCnn.calls = CornerCnn.refines = 0
         outcomes = iter(statuses)
+        monkeypatch.setattr(routes, "_ROTATIONS", ())  # the order within one orientation
         monkeypatch.setattr(routes, "_get_cnn_reader", lambda: None)
         monkeypatch.setattr(routes, "_OPENCV", OpenCV(opencv_found))
         monkeypatch.setattr(routes, "_get_corner_cnn", lambda: CornerCnn())

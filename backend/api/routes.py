@@ -100,8 +100,30 @@ class GridReading:
     detector_name: str
 
 
+# Phone photos of a phone are often taken sideways with an upright EXIF
+# orientation, so the digits lie on their side and read as nonsense.
+_ROTATIONS = (cv2.ROTATE_90_COUNTERCLOCKWISE, cv2.ROTATE_90_CLOCKWISE)
+
+
 def read_image(image: np.ndarray) -> GridReading | None:
     """Detect, warp and recognize the grid; None if no grid is found.
+
+    A reading that cannot be the puzzle as printed is retried on the image
+    turned a quarter either way; a turned reading is kept only if it solves
+    uniquely, which sideways digits never do by chance.
+    """
+    reading = _read_upright(image)
+    if reading is not None and (reading.recognition.status == UNIQUE or _may_be_exact(reading)):
+        return reading
+    for rotation in _ROTATIONS:
+        turned = _read_upright(cv2.rotate(image, rotation))
+        if turned is not None and turned.recognition.status == UNIQUE:
+            return turned
+    return reading
+
+
+def _read_upright(image: np.ndarray) -> GridReading | None:
+    """Detect, warp and recognize the grid as the image stands.
 
     OpenCV and Corner CNN each solve images the other cannot (glare over the
     lines, a plastic sleeve; grids Corner CNN mislocates), so Corner CNN's
