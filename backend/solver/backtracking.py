@@ -1,10 +1,20 @@
-"""Sudoku solver: bitmask backtracking with the MRV heuristic."""
+"""Sudoku solver: bitmask backtracking with the MRV heuristic.
+
+Grids are 9x9 (values 1-9) or 16x16 (values 1-16, shown as 1-9 and A-G);
+0 is an empty cell. The box side is the square root of the grid size.
+"""
 
 from __future__ import annotations
 
+import math
+
 Grid = list[list[int]]
 
-_ALL_DIGITS = 0b1111111110  # bits 1..9
+SIZES = (9, 16)
+
+
+def box_side(size: int) -> int:
+    return math.isqrt(size)
 
 
 class SudokuSolver:
@@ -39,12 +49,15 @@ class _BudgetExhausted(Exception):
 
 def _search(grid: Grid, limit: int, max_nodes: int) -> tuple[list[Grid], bool]:
     """Find up to `limit` solutions. Returns (solutions, budget_exhausted)."""
-    rows, cols, boxes = [0] * 9, [0] * 9, [0] * 9
+    size = len(grid)
+    box = box_side(size)
+    all_values = ((1 << size) - 1) << 1  # bits 1..size
+    rows, cols, boxes = [0] * size, [0] * size, [0] * size
     empties: list[tuple[int, int, int]] = []
     cells = [list(row) for row in grid]
-    for r in range(9):
-        for c in range(9):
-            b = (r // 3) * 3 + c // 3
+    for r in range(size):
+        for c in range(size):
+            b = (r // box) * box + c // box
             value = cells[r][c]
             if value == 0:
                 empties.append((r, c, b))
@@ -70,10 +83,10 @@ def _search(grid: Grid, limit: int, max_nodes: int) -> tuple[list[Grid], bool]:
 
         # Branch on the most constrained choice: a cell with the fewest
         # candidates (MRV), or a digit with only one place left in a unit.
-        best_i, best_mask, best_n = 0, 0, 10
+        best_i, best_mask, best_n = 0, 0, size + 1
         masks = []
         for i, (r, c, b) in enumerate(empties):
-            mask = _ALL_DIGITS & ~(rows[r] | cols[c] | boxes[b])
+            mask = all_values & ~(rows[r] | cols[c] | boxes[b])
             masks.append(mask)
             n = mask.bit_count()
             if n < best_n:
@@ -88,7 +101,7 @@ def _search(grid: Grid, limit: int, max_nodes: int) -> tuple[list[Grid], bool]:
                 for i, cell in enumerate(empties):
                     groups.setdefault(cell[unit], []).append(i)
                 for u, members in groups.items():
-                    missing = _ALL_DIGITS & ~used[u]
+                    missing = all_values & ~used[u]
                     while missing:
                         bit = missing & -missing
                         missing ^= bit
@@ -138,13 +151,14 @@ def solve(grid: Grid) -> Grid | None:
 
 
 def is_valid_grid(grid: Grid) -> bool:
-    """Check that a 9x9 grid of 0..9 has no duplicate givens."""
-    if len(grid) != 9 or any(len(row) != 9 for row in grid):
+    """Check that a 9x9 or 16x16 grid of 0..size has no duplicate givens."""
+    n = len(grid)
+    if n not in SIZES or any(len(row) != n for row in grid):
         return False
-    if any(not 0 <= cell <= 9 for row in grid for cell in row):
+    if any(not 0 <= cell <= n for row in grid for cell in row):
         return False
     return all(
-        is_valid_placement(grid, r, c, grid[r][c]) for r in range(9) for c in range(9)
+        is_valid_placement(grid, r, c, grid[r][c]) for r in range(n) for c in range(n)
     )
 
 
@@ -155,19 +169,21 @@ def is_valid_placement(grid: Grid, row: int, col: int, val: int) -> bool:
     """
     if val == 0:
         return True
+    n = len(grid)
 
-    for c in range(9):
+    for c in range(n):
         if c != col and grid[row][c] == val:
             return False
 
-    for r in range(9):
+    for r in range(n):
         if r != row and grid[r][col] == val:
             return False
 
-    box_row = (row // 3) * 3
-    box_col = (col // 3) * 3
-    for r in range(box_row, box_row + 3):
-        for c in range(box_col, box_col + 3):
+    box = box_side(n)
+    box_row = (row // box) * box
+    box_col = (col // box) * box
+    for r in range(box_row, box_row + box):
+        for c in range(box_col, box_col + box):
             if (r != row or c != col) and grid[r][c] == val:
                 return False
 

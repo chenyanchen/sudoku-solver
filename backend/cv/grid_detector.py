@@ -1,5 +1,6 @@
 """Sudoku grid detection and perspective transformation."""
 
+import math
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
@@ -246,17 +247,23 @@ def _find_line_peaks(projection: np.ndarray, min_prominence: float = 0.3) -> np.
     return np.array(peaks, dtype=int)
 
 
-def _detect_grid_lines(gray: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def _detect_grid_lines(gray: np.ndarray, faint: bool = False) -> Tuple[np.ndarray, np.ndarray]:
     """Detect horizontal and vertical grid lines via morphological projection.
+
+    `faint` keeps lines that are barely darker than the paper, and joins the
+    dashes that blur leaves of them.
 
     Returns:
         (h_peaks, v_peaks): 1-D arrays of row/col indices.
     """
     h, w = gray.shape[:2]
 
-    binary = cv2.adaptiveThreshold(
-        gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 15, 10
-    )
+    binary = _line_mask(gray, faint)
+    if faint:
+        binary = cv2.bitwise_or(
+            cv2.morphologyEx(binary, cv2.MORPH_CLOSE, np.ones((1, 10), np.uint8)),
+            cv2.morphologyEx(binary, cv2.MORPH_CLOSE, np.ones((10, 1), np.uint8)),
+        )
 
     h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (w // 5, 1))
     h_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, h_kernel)
@@ -270,19 +277,26 @@ def _detect_grid_lines(gray: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     return _find_line_peaks(h_proj), _find_line_peaks(v_proj)
 
 
-def _lattice_hits(peaks: np.ndarray, size: int) -> int:
-    """How many of 10 equally spaced lines from edge to edge have a peak nearby."""
-    step = (size - 1) / 9
+def _line_mask(gray: np.ndarray, faint: bool) -> np.ndarray:
+    """Dark pixels against the local mean; `faint` lowers the contrast needed."""
+    return cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 15, 3 if faint else 10
+    )
+
+
+def _lattice_hits(peaks: np.ndarray, size: int, lines: int = 10) -> int:
+    """How many of `lines` equally spaced lines from edge to edge have a peak nearby."""
+    step = (size - 1) / (lines - 1)
     if len(peaks) == 0:
         return 0
-    expected = np.arange(10) * step
+    expected = np.arange(lines) * step
     return int((np.abs(peaks[None, :] - expected[:, None]).min(axis=1) < _LINE_TOL * step).sum())
 
 
-def has_regular_grid_lines(gray: np.ndarray) -> bool:
-    """Check whether a warped grid image is a Sudoku lattice spanning the image.
+def has_regular_grid_lines(gray: np.ndarray, size: int = 9) -> bool:
+    """Check whether a warped grid image is a size x size lattice spanning the image.
 
-    A correctly warped Sudoku grid has 10 equally spaced lines per axis, the
+    A correctly warped 9x9 grid has 10 equally spaced lines per axis, the
     outer ones on the image's edges. Equal spacing alone also passes for a
     frame around the grid (with a keypad beside it) or, in one direction, for
     a quad skewed across the grid, so the lines must be where they belong.
@@ -290,13 +304,17 @@ def has_regular_grid_lines(gray: np.ndarray) -> bool:
     Passes when both directions have at most 2 lines missing, or one has at
     most 1 missing (thin lines in the other direction can be lost in border
     texture). Lines may be dark on light or light on dark (dark themes).
+    A 16x16 grid's thin lines are often faint in photos, so they are looked
+    for at lower contrast too.
     """
     h, w = gray.shape[:2]
-    for image in (gray, 255 - gray):
-        h_peaks, v_peaks = _detect_grid_lines(image)
-        h_hits, v_hits = _lattice_hits(h_peaks, h), _lattice_hits(v_peaks, w)
-        if min(h_hits, v_hits) >= 8 or max(h_hits, v_hits) >= 9:
-            return True
+    lines = size + 1
+    for faint in (False, True) if size > 9 else (False,):
+        for image in (gray, 255 - gray):
+            h_peaks, v_peaks = _detect_grid_lines(image, faint)
+            h_hits, v_hits = _lattice_hits(h_peaks, h, lines), _lattice_hits(v_peaks, w, lines)
+            if min(h_hits, v_hits) >= lines - 2 or max(h_hits, v_hits) >= lines - 1:
+                return True
     return False
 
 
@@ -306,37 +324,42 @@ _SNAP_PX = 30  # canvas pixels per cell
 
 
 def snap_to_lattice(
-    image: np.ndarray, corners: np.ndarray, cells: int,
+    image: np.ndarray, corners: np.ndarray, cells: int, size: int = 9,
 ) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-    """Find the 9x9 grid around a quad assumed to span `cells` x `cells` cells.
+    """Find the size x size grid around a quad assumed to span `cells` x `cells` cells.
 
-    A whole grid (cells=9) is searched with 1.5 cells of margin. A 3x3 box
-    (cells=3) is first re-fitted to its own four lines, since extrapolating
-    six cells amplifies its corner error, then searched with six cells of
-    margin and accepted only if it sits on the lattice's box boundaries.
-    The quad only has to be roughly right: lines are located, not assumed.
+    A whole grid (cells=size) is searched with 1.5 cells of margin. A box
+    (cells=3 of 9, 4 of 16) is first re-fitted to its own lines, since
+    extrapolating the rest amplifies its corner error, then searched with the
+    rest of the grid as margin and accepted only if it sits on the lattice's
+    box boundaries. The quad only has to be roughly right: lines are located,
+    not assumed. A 16x16 grid's thin lines are often faint in photos, so they
+    are looked for at lower contrast when the usual threshold misses them.
     """
-    if cells < 9:
-        box = _fit_lattice(image, corners, cells, margin=0.5, lines=cells + 1)
+    faint = size > 9
+    if cells < size:
+        box = _fit_lattice(image, corners, cells, margin=0.5, lines=cells + 1, faint=faint)
         if box is None:
             return None
-        corners, margin = box[0], 9 - cells
+        corners, margin = box[0], size - cells
     else:
         margin = 1.5
-    found = _fit_lattice(image, corners, cells, margin, lines=10)
+    found = _fit_lattice(image, corners, cells, margin, lines=size + 1, faint=faint)
     if found is None:
         return None
     snapped, offsets = found
-    if cells < 9 and any(abs(o - 3 * round(o / 3)) > 0.3 for o in offsets):
+    box = math.isqrt(size)
+    if cells < size and any(abs(o - box * round(o / box)) > 0.3 for o in offsets):
         return None
     warped = perspective_transform(image, snapped, (450, 450))
-    if not has_regular_grid_lines(cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)):
+    if not has_regular_grid_lines(cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY), size):
         return None
     return warped, snapped
 
 
 def _fit_lattice(
     image: np.ndarray, corners: np.ndarray, cells: int, margin: float, lines: int,
+    faint: bool = False,
 ) -> Optional[Tuple[np.ndarray, Tuple[float, float]]]:
     """Fit `lines` equally spaced lines per axis around a quad of `cells` cells.
 
@@ -372,13 +395,21 @@ def _fit_lattice(
     # cells away is usually an edge beside the grid (a panel, a screenshot's
     # crop) taken for its outermost line.
     prior = (margin * px, (margin + cells) * px) if lines == cells + 1 else None
-    # Lines may be dark on light, or light gaps between darker tiles.
-    for lines_gray in (gray, 255 - gray):
-        binary = cv2.adaptiveThreshold(
-            lines_gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 15, 10,
-        )
-        h_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (px, 1)))
-        v_lines = cv2.morphologyEx(binary, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, px)))
+    # Lines may be dark on light, or light gaps between darker tiles; faint
+    # ones (`faint`, tried last) are blurred into dashes, which are joined.
+    variants = [(g, False) for g in (gray, 255 - gray)] + ([(gray, True)] if faint else [])
+    for lines_gray, low_contrast in variants:
+        binary = _line_mask(lines_gray, low_contrast)
+        h_mask = v_mask = binary
+        run = px  # a line must be this long, unbroken, in one canvas row/column
+        if low_contrast:
+            h_mask = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, np.ones((1, px // 3), np.uint8))
+            v_mask = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, np.ones((px // 3, 1), np.uint8))
+            # Thin lines of a tilted quad step across canvas columns: shorter
+            # runs tolerate twice the tilt of the 16x16 grid's small cells.
+            run = px // 2
+        h_lines = cv2.morphologyEx(h_mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (run, 1)))
+        v_lines = cv2.morphologyEx(v_mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (1, run)))
         rows, cols = [], []
         for lo, hi in ((a, b), (b, c)):
             seen = inside[:, lo:hi].mean(axis=1) > 0.5

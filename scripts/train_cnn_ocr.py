@@ -24,7 +24,7 @@ from scripts._provenance import file_sha256, git_state
 from scripts._tracking import use_repo_mlruns
 
 from backend.ocr.pipeline import ocr_cells, prepare_grid_for_ocr
-from backend.cv.cell_extractor import clean_cell
+from backend.cv.cell_extractor import CELL_PX, clean_cell
 from backend.cv.detector import warp_grid
 from backend.ocr.model_arch import create_model
 
@@ -160,13 +160,15 @@ def build_samples(
         points = corners * np.array([w, h])
         side = np.linalg.norm(points - np.roll(points, 1, axis=0), axis=1).mean()
         source = json.dumps(grid)
+        size = len(grid)  # 9x9, or 16x16 with values up to 16
 
         for copy_index in range(1 + jitter_copies):
             moved = points if copy_index == 0 else points + rng.uniform(-jitter, jitter, points.shape) * side
-            cells, _ = ocr_cells(prepare_grid_for_ocr(warp_grid(image, moved.astype(np.float32))))
-            for row in range(9):
-                for col in range(9):
-                    cleaned = clean_cell(cells[row * 9 + col], cell_size=input_size)
+            warped = warp_grid(image, moved.astype(np.float32), CELL_PX * size)
+            cells, _ = ocr_cells(prepare_grid_for_ocr(warped), size)
+            for row in range(size):
+                for col in range(size):
+                    cleaned = clean_cell(cells[row * size + col], cell_size=input_size)
                     samples.append(CellSample(cleaned, int(grid[row][col]), source, copy_index > 0))
 
     return samples
@@ -188,16 +190,16 @@ def grouped_split(
     )
 
 
-def compute_metrics(logits, labels):
+def compute_metrics(logits, labels, num_classes: int = 10):
     torch, _, _, _ = _import_torch()
 
     preds = torch.argmax(logits, dim=1)
     acc = (preds == labels).float().mean().item()
 
-    # Digit-only macro F1 for labels 1..9
+    # Symbol-only macro F1 for labels 1..num_classes-1
     f1_scores = []
     per_digit_f1: dict[str, float] = {}
-    for cls in range(1, 10):
+    for cls in range(1, num_classes):
         tp = ((preds == cls) & (labels == cls)).sum().item()
         fp = ((preds == cls) & (labels != cls)).sum().item()
         fn = ((preds != cls) & (labels == cls)).sum().item()
@@ -214,8 +216,7 @@ def compute_metrics(logits, labels):
     blank_fp = ((preds == 0) & (labels != 0)).sum().item()
     blank_precision = blank_tp / (blank_tp + blank_fp + 1e-8)
 
-    # Confusion matrix (10×10): confusion[true][pred] = count.
-    num_classes = 10
+    # Confusion matrix: confusion[true][pred] = count.
     confusion: list[list[int]] = [[0] * num_classes for _ in range(num_classes)]
     for t, p in zip(labels.tolist(), preds.tolist()):
         confusion[int(t)][int(p)] += 1
@@ -229,8 +230,8 @@ def compute_metrics(logits, labels):
     }
 
 
-def class_weights_from_samples(samples: list[CellSample]) -> np.ndarray:
-    counts = np.zeros(10, dtype=np.float32)
+def class_weights_from_samples(samples: list[CellSample], num_classes: int = 10) -> np.ndarray:
+    counts = np.zeros(num_classes, dtype=np.float32)
     for sample in samples:
         counts[sample.label] += 1.0
 
@@ -240,7 +241,7 @@ def class_weights_from_samples(samples: list[CellSample]) -> np.ndarray:
     return weights.astype(np.float32)
 
 
-def evaluate(model, data_loader, device):
+def evaluate(model, data_loader, device, num_classes: int = 10):
     torch, _, _, _ = _import_torch()
 
     model.eval()
@@ -262,7 +263,7 @@ def evaluate(model, data_loader, device):
 
     logits = torch.cat(all_logits, dim=0)
     labels = torch.cat(all_labels, dim=0)
-    metrics = compute_metrics(logits, labels)
+    metrics = compute_metrics(logits, labels, num_classes)
     metrics["loss"] = total_loss / max(1, len(data_loader))
     return metrics
 
@@ -297,6 +298,14 @@ def parse_args() -> argparse.Namespace:
         help="Reviewed corner CSV; never train on predicted crops",
     )
     parser.add_argument(
+        "--extra", nargs=2, action="append", default=[], metavar=("LABELS", "CORNERS"),
+        help="Another labeled dataset with its corner CSV, e.g. synthetic 16x16 grids",
+    )
+    parser.add_argument(
+        "--num-classes", type=int, default=10,
+        help="10 for 9x9 grids (blank, 1-9); 17 for 16x16 grids (blank, 1-9, A-G as 10-16)",
+    )
+    parser.add_argument(
         "--corner-jitter-copies", type=int, default=0,
         help="Extra training warps per image from perturbed corners (val uses the reviewed ones)",
     )
@@ -317,12 +326,19 @@ def main() -> int:
         "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     )
 
-    samples = build_samples(
-        args.labels, args.input_size,
-        corners_path=args.corners,
-        jitter_copies=args.corner_jitter_copies,
-        seed=args.seed,
-    )
+    datasets = [(args.labels, args.corners)] + [(Path(l), Path(c)) for l, c in args.extra]
+    samples = [
+        sample
+        for labels_path, corners_path in datasets
+        for sample in build_samples(
+            labels_path, args.input_size,
+            corners_path=corners_path,
+            jitter_copies=args.corner_jitter_copies,
+            seed=args.seed,
+        )
+    ]
+    if max(sample.label for sample in samples) >= args.num_classes:
+        raise ValueError(f"Labels exceed --num-classes {args.num_classes}")
     if len(samples) < 50:
         raise RuntimeError(
             "Training dataset is too small. Add more labeled Sudoku images first."
@@ -348,9 +364,9 @@ def main() -> int:
         drop_last=False,
     )
 
-    model = create_model(args.arch, num_classes=10).to(device)
+    model = create_model(args.arch, num_classes=args.num_classes).to(device)
 
-    class_weights = class_weights_from_samples(train_samples)
+    class_weights = class_weights_from_samples(train_samples, args.num_classes)
     criterion = torch.nn.CrossEntropyLoss(
         weight=torch.from_numpy(class_weights).to(device),
         label_smoothing=0.1,
@@ -362,7 +378,7 @@ def main() -> int:
         optimizer, T_max=args.epochs
     )
 
-    use_repo_mlruns("sudoku-cnn-ocr")
+    use_repo_mlruns("sudoku-cnn-ocr" if args.num_classes == 10 else "sudoku-cnn16-ocr")
     with mlflow.start_run() as run:
         mlflow.log_params({
             "lr": args.lr,
@@ -385,15 +401,20 @@ def main() -> int:
             "split": "puzzle_group",
             "corners": repo_relative(args.corners),
             "corner_jitter_copies": args.corner_jitter_copies,
+            "num_classes": args.num_classes,
+            "extra": json.dumps([[repo_relative(Path(l)), repo_relative(Path(c))] for l, c in args.extra]),
         })
         mlflow.set_tags({
             **git_tags,
             "labels_sha256": file_sha256(args.labels),
             "corners_sha256": file_sha256(args.corners),
+            **{f"extra{i}_labels_sha256": file_sha256(Path(l)) for i, (l, _) in enumerate(args.extra)},
         })
         if git_diff:
             mlflow.log_text(git_diff, "git_diff.patch")
-        labels_by_image = json.loads(args.labels.read_text())
+        labels_by_image = {
+            name: grid for labels_path, _ in datasets for name, grid in json.loads(labels_path.read_text()).items()
+        }
         val_sources = {sample.source for sample in val_samples}
         mlflow.log_dict({
             "train": [name for name, grid in labels_by_image.items() if json.dumps(grid) not in val_sources],
@@ -426,7 +447,7 @@ def main() -> int:
                 mlflow.log_metric("train_loss", loss.item(), step=global_step)
 
             train_loss /= max(1, len(train_loader))
-            val_metrics = evaluate(model, val_loader, device)
+            val_metrics = evaluate(model, val_loader, device, args.num_classes)
 
             score = (
                 0.65 * val_metrics["macro_f1_digits"]
@@ -469,7 +490,7 @@ def main() -> int:
                 best_score = score
                 best_state = {
                     "state_dict": copy.deepcopy(model.state_dict()),
-                    "class_values": list(range(10)),
+                    "class_values": list(range(args.num_classes)),
                     "input_size": args.input_size,
                     "version": args.version,
                     "arch": args.arch,
@@ -504,11 +525,11 @@ def main() -> int:
                 ax.set_xlabel("Predicted")
                 ax.set_ylabel("True")
                 ax.set_title("Confusion Matrix (best epoch)")
-                ax.set_xticks(range(10))
-                ax.set_yticks(range(10))
+                ax.set_xticks(range(args.num_classes))
+                ax.set_yticks(range(args.num_classes))
                 cm_max = max(max(row) for row in confusion) if confusion else 1
-                for i in range(10):
-                    for j in range(10):
+                for i in range(args.num_classes):
+                    for j in range(args.num_classes):
                         ax.text(j, i, str(confusion[i][j]), ha="center", va="center",
                                 color="white" if confusion[i][j] > cm_max / 2 else "black",
                                 fontsize=8)

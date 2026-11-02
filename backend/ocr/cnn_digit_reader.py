@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -65,7 +66,9 @@ class CnnDigitReader:
     def recognize_grid_with_metadata(
         self, cells: list[np.ndarray], threshold: float | None = None
     ) -> tuple[list[list[int]], dict[str, Any]]:
-        """Recognize a full Sudoku grid and return OCR metadata."""
+        """Recognize a full Sudoku grid (81 or 256 cells) and return OCR metadata."""
+        count = len(cells)
+        size = math.isqrt(count)
         digit_threshold = threshold if threshold is not None else self.digit_threshold
 
         start = time.perf_counter()
@@ -74,7 +77,7 @@ class CnnDigitReader:
         cleaned = [clean_cell(cell, cell_size=self._input_size) for cell in cells]
         likely_blanks = [self._is_likely_blank(cell) for cell in cleaned]
 
-        # Phase 1: batch inference on all 81 cells.
+        # Phase 1: batch inference on all cells.
         all_probs = self._predict_probs_batch(cleaned)
 
         cell_digits: list[int] = []
@@ -82,12 +85,12 @@ class CnnDigitReader:
         cell_candidates: list[list[tuple[int, float]]] = []
         recheck_indices: list[int] = []
 
-        for idx in range(81):
+        for idx in range(count):
             probs = all_probs[idx]
             candidates = self._top_digit_candidates(probs)
             value, conf = self._select_value(probs, digit_threshold)
 
-            if 1 <= value <= 9 and conf >= digit_threshold:
+            if value != 0 and conf >= digit_threshold:
                 cell_digits.append(value)
                 cell_confidences.append(conf)
                 cell_candidates.append(candidates)
@@ -117,18 +120,18 @@ class CnnDigitReader:
                 primary_value = cell_digits[idx]
                 primary_conf = cell_confidences[idx]
 
-                if 1 <= val_r <= 9 and conf_r >= digit_threshold:
+                if val_r != 0 and conf_r >= digit_threshold:
                     cell_digits[idx] = val_r
                     cell_confidences[idx] = conf_r
                     cell_candidates[idx] = cands_r
-                elif 1 <= primary_value <= 9:
+                elif primary_value != 0:
                     pass  # keep primary
                 elif val_r == 0 and conf_r >= primary_conf:
                     cell_digits[idx] = 0
                     cell_confidences[idx] = conf_r
                     cell_candidates[idx] = cands_r
 
-        grid = [cell_digits[i * 9 : (i + 1) * 9] for i in range(9)]
+        grid = [cell_digits[i * size : (i + 1) * size] for i in range(size)]
 
         recognized_confidences = [
             cell_confidences[i]
@@ -140,16 +143,16 @@ class CnnDigitReader:
         )
 
         latency_ms = (time.perf_counter() - start) * 1000.0
-        flat_grid = [grid[i // 9][i % 9] for i in range(81)]
+        flat_grid = cell_digits
         cell_predictions = []
-        for idx in range(81):
+        for idx in range(count):
             value = int(flat_grid[idx])
             confidence = float(cell_confidences[idx])
             cell_predictions.append(
                 {
                     "index": idx,
-                    "row": idx // 9,
-                    "col": idx % 9,
+                    "row": idx // size,
+                    "col": idx % size,
                     "value": value,
                     "confidence": confidence,
                     "candidates": [
