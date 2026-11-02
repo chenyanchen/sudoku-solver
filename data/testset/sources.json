@@ -87,5 +87,210 @@
     "site": "https://www.nytimes.com/puzzles/sudoku",
     "captured": "2026-10-14",
     "note": "browser screenshot, not redistributable"
+  },
+  "local/upload-3003d2a7.png": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-15; not redistributable, gitignored",
+    "sha256": "3003d2a7bc03ffa4f0739efc36530eeeb1663002a19dd8a4cd03b9839761b3b4"
+  },
+  "local/upload-2310a45d.png": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-15; not redistributable, gitignored",
+    "sha256": "2310a45d0ee009dbd549f7911e41b3c99d3c8d0178d65b15da67a54f3ee51557"
+  },
+  "local/upload-121b303c.png": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-15; not redistributable, gitignored",
+    "sha256": "121b303cb71447db685f34035a618ee8c4eeddbc3d7f150491a003318003ade6"
+  },
+  "local/upload-81b304ae.png": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-15; not redistributable, gitignored",
+    "sha256": "81b304ae35593df3b19afb65b7208a90ca6fbf101574b29e16def6a9b1d3d1cd"
+  },
+  "local/upload-350ebc0b.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-15; not redistributable, gitignored",
+    "sha256": "350ebc0b9b8f055ecbd22de8f2fb58e3157e645d75a9d8f0246ba1044420ca61"
+  },
+  "local/upload-54f2824c.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-22; not redistributable, gitignored",
+    "sha256": "54f2824c4d3182a6aa63c2e10ae0f85f0802a7ae4a29a270a37660a20ab8eb8d"
+  },
+  "local/upload-44aa1132.png": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-27; not redistributable, gitignored; ambiguous as printed",
+    "sha256": "44aa11322d0c57adc0efa848709b4501560cbd94216708d8c1f9eabd21af0fac"
+  },
+  "local/upload-712f9056.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-29; not redistributable, gitignored",
+    "sha256": "712f90566ae97106b46e3bfb736413209fecde9dbfb2d3aa356dc68b43b4e4c2"
+  },
+  "local/upload-e82d9220.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "e82d92207074c50a01a30e045968241f7780f2d8faecf7e68064f6174d8debe4"
+  },
+  "local/upload-b5ba238f.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "b5ba238f9bdbda3807f5a0e1bef8c95135d43a9d873596f11bcca147fecfafaa"
+  },
+  "local/upload-40f815d2.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "40f815d2eb74ac73802b64eefaf642d200948dcfb86a857b9105dd22637da9b1"
+  },
+  "local/upload-94a6c517.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "94a6c5179e8914f70cbdf74523bbeaa3e600501c5f6443207aa8d5893fdd744c"
+  },
+  "local/upload-986711b0.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored; corners corrected by hand; ambiguous as printed",
+    "sha256": "986711b0ad9a1eec71a970b3b894516121f710dc3a0d135dea8ad6b23cfc4a14"
+  },
+  "local/upload-8e0f26c8.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "8e0f26c821e4e55d6d1c2ad588243b834dd4ee3f3f53df9772bb9045c588c6b2"
+  },
+  "local/upload-f1d33678.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "f1d33678eab1e5a35ff930c0086ce4c5a159c005b6cc0c37bc9444acae21cbe1"
+  },
+  "local/upload-afae0084.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "afae0084d1b9121c8cd99a5f7cc079f4b36e80bdeff2f4f8139c14aae19f2acb"
+  },
+  "local/upload-bb427200.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "bb427200c92144ce6aa850647a96dd73d6081fe2910a428c29f9567ac5353b9d"
+  },
+  "local/upload-574168a3.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "574168a32fa963c914ea6690083a420b44f33ee360a64b20232f6e173e427bb9"
+  },
+  "local/upload-2c67e932.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "2c67e9321073b02008efce42f5e06ded7ba5a76072a58c8bba35889faf718972"
+  },
+  "local/upload-2541b7f7.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "2541b7f7e4346867d0eb5c5bb1774537f9ab696667937d6b6443914290ee638c"
+  },
+  "local/upload-46d0fe84.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "46d0fe84a51411a9c888df9afefbc7a540d1dad4c17b5a67b010f332da1972c7"
+  },
+  "local/upload-d7ced539.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "d7ced539e44055b9b699cb9d61633ed105af1fb3912be63040e9fb2af0aa92c3"
+  },
+  "local/upload-f7490ea1.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "f7490ea1810572b7b916bddaf7fe8520b3ac88f378beb7a2a8ae6940e6bed1f5"
+  },
+  "local/upload-fc025ca5.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "fc025ca56ebf92d11e13003d61e2b0302c976270039de80bcc3e9f8e5d503cb6"
+  },
+  "local/upload-dc499be0.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "dc499be0987623a901280a024084071c96eecddcf7a44d2004c523aa90bb4004"
+  },
+  "local/upload-9ac299d9.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "9ac299d9e30d1aa9febcf68220fe0a0a830dd41403066113d27866c508cbe12e"
+  },
+  "local/upload-d3d563f1.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-10-31; not redistributable, gitignored",
+    "sha256": "d3d563f1002eb3c5ea76ed9414da3ce0a3246b654fac0cce7cca4d4665761327"
+  },
+  "local/upload-8b9a78cb.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "8b9a78cb97ea7c04e268fa4e823130c9b9236623a53c8f84366c524187497b4f"
+  },
+  "local/upload-fd7d06b4.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "fd7d06b4c009dd789192fd45b8abcdac40adb1b73cf58cac927f891f94f9086f"
+  },
+  "local/upload-f7910134.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "f7910134a67d5f693a10888cb96f7918770cc02a0684c6ba2365d915d4b037ef"
+  },
+  "local/upload-e48f2591.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "e48f2591ea7b1940e14061ca95bc12171fd5fd90fd40b17da4c5d3ecd80ff10d"
+  },
+  "local/upload-2e76bd6c.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "2e76bd6ccf53b6486e6e784e7232fcf8ca657bc66234e65ef6b93831c38bc020"
+  },
+  "local/upload-a1e2ac24.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "a1e2ac249f408488646681c636f25a94a856ebad2b937ccb1a09c9c1029f216e"
+  },
+  "local/upload-824407a1.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "824407a14be6ea98a726aea0824d061433555ef7ea071151b96dabb306b2d9a9"
+  },
+  "local/upload-c21e12e3.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "c21e12e3e3866931b29786ec22e271c57c429c379c6649dfe7a2736c618724b1"
+  },
+  "local/upload-87d1ee75.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "87d1ee759b5a09697ff5d15c95e3c650237041e7c14e38ca273792a366047954"
+  },
+  "local/upload-7d35ee02.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored; corners corrected by hand",
+    "sha256": "7d35ee0284d98b69dd7d3b1084af93a2ecf07ddfb5d22b52d84994d588c6d04b"
+  },
+  "local/upload-17635607.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "17635607de1a3cfa9aadbb54ee7e02ead4536d28c511897dd9069b3765c8b876"
+  },
+  "local/upload-ab5d7888.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "ab5d78884b1a5ad3789e4321c86a193afb5e97b8ffc1bdd49093d47f5e2ff32b"
+  },
+  "local/upload-f5d23d99.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "f5d23d995a464fcde37d3da2c71e1fcde56cd3e4a028852deecee37dd030f90b"
+  },
+  "local/upload-108efd55.jpg": {
+    "source": "assistant_visual_review",
+    "note": "upload to the public site on 2026-11-01; not redistributable, gitignored",
+    "sha256": "108efd5525c9f77d4a090310381870cf236502d5c040a594d2f0e61bb7457302"
   }
 }
