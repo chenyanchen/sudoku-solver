@@ -143,7 +143,13 @@ def _read_upright(image: np.ndarray) -> GridReading | None:
 
 def _read_16x16(image: np.ndarray, quads: list[tuple[np.ndarray, str]]) -> GridReading | None:
     """Read each quad as a whole 16x16 grid or one of its 4x4 boxes, snapped to
-    the lattice; the first reading that solves uniquely, else the first found."""
+    the lattice; the first reading that solves uniquely, else the first found.
+
+    Faint 1px lines and letter strokes defeat (or mislead) the lattice fit on
+    some grids whose quad is already right, so each quad is also read as the
+    whole grid as it stands. That reading is kept only if it solves uniquely:
+    a quad that is no grid must not become one.
+    """
     reader = _get_cnn16_reader()
     if reader is None:
         return None
@@ -158,6 +164,10 @@ def _read_16x16(image: np.ndarray, quads: list[tuple[np.ndarray, str]]) -> GridR
             if reading.recognition.status == UNIQUE:
                 return reading
             first = first or reading
+        warped = warp_grid(image, corners, CELL_PX * 16)
+        reading = GridReading(recognize(reader, warped, size=16), warped, name)
+        if reading.recognition.status == UNIQUE:
+            return reading
     return first
 
 
