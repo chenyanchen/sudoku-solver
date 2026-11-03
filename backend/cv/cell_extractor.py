@@ -8,27 +8,30 @@ from typing import List
 # Reusable CLAHE instance (avoid 81 allocations per grid).
 _CLAHE = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
 
+CELL_PX = 50  # warped grids are CELL_PX per cell: 450x450 for 9x9, 800x800 for 16x16
 
-def extract_cells(grid_image: np.ndarray, margin: int = 1) -> List[np.ndarray]:
+
+def extract_cells(grid_image: np.ndarray, margin: int = 1, size: int = 9) -> List[np.ndarray]:
     """
-    Split a Sudoku grid image into 81 individual cell images.
+    Split a warped size x size grid into its cell images.
 
     Args:
-        grid_image: 450x450px grid image
+        grid_image: CELL_PX * size pixels square
         margin: Pixels trimmed from each cell side (skips grid lines)
+        size: Cells per side (9 or 16)
 
     Returns:
-        List of 81 cell images (row-major order)
+        size * size cell images (row-major order)
     """
-    # Ensure grid is 450x450
-    if grid_image.shape[:2] != (450, 450):
-        grid_image = cv2.resize(grid_image, (450, 450))
+    side = CELL_PX * size
+    if grid_image.shape[:2] != (side, side):
+        grid_image = cv2.resize(grid_image, (side, side))
 
     cells = []
-    cell_size = 50  # 450 / 9 = 50
+    cell_size = CELL_PX
 
-    for row in range(9):
-        for col in range(9):
+    for row in range(size):
+        for col in range(size):
             x = col * cell_size
             y = row * cell_size
 

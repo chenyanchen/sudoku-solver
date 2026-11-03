@@ -228,14 +228,16 @@ data/warped_grids/
 data/yolo_grid/
 data/corner_cnn/
 data/synth_corner*/
+data/synth_16x16/
+data/fonts/
 models/yolo_runs/
 runs/
 *.pt
 
 # Images that may not be redistributed (e.g. website screenshots); their labels
 # live in data/testset/labels.json and data/labels/sudoku_labels.json.
-data/testset/local/
-data/raw/images/local/
+data/testset/local
+data/raw/images/local
 data/production/
 
 .DS_Store

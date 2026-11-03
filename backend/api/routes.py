@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
+from ..cv.cell_extractor import CELL_PX
 from ..cv.corner_cnn_detector import CornerCnnDetector
 from ..cv.detector import warp_grid
 from ..cv.grid_detector import has_regular_grid_lines, snap_to_lattice
@@ -34,6 +35,8 @@ from ..solver.backtracking import SudokuSolver, is_valid_grid
 
 router = APIRouter()
 _CNN_READER: CnnDigitReader | None = None
+_CNN16_READER: CnnDigitReader | None = None
+_CNN16_DEFAULT = Path(__file__).resolve().parents[2] / "models" / "releases" / "sudoku_16x16_cnn.onnx"
 _OPENCV = OpenCVGridDetector()
 _CORNER_CNN: CornerCnnDetector | None = None
 _LOGGER = logging.getLogger(__name__)
@@ -125,6 +128,52 @@ def read_image(image: np.ndarray) -> GridReading | None:
 def _read_upright(image: np.ndarray) -> GridReading | None:
     """Detect, warp and recognize the grid as the image stands.
 
+    A 9x9 grid is looked for first. When none reads uniquely, the quads found
+    are tried as a 16x16 grid, which is kept if it solves uniquely or if no
+    9x9 grid was found at all.
+    """
+    nine, quads = _read_9x9(image)
+    if nine is not None and nine.recognition.status == UNIQUE:
+        return nine
+    sixteen = _read_16x16(image, quads)
+    if sixteen is not None and (sixteen.recognition.status == UNIQUE or nine is None):
+        return sixteen
+    return nine
+
+
+def _read_16x16(image: np.ndarray, quads: list[tuple[np.ndarray, str]]) -> GridReading | None:
+    """Read each quad as a whole 16x16 grid or one of its 4x4 boxes, snapped to
+    the lattice; the first reading that solves uniquely, else the first found.
+
+    Faint 1px lines and letter strokes defeat (or mislead) the lattice fit on
+    some grids whose quad is already right, so each quad is also read as the
+    whole grid as it stands. That reading is kept only if it solves uniquely:
+    a quad that is no grid must not become one.
+    """
+    reader = _get_cnn16_reader()
+    if reader is None:
+        return None
+    first = None
+    for corners, name in quads:
+        for cells in (16, 4):
+            lattice = snap_to_lattice(image, corners, cells, size=16)
+            if lattice is None:
+                continue
+            warped = warp_grid(image, lattice[1], CELL_PX * 16)
+            reading = GridReading(recognize(reader, warped, size=16), warped, name)
+            if reading.recognition.status == UNIQUE:
+                return reading
+            first = first or reading
+        warped = warp_grid(image, corners, CELL_PX * 16)
+        reading = GridReading(recognize(reader, warped, size=16), warped, name)
+        if reading.recognition.status == UNIQUE:
+            return reading
+    return first
+
+
+def _read_9x9(image: np.ndarray) -> tuple[GridReading | None, list[tuple[np.ndarray, str]]]:
+    """Detect, warp and recognize a 9x9 grid; also returns the quads seen.
+
     OpenCV and Corner CNN each solve images the other cannot (glare over the
     lines, a plastic sleeve; grids Corner CNN mislocates), so Corner CNN's
     corners are tried whenever OpenCV's grid does not solve. A unique solution
@@ -167,17 +216,20 @@ def _read_upright(image: np.ndarray) -> GridReading | None:
         return reading
 
     found = None
+    quads: list[tuple[np.ndarray, str]] = []
     detection = _OPENCV.detect(image)
     if detection is not None:
+        quads.append((detection.corners, detection.detector_name))
         found = read(detection.corners, detection.detector_name)
         if found.recognition.status == UNIQUE:
-            return found
+            return found, quads
     best = _rank(found)
 
     corner_cnn = _get_corner_cnn()
     corners = corner_cnn.predict(image) if corner_cnn else None
     if corner_cnn is None or corners is None:
-        return found
+        return found, quads
+    quads.insert(0, (corners, "corner_cnn"))  # a whole grid more often than OpenCV's quad
     solved = None
     for refined in (False, True):
         if refined:
@@ -190,12 +242,12 @@ def _read_upright(image: np.ndarray) -> GridReading | None:
                 solved = second
             elif (second.recognition.solution == solved.recognition.solution
                   and second.recognition.givens > solved.recognition.givens):
-                return second
+                return second, quads
             continue
         rank = _rank(second)
         if rank > best:
             found, best = second, rank
-    return solved or found
+    return solved or found, quads
 
 
 def _rank(reading: GridReading | None) -> int:
@@ -232,6 +284,17 @@ def _get_cnn_reader() -> CnnDigitReader:
     return _CNN_READER
 
 
+def _get_cnn16_reader() -> CnnDigitReader | None:
+    """The 16x16 OCR model (blank, 1-9, A-G), or None to read 9x9 grids only."""
+    global _CNN16_READER
+    if _CNN16_READER is None:
+        path = Path(os.getenv("CNN16_MODEL_PATH", _CNN16_DEFAULT))
+        if not path.exists():
+            return None
+        _CNN16_READER = CnnDigitReader(path)
+    return _CNN16_READER
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
@@ -253,7 +316,8 @@ def solve_sudoku(request: SolveRequest):
             "cells": [[row1], [row2], ...]
         }
     }
-    Where each row is a list of 9 integers (0 for empty).
+    Where each row is a list of 9 integers (0 for empty), or of 16 for a
+    16x16 puzzle (10-16 for the letters A-G).
     """
     grid = request.grid.cells
     if not is_valid_grid(grid):

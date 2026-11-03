@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-from backend.cv.grid_detector import snap_to_lattice
+from backend.cv.grid_detector import _fit_lattice, snap_to_lattice
 
 CELL, ORIGIN = 40, 100  # grid spans 100..460 px
 TRUTH = np.float32([[100, 100], [460, 100], [460, 460], [100, 460]])
@@ -66,3 +66,25 @@ def test_extends_a_cropped_grid_past_the_image():
     result = snap_to_lattice(image, rough, cells=9)
     assert result is not None
     assert np.abs(result[1] - TRUTH).max() < TOLERANCE
+
+
+def _faint_16x16_image() -> np.ndarray:
+    """A blurry photo of a 16x16 grid: dark box lines, thin lines barely darker than the paper."""
+    cell, origin = 30, 60
+    img = np.full((600, 600, 3), 235, np.uint8)
+    for i in range(17):
+        p = origin + i * cell
+        color, width = ((90, 90, 90), 3) if i % 4 == 0 else ((215, 215, 215), 1)
+        cv2.line(img, (p, origin), (p, origin + 16 * cell), color, width)
+        cv2.line(img, (origin, p), (origin + 16 * cell, p), color, width)
+    return cv2.GaussianBlur(img, (3, 3), 0)
+
+
+def test_fits_a_16x16_lattice_with_faint_lines():
+    truth = np.float32([[60, 60], [540, 60], [540, 540], [60, 540]])
+    rough = truth + np.float32([[5, -4], [-6, 5], [6, 6], [-5, -5]])  # ~1.2% off
+    result = snap_to_lattice(_faint_16x16_image(), rough, cells=16, size=16)
+    assert result is not None
+    assert np.abs(result[1] - truth).max() < 30 / 4
+    # The 9x9 threshold sees only the box lines: too few for 17.
+    assert _fit_lattice(_faint_16x16_image(), rough, 16, 1.5, 17, faint=False) is None

@@ -25,7 +25,7 @@ def test_main_requires_explicit_run_id(monkeypatch):
 def test_main_passes_explicit_run_id_to_cnn_release(monkeypatch):
     captured: dict[str, object] = {}
 
-    def fake_release_cnn(run_id: str, release_version: str, release_git: dict) -> int:
+    def fake_release_cnn(run_id: str, release_version: str, release_git: dict, kind: str = "cnn") -> int:
         captured["run_id"] = run_id
         captured["release_version"] = release_version
         captured["release_git"] = release_git
