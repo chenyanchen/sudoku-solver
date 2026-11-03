@@ -1,0 +1,41 @@
+{
+  "model_type": "corner_cnn",
+  "model_version": "20261103.1",
+  "source_run_id": "cf7860f1f25f4f75ad32cb0255df1803",
+  "source_experiment_id": "316961318942125732",
+  "source_metric_name": "warp_iou",
+  "source_metric_value": 0.9660403551462703,
+  "source_git_commit": "584d647e33b4d56b26bd453636fd636533589b9b",
+  "source_git_dirty": "false",
+  "source_git_diff_sha256": null,
+  "training_data_sha256": {
+    "corners": "49a23774972d6cd0757398f86bb887ca73969d54ea984be9192f7bfa67f8371f",
+    "synth_labels": "ce69e2b4bde62afd80925677d6e749c0b868f116df33c7c44f1f9ed75aff2bb7",
+    "images": "4c5af174d05dfe410ede109721a5b7c8fe938a3cadf8b8fb0ad93eb4532566f3"
+  },
+  "training_params": {
+    "num_train": "98",
+    "seed": "1",
+    "backbone_lr": "0.001",
+    "num_synth": "6000",
+    "num_params": "212964",
+    "patience": "80",
+    "input_size": "384",
+    "freeze_epochs": "0",
+    "weight_decay": "0.0001",
+    "num_val": "22",
+    "version": "4.2.0",
+    "epochs": "80",
+    "arch": "tiny_32-64-128-256_ctx",
+    "heatmap_sigma": "1.0",
+    "batch_size": "32",
+    "val_ratio": "0.2",
+    "device": "mps",
+    "head_lr": "0.001",
+    "pretrained": "False",
+    "real_repeat": "10"
+  },
+  "release_git_commit": "584d647e33b4d56b26bd453636fd636533589b9b",
+  "release_git_dirty": "false",
+  "released_at_utc": "2026-11-03T02:12:27.612965+00:00"
+}
