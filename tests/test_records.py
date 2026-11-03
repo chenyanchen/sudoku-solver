@@ -14,9 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 GRID = [[0] * 9 for _ in range(9)]
 
 
-def _add(records, image, status):
+def _add(records, image, status, givens=0):
+    grid = [[1 if r * 9 + c < givens else 0 for c in range(9)] for r in range(9)]
     return records.add(image, (10, 20), "opencv" if status else None, status,
-                       GRID if status else None, 1.0, "v")
+                       grid if status else None, 1.0, "v")
 
 
 def test_stats_count_each_image_by_its_latest_reading(tmp_path):
@@ -24,9 +25,10 @@ def test_stats_count_each_image_by_its_latest_reading(tmp_path):
     _add(records, b"a", "unsolvable")
     _add(records, b"a", "unique")     # re-uploaded after a model release
     _add(records, b"b", None)         # no grid found
-    _add(records, b"c", "ambiguous")  # several solutions: one is shown
+    _add(records, b"c", "ambiguous", givens=17)  # an ambiguous puzzle: one solution is shown
     _add(records, b"d", "unsolvable")
-    assert records.stats() == {"solved": 2, "total": 4, "percentage": 50.0}
+    _add(records, b"e", "ambiguous", givens=16)  # a partial grid, or no Sudoku at all
+    assert records.stats() == {"solved": 2, "total": 5, "percentage": 40.0}
 
 
 

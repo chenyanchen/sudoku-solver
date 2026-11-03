@@ -29,7 +29,7 @@ from ..models.schemas import (
 )
 from ..ocr.cnn_digit_reader import CnnDigitReader
 from ..ocr.pipeline import AMBIGUOUS, UNIQUE, UNSOLVABLE, Recognition, recognize
-from ..records import Records
+from ..records import MIN_PUZZLE_GIVENS, Records
 from ..solver.backtracking import SudokuSolver, is_valid_grid
 
 router = APIRouter()
@@ -196,10 +196,6 @@ def _read_upright(image: np.ndarray) -> GridReading | None:
         if rank > best:
             found, best = second, rank
     return solved or found
-
-
-# No puzzle with fewer givens has a unique solution, so none is published.
-MIN_PUZZLE_GIVENS = 17
 
 
 def _rank(reading: GridReading | None) -> int:
