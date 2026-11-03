@@ -139,13 +139,16 @@ def release_cnn(run_id: str, release_version: str, release_git: dict[str, str], 
             raise SystemExit(f"ONNX export failed with code {result.returncode}")
 
         # The web path reads the model from the environment, so it must see the candidate.
+        # It reads 9x9 grids first, so a 16x16 candidate is gated with the 9x9 release.
+        gate_env = {"CNN_MODEL_PATH": str(RELEASES_DIR / "sudoku_digit_cnn.onnx"), **os.environ}
+        gate_env[model_env] = str(output_path)
         gate_json = Path(tmpdir) / "gate.json"
         subprocess.run([
             sys.executable, str(REPO_ROOT / "scripts" / "eval_cnn_ocr.py"),
             "--cnn-model", str(output_path), "--strict",
             "--labels", str(gate_labels),
             "--output-json", str(gate_json),
-        ], cwd=REPO_ROOT, check=True, env={**os.environ, model_env: str(output_path)})
+        ], cwd=REPO_ROOT, check=True, env=gate_env)
         gate = json.loads(gate_json.read_text())["cnn"]
 
         split_path = Path(client.download_artifacts(run_id, "split.json", tmpdir))
