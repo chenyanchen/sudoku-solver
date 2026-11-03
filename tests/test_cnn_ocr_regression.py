@@ -129,3 +129,13 @@ def test_sudoku_20_framed_grid_detected():
         "Warped grid from sudoku_20 does not have regular grid lines — "
         "likely detected the decorative border instead of the inner grid"
     )
+
+
+@pytest.mark.parametrize("rotation", [cv2.ROTATE_90_CLOCKWISE, cv2.ROTATE_90_COUNTERCLOCKWISE])
+@pytest.mark.parametrize("image_name", list(EXPECTED_SAMPLE_GRIDS))
+def test_sideways_photo_reads_as_upright(sample_grids, image_name, rotation):
+    """Phone photos are often sideways with an upright EXIF orientation."""
+    image = cv2.rotate(cv2.imread(str(DATA_IMAGE_ROOT / image_name)), rotation)
+    reading = read_image(image)
+    assert reading is not None
+    assert reading.recognition.grid == EXPECTED_SAMPLE_GRIDS[image_name]
