@@ -42,7 +42,7 @@ def find_grid_with_corners(
     """
     # A 3x3 box of a grid filling a small image can be under 10000 px².
     min_area = min(10000.0, 0.02 * image.shape[0] * image.shape[1])
-    grids = _find_grids(image, max_grids=1, min_area=min_area, max_quads=None)
+    grids = _find_grids(image, max_grids=1, min_area=min_area, max_quads=_MAX_QUADS)
     return grids[0] if grids else None
 
 
@@ -320,6 +320,11 @@ def has_regular_grid_lines(gray: np.ndarray, size: int = 9) -> bool:
 
 _LINE_TOL = 0.25  # cells
 _MAX_FALLBACKS = 8
+# The grid is among the largest quads (at most the 3rd over every labeled and
+# uploaded image), but a grid of separate tiles gives one quad per cell: 159
+# per scale, each warped and checked, which took 2 s. At least _MAX_FALLBACKS,
+# so the fallbacks are unchanged.
+_MAX_QUADS = 16
 _SNAP_PX = 30  # canvas pixels per cell
 
 
