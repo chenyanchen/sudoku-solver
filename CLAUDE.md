@@ -57,11 +57,12 @@ A separate 17-class model (blank, 1–9, A–G as 10–16), so the 9×9 model is
 ### Deploy (public site)
 
 ```bash
-scp -r deploy <host>:/root/sudoku-deploy && ssh <host> bash /root/sudoku-deploy/setup-server.sh [domain]   # once; the domain enables Caddy/TLS
+scp -r deploy <host>:/root/sudoku-deploy && ssh <host> bash /root/sudoku-deploy/setup-server.sh --tunnel   # once (after `cloudflared tunnel login` there); or [domain]: Caddy/TLS on 80/443
 deploy/deploy.sh <host>                                  # ships the committed HEAD; keeps 3 releases
+ssh <host> cloudflared tunnel route dns --overwrite-dns sudoku-solver <domain>   # moves the domain to the tunnel
 ```
 
-The API runs on one 2-core/2 GB VPS (the pages are on GitHub Pages): uvicorn (1 worker, 127.0.0.1:8000, systemd `sudoku-solver`) behind Caddy (TLS). `SUDOKU_DATA_DIR=/var/lib/sudoku-solver` holds `records.sqlite3` (every upload's result, corrections) and `images/` (every upload, once per SHA-256, 5 GB budget). No access log: the privacy note promises no IPs are stored.
+The API runs on one 2-core VPS (the pages are on GitHub Pages): uvicorn (1 worker, 127.0.0.1:8000, systemd `sudoku-solver`) behind Caddy on 127.0.0.1:8080, reached only through a Cloudflare Tunnel (`cloudflared` over HTTP/2), so no port but SSH is open. `deploy.sh` pip-installs on the server; a server far from PyPI needs a nearby mirror in `/etc/pip.conf`. `SUDOKU_DATA_DIR=/var/lib/sudoku-solver` holds `records.sqlite3` (every upload's result, corrections) and `images/` (every upload, once per SHA-256, 5 GB budget). No access log: the privacy note promises no IPs are stored.
 
 ## Architecture
 
