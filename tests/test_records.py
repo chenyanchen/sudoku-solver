@@ -97,3 +97,32 @@ def test_uploads_are_rate_limited(client):
 def test_oversized_upload_is_rejected(client, monkeypatch):
     monkeypatch.setattr(routes, "MAX_UPLOAD_BYTES", 1000)
     assert _upload(client).status_code == 413
+
+
+def test_a_newer_rescore_replaces_the_latest_reading(tmp_path):
+    records = Records(tmp_path)
+    _add(records, b"a", "unsolvable")
+    _add(records, b"b", "unique")
+    token = _add(records, b"c", "unique")
+    records.correct(token, [[1] * 9 for _ in range(9)])  # the uploader fixed a misread
+    sha = {k: __import__("hashlib").sha256(k).hexdigest() for k in (b"a", b"b", b"c")}
+    assert records.stats()["solved"] == 1
+    records.add_rescore(sha[b"a"], "r2", "opencv", "unique", GRID, 1.0, "v2")      # now solved
+    records.add_rescore(sha[b"b"], "r2", "opencv", "unsolvable", GRID, 1.0, "v2")  # a regression shows
+    records.add_rescore(sha[b"c"], "r2", "opencv", "unique", GRID, 1.0, "v2")      # read again, unaided
+    assert records.stats() == {"solved": 2, "total": 3, "percentage": 66.7}
+    assert records.rescored("r2") == set(sha.values()) and records.rescored("r3") == set()
+    _add(records, b"b", "unique")  # an upload after the rescore is the latest outcome again
+    assert records.stats()["solved"] == 3
+
+
+def test_rescore_reads_every_kept_image_once_per_version(tmp_path, monkeypatch, capsys):
+    from backend import rescore
+    _add(Records(tmp_path), (ROOT / "data/raw/images/IMG_8695.jpg").read_bytes(), "unsolvable")
+    monkeypatch.setenv("SUDOKU_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("sys.argv", ["rescore", "--version", "r2"])
+    rescore.main()
+    assert "rescored 1 images with r2" in capsys.readouterr().out
+    assert Records(tmp_path).stats() == {"solved": 1, "total": 1, "percentage": 100.0}
+    rescore.main()  # resumed or rerun: nothing left to read
+    assert "rescored 0 images" in capsys.readouterr().out

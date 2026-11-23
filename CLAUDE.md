@@ -58,10 +58,10 @@ A separate 17-class model (blank, 1–9, A–G as 10–16), so the 9×9 model is
 
 ```bash
 scp -r deploy <host>:/root/sudoku-deploy && ssh <host> bash /root/sudoku-deploy/setup-server.sh [domain]   # once; the domain enables Caddy/TLS
-deploy/deploy.sh <host>                                  # ships the committed HEAD; keeps 3 releases
+deploy/deploy.sh <host>                                  # ships the committed HEAD; keeps 3 releases; rescores uploads
 ```
 
-The API runs on one 2-core/2 GB VPS (the pages are on GitHub Pages): uvicorn (1 worker, 127.0.0.1:8000, systemd `sudoku-solver`) behind Caddy (TLS). `SUDOKU_DATA_DIR=/var/lib/sudoku-solver` holds `records.sqlite3` (every upload's result, corrections) and `images/` (every upload, once per SHA-256, 5 GB budget). No access log: the privacy note promises no IPs are stored.
+The API runs on one 2-core/2 GB VPS (the pages are on GitHub Pages): uvicorn (1 worker, 127.0.0.1:8000, systemd `sudoku-solver`) behind Caddy (TLS). `SUDOKU_DATA_DIR=/var/lib/sudoku-solver` holds `records.sqlite3` (every upload's result, corrections) and `images/` (every upload, once per SHA-256, 5 GB budget). No access log: the privacy note promises no IPs are stored. The public solve rate is what the deployed release solves: after each deploy, `python -m backend.rescore --version <rev>` (a `systemd-run` unit at nice 19, `journalctl -u 'sudoku-rescore-*'`; ~1 min locally for 255 images) reads every kept upload again into the `rescores` table, and stats take each image's latest outcome (a rescore, or an upload after it). Rescores count by status alone: variants count as solved when read as a 9×9 or 16×16 Sudoku that solves; corrections attach to an upload's reading only. Whether a release generalizes is judged on the test set, not on this rate: most uploads end up in training.
 
 ## Architecture
 
