@@ -180,17 +180,33 @@ AMBIGUOUS = [
 ]
 
 
+SWAPPED = [[7, 5], [7, 7], [8, 5], [8, 7]]
+
+
+def test_undetermined_cells_are_those_that_differ_between_solutions():
+    solver = SudokuSolver()
+    solution = solver.solve(AMBIGUOUS)
+    assert solver.undetermined_cells(AMBIGUOUS, solution) == [tuple(cell) for cell in SWAPPED]
+    empty = [[0] * 9 for _ in range(9)]
+    assert len(solver.undetermined_cells(empty, solver.solve(empty))) == 81
+    assert solver.undetermined_cells(empty, solver.solve(empty), max_nodes=10) is None
+
+
 def test_solve_endpoint_returns_a_solution_however_many_there_are():
     from fastapi.testclient import TestClient
     from backend.main import app
 
     with TestClient(app) as client:
-        for grid in (AMBIGUOUS, [[0] * 9 for _ in range(9)]):
+        for grid, open_cells in ((AMBIGUOUS, SWAPPED), ([[0] * 9 for _ in range(9)], None)):
             body = client.post("/api/v1/sudoku:solve", json={"grid": {"cells": grid}}).json()
-            assert body["success"] and body["status"] == "solved"
+            assert body["success"] and body["status"] == "ambiguous"
             solved = body["solved"]
             assert all(v for row in solved for v in row) and is_valid_grid(solved)
             assert all(solved[r][c] == grid[r][c] for r in range(9) for c in range(9) if grid[r][c])
+            if open_cells:
+                assert body["undetermined"] == open_cells
+            else:
+                assert len(body["undetermined"]) == 81
 
 
 # A 16x16 upload (values 10-16 are the letters A-G), with one solution.

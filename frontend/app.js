@@ -255,9 +255,20 @@ class SudokuSolver {
         });
         const data = await resp.json();
         if (data.success && data.solved) {
-            this.showMessage(successMessage, 'success');
-            this.displayGrid(data.solved, 'solvedGrid', grid);
-            this.solution = { givens: grid, solved: data.solved };
+            // Several solutions: a value that differs between them may be one
+            // the puzzle's app rejects, so those cells are left blank.
+            const open = data.status === 'ambiguous' ? (data.undetermined || []) : [];
+            const shown = data.solved.map((row) => row.slice());
+            for (const [row, col] of open) shown[row][col] = 0;
+            if (data.status !== 'ambiguous') {
+                this.showMessage(successMessage, 'success');
+            } else if (data.undetermined) {
+                this.showMessage(t('ambiguous', { count: open.length }), 'warning');
+            } else {
+                this.showMessage(t('ambiguousUnknown'), 'warning');
+            }
+            this.displayGrid(shown, 'solvedGrid', grid, open);
+            this.solution = { givens: grid, solved: shown };
             this.shareButton.hidden = false;
         } else {
             const reason = { no_solution: 'noSolution', invalid: 'invalid' };
@@ -335,7 +346,8 @@ class SudokuSolver {
         return grid;
     }
 
-    displayGrid(gridData, elementId, givens = null) {
+    displayGrid(gridData, elementId, givens = null, open = []) {
+        const undetermined = new Set(open.map(([row, col]) => row * 100 + col));
         const size = gridData ? gridData.length : this.size;
         const container = document.getElementById(elementId);
         layoutGrid(container, size);
@@ -348,6 +360,9 @@ class SudokuSolver {
                 if (value !== 0) {
                     cell.textContent = symbol(value);
                     cell.classList.add(givens && givens[row][col] ? 'given' : 'solved');
+                } else if (undetermined.has(row * 100 + col)) {
+                    cell.classList.add('undetermined');
+                    cell.title = t('undeterminedCell');
                 }
                 container.appendChild(cell);
             }

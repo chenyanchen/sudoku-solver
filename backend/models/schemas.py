@@ -41,7 +41,12 @@ class SolveResponse(BaseModel):
     original: list[list[int]] = Field(description="Original grid")
     solved: list[list[int]] | None = Field(description="Solved grid (if successful)")
     message: str = Field(description="Status message")
-    status: str = Field(description="solved, no_solution or invalid")
+    status: str = Field(description="solved, ambiguous (several solutions), no_solution or invalid")
+    undetermined: list[list[int]] | None = Field(
+        default=None,
+        description="When ambiguous: the [row, col] of every empty cell whose value differs "
+        "between solutions (null if that could not be settled in time)",
+    )
 
 
 class RecognizeResponse(BaseModel):

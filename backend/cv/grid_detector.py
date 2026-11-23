@@ -341,21 +341,32 @@ def snap_to_lattice(
     not assumed. A 16x16 grid's thin lines are often faint in photos, so they
     are looked for at lower contrast when the usual threshold misses them.
     """
-    faint = size > 9
+    faint = True
     if cells < size:
         box = _fit_lattice(image, corners, cells, margin=0.5, lines=cells + 1, faint=faint)
         if box is None:
             return None
-        corners, margin = box[0], size - cells
+        # One cell more than the rest of the grid, so that a lattice one line
+        # past the grid ends inside the canvas, where its missing line counts.
+        corners, margin = box[0], size - cells + 1
     else:
         margin = 1.5
-    found = _fit_lattice(image, corners, cells, margin, lines=size + 1, faint=faint)
+    box = math.isqrt(size) if cells < size else 0
+    found = _fit_lattice(image, corners, cells, margin, lines=size + 1, faint=faint, box=box)
     if found is None:
         return None
-    snapped, offsets = found
-    box = math.isqrt(size)
-    if cells < size and any(abs(o - box * round(o / box)) > 0.3 for o in offsets):
-        return None
+    snapped = found[0]
+    if box:
+        # Lines measured across one box give the grid's tilt three times
+        # magnified; measured across the whole grid, as found, they do not.
+        # The lattice stays where the box put it (box=size pins its first
+        # line): lines past a cropped edge do not count as missing, so a
+        # lattice pushed a cell off the image would otherwise fit better.
+        whole = _fit_lattice(
+            image, snapped, size, 1.5, lines=size + 1, faint=faint, box=size, pinned=True,
+        )
+        if whole is not None:
+            snapped = whole[0]
     warped = perspective_transform(image, snapped, (450, 450))
     if not has_regular_grid_lines(cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY), size):
         return None
@@ -364,9 +375,15 @@ def snap_to_lattice(
 
 def _fit_lattice(
     image: np.ndarray, corners: np.ndarray, cells: int, margin: float, lines: int,
-    faint: bool = False,
+    faint: bool = False, box: int = 0, pinned: bool = False,
 ) -> Optional[Tuple[np.ndarray, Tuple[float, float]]]:
     """Fit `lines` equally spaced lines per axis around a quad of `cells` cells.
+
+    `box`: the quad is one box of the grid, so among lattices that fit
+    equally well, one with the quad's first line on a box line (every
+    `box`-th line) wins. On a grid without an outer frame, lattices a line
+    apart fit equally well, and the wrong one used to win half the time.
+    `pinned`: only such lattices are accepted, however well others fit.
 
     Lines are measured in two strips across the quad's middle, which every
     grid line crosses, so each boundary line gets its own tilt and the fit
@@ -400,6 +417,7 @@ def _fit_lattice(
     # cells away is usually an edge beside the grid (a panel, a screenshot's
     # crop) taken for its outermost line.
     prior = (margin * px, (margin + cells) * px) if lines == cells + 1 else None
+    phase = (margin * px, box, pinned) if box else None
     # Lines may be dark on light, or light gaps between darker tiles; faint
     # ones (`faint`, tried last) are blurred into dashes, which are joined.
     variants = [(g, False) for g in (gray, 255 - gray)] + ([(gray, True)] if faint else [])
@@ -420,12 +438,12 @@ def _fit_lattice(
             seen = inside[:, lo:hi].mean(axis=1) > 0.5
             rows.append(_fit_lines(
                 _coverage_peaks(h_lines[:, lo:hi].mean(axis=1) / 255 * seen, 0.5),
-                px, lines, min_hits, prior, seen,
+                px, lines, min_hits, prior, seen, phase,
             ))
             seen = inside[lo:hi, :].mean(axis=0) > 0.5
             cols.append(_fit_lines(
                 _coverage_peaks(v_lines[lo:hi, :].mean(axis=0) / 255 * seen, 0.5),
-                px, lines, min_hits, prior, seen,
+                px, lines, min_hits, prior, seen, phase,
             ))
         if None in rows or None in cols:
             continue
@@ -472,6 +490,7 @@ def _coverage_peaks(profile: np.ndarray, threshold: float) -> np.ndarray:
 def _fit_lines(
     peaks: np.ndarray, spacing: float, count: int, min_hits: int,
     prior: Optional[Tuple[float, float]] = None, seen: Optional[np.ndarray] = None,
+    phase: Optional[Tuple[float, int, bool]] = None,
 ) -> Optional[Tuple[float, float]]:
     """(first, last) of `count` equally spaced lines (spacing ±25%) fitted to `peaks`.
 
@@ -480,8 +499,17 @@ def _fit_lines(
     fewest lines where `seen` (by position) says a line could be seen wins,
     then the one fewest whole lines from `prior`'s (first, last), then the
     one matching the most peaks, then the one with the smallest residual.
+    `phase` (position, period, pinned): the best lattice with a line whose
+    index is a multiple of `period` at `position` (±0.3 lines); unless
+    pinned, only if it matches as many peaks as the best of all, else None.
     """
     best: Optional[Tuple[Tuple[int, int, int, float], Tuple[float, float]]] = None
+    aligned = best
+    if len(peaks) > 3 * count:
+        # Texture, not lines (a photo's paper or screen at low contrast); a
+        # grid gives at most about one peak per line plus a few strays, and
+        # proposals grow with the square of the peaks.
+        return None
     for i in range(len(peaks)):
         for j in range(i + 1, len(peaks)):
             gaps = round((peaks[j] - peaks[i]) / spacing)
@@ -496,20 +524,40 @@ def _fit_lines(
                 hit = np.nonzero(dist.min(axis=0) < 0.15 * step)[0]
                 if len(hit) < min_hits:
                     continue
-                visible = np.ones(count, bool) if seen is None else np.array([
-                    0 <= round(y) < len(seen) and bool(seen[round(y)]) for y in lines
-                ])
+                if seen is None:
+                    visible = np.ones(count, bool)
+                else:
+                    at_px = np.rint(lines).astype(int)
+                    inside = (at_px >= 0) & (at_px < len(seen))
+                    visible = inside & seen[np.clip(at_px, 0, len(seen) - 1)]
                 visible[hit] = True
                 misses = count - len(hit) - int((~visible).sum())
                 matched = peaks[dist[:, hit].argmin(axis=0)]
-                slope, start = np.polyfit(hit, matched, 1)
+                # Least-squares line through (hit, matched); np.polyfit is
+                # ~20x slower, and noisy photos propose many thousands.
+                dx = hit - hit.mean()
+                slope = float((dx * (matched - matched.mean())).sum() / (dx * dx).sum())
+                start = float(matched.mean() - slope * hit.mean())
                 residual = float(np.abs(start + slope * hit - matched).mean())
                 end = start + (count - 1) * slope
                 shift = 0 if prior is None else round(abs(start - prior[0] + end - prior[1]) / 2 / slope)
                 key = (-misses, -shift, len(hit), -residual)
                 if best is None or key > best[0]:
                     best = (key, (float(start), float(end)))
-    return None if best is None else best[1]
+                if phase is not None:
+                    at = (phase[0] - start) / slope
+                    if abs(at - phase[1] * round(at / phase[1])) <= 0.3:
+                        if aligned is None or key > aligned[0]:
+                            aligned = (key, (float(start), float(end)))
+    if phase is None:
+        return None if best is None else best[1]
+    # Unless pinned, alignment only breaks ties: an aligned lattice matching
+    # fewer lines than the best one means the quad is no box of this grid.
+    # Matched lines, not misses: lines past a cropped edge do not count as
+    # missing, so a lattice pushed off the image misses fewer.
+    if aligned is None or (not phase[2] and aligned[0][2] < best[0][2]):
+        return None
+    return aligned[1]
 
 
 def find_grid_with_debug(

@@ -167,3 +167,9 @@ def test_quad_that_fits_no_16x16_lattice_counts_only_if_it_solves(monkeypatch, s
         lambda reader, warped, size: Recognition([[0] * size for _ in range(size)], None, status, {}),
     )
     assert (routes._read_16x16(IMAGE, [(QUAD, "opencv")]) is not None) == read
+
+
+def test_more_givens_win_between_warps_without_regular_lines(setup):
+    """A borderless grid: OpenCV's quad is one blank cell, Corner CNN's reads the digits."""
+    setup(True, [(AMBIGUOUS, 0), (UNSOLVABLE, 26), (UNSOLVABLE, 26)], regular=False)
+    assert routes.read_image(IMAGE).detector_name == "corner_cnn"
