@@ -249,6 +249,13 @@ header h1 {
     color: var(--primary-color);
 }
 
+/* A cell whose value differs between the puzzle's solutions. */
+.sudoku-cell.undetermined {
+    background-image: repeating-linear-gradient(
+        45deg, transparent 0 5px, color-mix(in srgb, var(--warning-color) 35%, transparent) 5px 7px
+    );
+}
+
 input.sudoku-cell {
     width: 100%;
     min-width: 0;

@@ -25,7 +25,7 @@ class SudokuSolver:
 
     def solve(self, grid: Grid) -> Grid | None:
         """Return the first solution found, or None."""
-        found, _ = _search(grid, 1, self.max_nodes)
+        found, _, _ = _search(grid, 1, self.max_nodes)
         return found[0] if found else None
 
     def count_solutions(self, grid: Grid, max_count: int = 2) -> int:
@@ -33,22 +33,58 @@ class SudokuSolver:
 
         An exhausted node budget counts as max_count: uniqueness was not proven.
         """
-        found, exhausted = _search(grid, max_count, self.max_nodes)
+        found, exhausted, _ = _search(grid, max_count, self.max_nodes)
         return max_count if exhausted else len(found)
 
     def solve_unique(self, grid: Grid) -> tuple[Grid | None, int]:
         """Return (solution if unique else None, solution count capped at 2)."""
-        found, exhausted = _search(grid, 2, self.max_nodes)
+        found, exhausted, _ = _search(grid, 2, self.max_nodes)
         count = 2 if exhausted else len(found)
         return (found[0] if count == 1 else None), count
+
+    def undetermined_cells(
+        self, grid: Grid, solution: Grid, max_nodes: int = 200_000,
+    ) -> list[tuple[int, int]] | None:
+        """Empty cells whose value differs between solutions of `grid`.
+
+        `solution` is one solution. Each other value a cell could take is
+        tried; a solution found with it marks every cell where it differs
+        from `solution`. None if `max_nodes` (over all searches) runs out
+        before every cell is settled.
+        """
+        size = len(grid)
+        undetermined: set[tuple[int, int]] = set()
+        budget = max_nodes
+        for r in range(size):
+            for c in range(size):
+                if grid[r][c] or (r, c) in undetermined:
+                    continue
+                for value in range(1, size + 1):
+                    if value == solution[r][c] or not is_valid_placement(grid, r, c, value):
+                        continue
+                    grid[r][c] = value
+                    try:
+                        found, exhausted, nodes = _search(grid, 1, budget)
+                    finally:
+                        grid[r][c] = 0
+                    budget -= nodes
+                    if exhausted:
+                        return None
+                    if found:
+                        undetermined.update(
+                            (i, j) for i in range(size) for j in range(size)
+                            if found[0][i][j] != solution[i][j]
+                        )
+                        break
+        return sorted(undetermined)
 
 
 class _BudgetExhausted(Exception):
     pass
 
 
-def _search(grid: Grid, limit: int, max_nodes: int) -> tuple[list[Grid], bool]:
-    """Find up to `limit` solutions. Returns (solutions, budget_exhausted)."""
+def _search(grid: Grid, limit: int, max_nodes: int) -> tuple[list[Grid], bool, int]:
+    """Find up to `limit` solutions. Returns (solutions, budget_exhausted, nodes)."""
     size = len(grid)
     box = box_side(size)
     all_values = ((1 << size) - 1) << 1  # bits 1..size
@@ -64,7 +100,7 @@ def _search(grid: Grid, limit: int, max_nodes: int) -> tuple[list[Grid], bool]:
                 continue
             bit = 1 << value
             if (rows[r] | cols[c] | boxes[b]) & bit:
-                return [], False
+                return [], False, 0
             rows[r] |= bit
             cols[c] |= bit
             boxes[b] |= bit
@@ -141,8 +177,8 @@ def _search(grid: Grid, limit: int, max_nodes: int) -> tuple[list[Grid], bool]:
     try:
         recurse()
     except _BudgetExhausted:
-        return found, True
-    return found, False
+        return found, True, nodes
+    return found, False, nodes
 
 
 def solve(grid: Grid) -> Grid | None:

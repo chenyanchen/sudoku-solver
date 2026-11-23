@@ -250,14 +250,22 @@ def _read_9x9(image: np.ndarray) -> tuple[GridReading | None, list[tuple[np.ndar
     return solved or found, quads
 
 
-def _rank(reading: GridReading | None) -> int:
+def _rank(reading: GridReading | None) -> tuple[int, int]:
     """How worth showing an unsolved reading is; an unsolved Corner CNN quad
-    must outrank OpenCV's reading (or its absence) to replace it."""
+    must outrank OpenCV's reading (or its absence) to replace it.
+
+    Between two warps without regular lines the one with more givens wins:
+    on a borderless or cropped grid neither quad may have them, and OpenCV's
+    is often a single cell whose blank reading leaves the uploader nothing
+    to fix.
+    """
     if reading is None:
-        return 0
+        return (0, 0)
     if _may_be_exact(reading):
-        return 2
-    return int(has_regular_grid_lines(cv2.cvtColor(reading.warped, cv2.COLOR_BGR2GRAY)))
+        return (2, 0)
+    if has_regular_grid_lines(cv2.cvtColor(reading.warped, cv2.COLOR_BGR2GRAY)):
+        return (1, 0)
+    return (0, reading.recognition.givens)
 
 
 def _may_be_exact(reading: GridReading) -> bool:
@@ -326,13 +334,27 @@ def solve_sudoku(request: SolveRequest):
             status="invalid",
         )
 
-    # Any solution will do: a puzzle with several solutions is still solved by
-    # each of them, and misread digits are for the uploader to correct.
-    solved = SudokuSolver().solve(grid)
+    # A puzzle with several solutions is still solved by each of them, but the
+    # app it came from accepts only one: the cells that differ between them
+    # are reported, so the uploader does not copy a value the app calls a
+    # mistake (some apps' hardest puzzles are ambiguous; so is a reading that
+    # missed givens).
+    solver = SudokuSolver()
+    found, count = solver.solve_unique(grid)
+    solved = found or solver.solve(grid)
     if solved is None:
         return SolveResponse(
             success=False, original=grid, solved=None, message="Puzzle has no solution",
             status="no_solution",
+        )
+    # solve_unique counts an exhausted node budget as a second solution; an
+    # empty list proves there is none.
+    undetermined = solver.undetermined_cells(grid, solved) if count > 1 else []
+    if undetermined != []:
+        return SolveResponse(
+            success=True, original=grid, solved=solved,
+            message="Puzzle has several solutions", status="ambiguous",
+            undetermined=None if undetermined is None else [[r, c] for r, c in undetermined],
         )
 
     return SolveResponse(

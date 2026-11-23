@@ -255,8 +255,18 @@ class SudokuSolver {
         });
         const data = await resp.json();
         if (data.success && data.solved) {
-            this.showMessage(successMessage, 'success');
-            this.displayGrid(data.solved, 'solvedGrid', grid);
+            // Several solutions: one is shown, and the cells whose value
+            // differs between them are hatched (the puzzle's app may expect
+            // another value there).
+            const open = data.status === 'ambiguous' ? (data.undetermined || []) : [];
+            if (data.status !== 'ambiguous') {
+                this.showMessage(successMessage, 'success');
+            } else if (data.undetermined) {
+                this.showMessage(t('ambiguous', { count: open.length }), 'warning');
+            } else {
+                this.showMessage(t('ambiguousUnknown'), 'warning');
+            }
+            this.displayGrid(data.solved, 'solvedGrid', grid, open);
             this.solution = { givens: grid, solved: data.solved };
             this.shareButton.hidden = false;
         } else {
@@ -335,7 +345,8 @@ class SudokuSolver {
         return grid;
     }
 
-    displayGrid(gridData, elementId, givens = null) {
+    displayGrid(gridData, elementId, givens = null, open = []) {
+        const undetermined = new Set(open.map(([row, col]) => row * 100 + col));
         const size = gridData ? gridData.length : this.size;
         const container = document.getElementById(elementId);
         layoutGrid(container, size);
@@ -348,6 +359,10 @@ class SudokuSolver {
                 if (value !== 0) {
                     cell.textContent = symbol(value);
                     cell.classList.add(givens && givens[row][col] ? 'given' : 'solved');
+                }
+                if (undetermined.has(row * 100 + col)) {
+                    cell.classList.add('undetermined');
+                    cell.title = t('undeterminedCell');
                 }
                 container.appendChild(cell);
             }
