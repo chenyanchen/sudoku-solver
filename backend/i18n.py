@@ -67,8 +67,8 @@ TEXT: dict[str, dict[str, str]] = {
                        "puzzle with your image; a misread digit often leaves it with no solution. Fix the "
                        "cell and solve again; your correction helps improve recognition.",
         "faq_rate_q": "What is the solve rate?",
-        "faq_rate_a": "The share of distinct uploaded images that were solved without corrections. We publish "
-                      "it so you can watch recognition improve.",
+        "faq_rate_a": "The share of distinct uploaded images that the current version solves without corrections. "
+                      "After every update we read all of them again, so it shows what the solver can do now.",
         "faq_privacy_q": "What do you store?",
         "faq_privacy_a": "Your image, whether it was solved, how long it took, and any digits you corrected. "
                          "No IP address and no file name. Images are used only to improve recognition "
@@ -111,7 +111,7 @@ TEXT: dict[str, dict[str, str]] = {
         "faq_wrong_a": "反光、模糊或少见的字体都会让数字难以识别。请对照原图检查识别出的题目，"
                        "识别错的数字常常会让题目无解。改正那个格子后重新求解即可，你的修改也会帮助我们改进识别。",
         "faq_rate_q": "解出率是什么？",
-        "faq_rate_a": "所有上传过的不同图片中，无需修改就被解出的比例。我们公开这个数字，你可以看到识别能力的进步。",
+        "faq_rate_a": "所有上传过的不同图片中，当前版本无需修改就能解出的比例。每次更新后，我们会用新版本把所有图片重新识别一遍，所以它反映的是现在的识别能力。",
         "faq_privacy_q": "你们会保存什么？",
         "faq_privacy_a": "你上传的图片、是否解出、耗时，以及你改正过的数字。不记录 IP 地址和文件名。"
                          "图片只用于改进识别，不会公开。",
