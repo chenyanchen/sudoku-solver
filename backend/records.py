@@ -1,9 +1,11 @@
 """Record of public recognitions: the site's solve rate and new training data.
 
 Each upload is a reading. Stats count distinct images (by content hash) by
-their latest reading, so re-uploading an image after a model release shows
-the improvement. A reading counts as solved when its givens have a solution
-(the site shows one) and the uploader did not correct them.
+their latest outcome: the latest reading, or a rescore if newer. After each
+deploy every kept image is read again (`backend.rescore`), so the rate is
+what the deployed version solves, not what earlier versions did. A reading
+counts as solved when its givens have a solution (the site shows one) and
+the uploader did not correct them; a rescore when its givens have one.
 
 Every uploaded image is kept (once per content hash, within a disk budget)
 as training data; readings hold no personal data (no IP, no file name).
@@ -42,6 +44,19 @@ CREATE TABLE IF NOT EXISTS corrections (
     created_at TEXT NOT NULL,
     grid TEXT NOT NULL         -- givens as corrected by the uploader, JSON
 );
+CREATE TABLE IF NOT EXISTS rescores (
+    id INTEGER PRIMARY KEY,
+    image_sha256 TEXT NOT NULL,
+    reading_id INTEGER NOT NULL REFERENCES readings (id),  -- the image's latest reading then
+    created_at TEXT NOT NULL,
+    version TEXT NOT NULL,     -- the deployed release that read it
+    detector TEXT,             -- NULL: no grid found
+    status TEXT,               -- unique / ambiguous / unsolvable; NULL: no grid found
+    grid TEXT,                 -- recognized givens, JSON
+    latency_ms REAL NOT NULL,
+    ocr_model TEXT
+);
+CREATE INDEX IF NOT EXISTS rescores_image ON rescores (image_sha256);
 """
 
 # No puzzle with fewer givens has a unique solution, so none is published.
@@ -120,24 +135,64 @@ class Records:
             self._db.commit()
         return True
 
+    def add_rescore(
+        self,
+        sha: str,
+        version: str,
+        detector: str | None,
+        status: str | None,
+        grid: list[list[int]] | None,
+        latency_ms: float,
+        ocr_model: str | None,
+    ) -> None:
+        """Store a kept image's reading by the deployed release."""
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO rescores (image_sha256, reading_id, created_at, version, detector, status,"
+                " grid, latency_ms, ocr_model) VALUES"
+                " (?, (SELECT MAX(id) FROM readings WHERE image_sha256 = ?), ?, ?, ?, ?, ?, ?, ?)",
+                (sha, sha, _now(), version, detector, status, json.dumps(grid) if grid else None,
+                 latency_ms, ocr_model),
+            )
+            self._db.commit()
+
+    def uploaded(self) -> set[str]:
+        """Every image with a reading."""
+        with self._lock:
+            return {row[0] for row in self._db.execute("SELECT DISTINCT image_sha256 FROM readings")}
+
+    def rescored(self, version: str) -> set[str]:
+        """Images already read by `version`."""
+        with self._lock:
+            rows = self._db.execute("SELECT DISTINCT image_sha256 FROM rescores WHERE version = ?", (version,))
+            return {row[0] for row in rows}
+
     def stats(self) -> dict[str, float | int]:
-        """Images whose latest reading solved, uncorrected. An ambiguous reading
-        counts when it has a puzzle's worth of givens: some published puzzles
-        are ambiguous, but a partial grid, or no Sudoku at all, has solutions too."""
+        """Images whose latest outcome solved: the latest reading, uncorrected,
+        or a newer rescore. An ambiguous reading counts when it has a puzzle's
+        worth of givens: some published puzzles are ambiguous, but a partial
+        grid, or no Sudoku at all, has solutions too. Corrections attach to an
+        upload's reading only; the deployed release rereads the image itself.
+        """
+        def solves(t: str) -> str:
+            return f"""({t}.status = 'unique' OR ({t}.status = 'ambiguous' AND (
+                SELECT COUNT(*) FROM json_each({t}.grid) AS row, json_each(row.value) AS cell
+                WHERE cell.value != 0
+            ) >= {MIN_PUZZLE_GIVENS}))"""
+
         with self._lock:
             total, solved = self._db.execute(
-                """
-                SELECT COUNT(*), COALESCE(SUM(
-                    (r.status = 'unique' OR (r.status = 'ambiguous' AND (
-                        SELECT COUNT(*) FROM json_each(r.grid) AS row, json_each(row.value) AS cell
-                        WHERE cell.value != 0
-                    ) >= ?)) AND NOT EXISTS (
+                f"""
+                SELECT COUNT(*), COALESCE(SUM(CASE
+                    WHEN s.reading_id >= r.id THEN {solves("s")}
+                    ELSE {solves("r")} AND NOT EXISTS (
                         SELECT 1 FROM corrections c WHERE c.reading_id = r.id AND c.grid != r.grid
                     )
-                ), 0)
+                END), 0)
                 FROM readings r
+                LEFT JOIN rescores s
+                    ON s.id = (SELECT MAX(id) FROM rescores WHERE image_sha256 = r.image_sha256)
                 WHERE r.id IN (SELECT MAX(id) FROM readings GROUP BY image_sha256)
                 """,
-                (MIN_PUZZLE_GIVENS,),
             ).fetchone()
         return {"solved": solved, "total": total, "percentage": round(100 * solved / total, 1) if total else 0.0}
