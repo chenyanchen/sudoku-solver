@@ -18,6 +18,7 @@ import cv2
 import numpy as np
 
 from .api.routes import read_image
+from .heap import return_large_frees
 from .records import Records
 
 
@@ -25,6 +26,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--version", required=True, help="the deployed release, e.g. its git commit")
     args = parser.parse_args()
+    return_large_frees()
 
     records = Records(Path(os.environ["SUDOKU_DATA_DIR"]))
     todo = records.uploaded() - records.rescored(args.version)

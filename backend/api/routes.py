@@ -106,6 +106,19 @@ class GridReading:
 # Phone photos of a phone are often taken sideways with an upright EXIF
 # orientation, so the digits lie on their side and read as nonsense.
 _ROTATIONS = (cv2.ROTATE_90_COUNTERCLOCKWISE, cv2.ROTATE_90_CLOCKWISE)
+# Larger images are read at this size. Half the uploads are 12MP photos, and
+# their full-resolution copies (34 MB each in colour) were most of the memory
+# a reading took; at this size every labeled and uploaded image reads the
+# same, at 2048 one does not.
+MAX_READ_SIDE = 2560
+
+
+def fit_for_reading(image: np.ndarray) -> np.ndarray:
+    """The image scaled down to MAX_READ_SIDE on its long side, if larger."""
+    scale = MAX_READ_SIDE / max(image.shape[:2])
+    if scale >= 1:
+        return image
+    return cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
 
 
 def read_image(image: np.ndarray) -> GridReading | None:
@@ -115,6 +128,7 @@ def read_image(image: np.ndarray) -> GridReading | None:
     turned a quarter either way; a turned reading is kept only if it solves
     uniquely, which sideways digits never do by chance.
     """
+    image = fit_for_reading(image)
     reading = _read_upright(image)
     if reading is not None and (reading.recognition.status == UNIQUE or _may_be_exact(reading)):
         return reading
@@ -391,6 +405,8 @@ def recognize_sudoku(
             message="Failed to decode image. Please upload a valid image file.",
         )
 
+    shape = img.shape[:2]
+    img = fit_for_reading(img)  # not kept at full resolution while it is read
     if not _RECOGNIZE_SLOTS.acquire(timeout=30):
         raise HTTPException(503, "Server busy; please try again.")
     try:
@@ -403,7 +419,7 @@ def recognize_sudoku(
     result = reading.recognition if reading else None
     records = _get_records()
     token = records.add(
-        contents, img.shape[:2],
+        contents, shape,
         detector=reading.detector_name if reading else None,
         status=result.status if result else None,
         grid=result.grid if result else None,

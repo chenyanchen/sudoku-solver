@@ -173,3 +173,9 @@ def test_more_givens_win_between_warps_without_regular_lines(setup):
     """A borderless grid: OpenCV's quad is one blank cell, Corner CNN's reads the digits."""
     setup(True, [(AMBIGUOUS, 0), (UNSOLVABLE, 26), (UNSOLVABLE, 26)], regular=False)
     assert routes.read_image(IMAGE).detector_name == "corner_cnn"
+
+
+def test_large_images_are_read_at_max_read_side():
+    photo = np.zeros((3000, 4000, 3), np.uint8)
+    assert routes.fit_for_reading(photo).shape == (1920, routes.MAX_READ_SIDE, 3)
+    assert routes.fit_for_reading(IMAGE) is IMAGE

@@ -57,8 +57,10 @@ class CornerCnnDetector:
         if not path.exists():
             self._load_error = f"Corner CNN model not found: {path}"
             return
+        options = ort.SessionOptions()
+        options.enable_cpu_mem_arena = False  # as the digit CNN's: it keeps its peak
         self._session = ort.InferenceSession(
-            str(path), providers=["CPUExecutionProvider"]
+            str(path), sess_options=options, providers=["CPUExecutionProvider"]
         )
         model_input = self._session.get_inputs()[0]
         self._input_name = model_input.name
