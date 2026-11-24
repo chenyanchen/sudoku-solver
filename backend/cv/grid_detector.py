@@ -40,9 +40,7 @@ def find_grid_with_corners(
         Tuple of (warped_450x450_grid, ordered_corners_4x2_float32),
         or None if no valid grid is found.
     """
-    # A 3x3 box of a grid filling a small image can be under 10000 px².
-    min_area = min(10000.0, 0.02 * image.shape[0] * image.shape[1])
-    grids = _find_grids(image, max_grids=1, min_area=min_area, max_quads=_MAX_QUADS)
+    grids = _find_grids(image, max_grids=1, min_area=None, max_quads=None)
     return grids[0] if grids else None
 
 
@@ -70,7 +68,7 @@ def find_grids_with_corners(
 def _find_grids(
     image: np.ndarray,
     max_grids: int,
-    min_area: float,
+    min_area: Optional[float],
     max_quads: Optional[int],
 ) -> List[Tuple[np.ndarray, np.ndarray]]:
     """Warp quadrilateral candidates (largest first); prefer regular grids.
@@ -78,6 +76,29 @@ def _find_grids(
     Candidates that fail the regularity check are kept as fallbacks and
     snapped to the grid-line lattice around them.
     """
+    grids, fallbacks = find_quads(image, max_grids, min_area, max_quads)
+    if grids:
+        return grids
+    grids = snap_quads(image, [ordered for _, ordered in fallbacks], max_grids)
+    return grids if grids else fallbacks[:max_grids]
+
+
+def find_quads(
+    image: np.ndarray,
+    max_grids: int = 1,
+    min_area: Optional[float] = None,
+    max_quads: Optional[int] = None,
+) -> Tuple[List[Tuple[np.ndarray, np.ndarray]], List[Tuple[np.ndarray, np.ndarray]]]:
+    """(warps with regular grid lines, irregular quads), each as (warped, corners).
+
+    No lattice is fitted here; that is `snap_quads`, for the irregular ones.
+    Defaults are `find_grid_with_corners`'s.
+    """
+    if min_area is None:
+        # A 3x3 box of a grid filling a small image can be under 10000 px².
+        min_area = min(10000.0, 0.02 * image.shape[0] * image.shape[1])
+    if max_quads is None:
+        max_quads = _MAX_QUADS
     thresh = morphological_operations(preprocess(image)["thresh"])
     # RETR_LIST finds nested contours, so we can skip decorative borders
     # and find the actual grid inside.
@@ -93,13 +114,19 @@ def _find_grids(
                 break
         elif len(fallbacks) < max(max_grids, _MAX_FALLBACKS):
             fallbacks.append((warped, ordered))
+    return grids, fallbacks
 
-    if grids:
-        return grids
 
-    # An irregular quad is often a decorative frame around the grid, or a
-    # single 3x3 box when the grid's outline merges with its surroundings.
-    for _, ordered in fallbacks:
+def snap_quads(
+    image: np.ndarray, quads: List[np.ndarray], max_grids: int = 1,
+) -> List[Tuple[np.ndarray, np.ndarray]]:
+    """The 9x9 lattices found around irregular quads, as (warped, corners).
+
+    An irregular quad is often a decorative frame around the grid, or a
+    single 3x3 box when the grid's outline merges with its surroundings.
+    """
+    grids: List[Tuple[np.ndarray, np.ndarray]] = []
+    for ordered in quads:
         refined = snap_to_lattice(image, ordered, cells=9) or snap_to_lattice(
             image, ordered, cells=3,
         )
@@ -107,7 +134,7 @@ def _find_grids(
             grids.append(refined)
             if len(grids) >= max_grids:
                 break
-    return grids if grids else fallbacks[:max_grids]
+    return grids
 
 
 def _quad_corners(contours, min_area: float) -> List[np.ndarray]:
@@ -494,70 +521,87 @@ def _fit_lines(
 ) -> Optional[Tuple[float, float]]:
     """(first, last) of `count` equally spaced lines (spacing ±25%) fitted to `peaks`.
 
-    Up to count - min_hits lines may be missing (faint or hidden by glare).
-    Each pair of peaks proposes a spacing and phase. The proposal missing the
-    fewest lines where `seen` (by position) says a line could be seen wins,
-    then the one fewest whole lines from `prior`'s (first, last), then the
-    one matching the most peaks, then the one with the smallest residual.
+    `peaks` are ascending. Up to count - min_hits lines may be missing (faint
+    or hidden by glare). Each pair of peaks proposes a spacing and phase. The
+    proposal missing the fewest lines where `seen` (by position) says a line
+    could be seen wins, then the one fewest whole lines from `prior`'s
+    (first, last), then the one matching the most peaks, then the one with
+    the smallest residual, then the first proposed.
     `phase` (position, period, pinned): the best lattice with a line whose
     index is a multiple of `period` at `position` (±0.3 lines); unless
     pinned, only if it matches as many peaks as the best of all, else None.
+
+    All proposals are scored at once: one at a time, as small numpy calls,
+    this was most of the time spent on images that do not solve.
     """
-    best: Optional[Tuple[Tuple[int, int, int, float], Tuple[float, float]]] = None
-    aligned = best
     if len(peaks) > 3 * count:
         # Texture, not lines (a photo's paper or screen at low contrast); a
         # grid gives at most about one peak per line plus a few strays, and
         # proposals grow with the square of the peaks.
         return None
-    for i in range(len(peaks)):
-        for j in range(i + 1, len(peaks)):
-            gaps = round((peaks[j] - peaks[i]) / spacing)
-            if not 1 <= gaps < count:
-                continue
-            step = (peaks[j] - peaks[i]) / gaps
-            if abs(step - spacing) > 0.25 * spacing:
-                continue
-            for first in range(count - gaps):
-                lines = peaks[i] + (np.arange(count) - first) * step
-                dist = np.abs(peaks[:, None] - lines[None, :])
-                hit = np.nonzero(dist.min(axis=0) < 0.15 * step)[0]
-                if len(hit) < min_hits:
-                    continue
-                if seen is None:
-                    visible = np.ones(count, bool)
-                else:
-                    at_px = np.rint(lines).astype(int)
-                    inside = (at_px >= 0) & (at_px < len(seen))
-                    visible = inside & seen[np.clip(at_px, 0, len(seen) - 1)]
-                visible[hit] = True
-                misses = count - len(hit) - int((~visible).sum())
-                matched = peaks[dist[:, hit].argmin(axis=0)]
-                # Least-squares line through (hit, matched); np.polyfit is
-                # ~20x slower, and noisy photos propose many thousands.
-                dx = hit - hit.mean()
-                slope = float((dx * (matched - matched.mean())).sum() / (dx * dx).sum())
-                start = float(matched.mean() - slope * hit.mean())
-                residual = float(np.abs(start + slope * hit - matched).mean())
-                end = start + (count - 1) * slope
-                shift = 0 if prior is None else round(abs(start - prior[0] + end - prior[1]) / 2 / slope)
-                key = (-misses, -shift, len(hit), -residual)
-                if best is None or key > best[0]:
-                    best = (key, (float(start), float(end)))
-                if phase is not None:
-                    at = (phase[0] - start) / slope
-                    if abs(at - phase[1] * round(at / phase[1])) <= 0.3:
-                        if aligned is None or key > aligned[0]:
-                            aligned = (key, (float(start), float(end)))
+    # Proposals, in the order (i, j, first): peaks i < j are `gaps` lines
+    # apart, and peak i is line `first`.
+    i, j = np.triu_indices(len(peaks), 1)
+    gaps = np.round((peaks[j] - peaks[i]) / spacing)
+    keep = (gaps >= 1) & (gaps < count)
+    i, j, gaps = i[keep], j[keep], gaps[keep]
+    step = (peaks[j] - peaks[i]) / gaps
+    keep = np.abs(step - spacing) <= 0.25 * spacing
+    i, step, gaps = i[keep], step[keep], gaps[keep].astype(int)
+    firsts = count - gaps
+    if not len(firsts):
+        return None
+    pair = np.repeat(np.arange(len(firsts)), firsts)
+    first = np.arange(len(pair)) - np.repeat(np.cumsum(firsts) - firsts, firsts)
+    step = step[pair]
+    index = np.arange(count)
+    lines = peaks[i[pair], None] + (index - first[:, None]) * step[:, None]
+
+    # The peak nearest each line (the lower one of two as near).
+    right = np.clip(np.searchsorted(peaks, lines), 1, len(peaks) - 1)
+    left = np.maximum(right - 1, 0)
+    d_left, d_right = np.abs(peaks[left] - lines), np.abs(peaks[right] - lines)
+    nearest = np.where(d_right < d_left, right, left)
+    hit = np.minimum(d_left, d_right) < 0.15 * step[:, None]
+    hits = hit.sum(axis=1)
+    keep = hits >= min_hits
+    if not keep.any():
+        return None
+    lines, step, hit, hits, nearest = lines[keep], step[keep], hit[keep], hits[keep], nearest[keep]
+
+    if seen is None:
+        unseen = np.zeros(len(lines), int)
+    else:
+        at_px = np.rint(lines).astype(int)
+        visible = (at_px >= 0) & (at_px < len(seen)) & seen[np.clip(at_px, 0, len(seen) - 1)]
+        unseen = (~(visible | hit)).sum(axis=1)
+    misses = count - hits - unseen
+    # Least-squares line through (line index, matched peak) over the hits.
+    matched = peaks[nearest]
+    w = hit.astype(float)
+    mean_x = (w * index).sum(axis=1) / hits
+    mean_y = (w * matched).sum(axis=1) / hits
+    dx = (index - mean_x[:, None]) * w
+    slope = (dx * (matched - mean_y[:, None])).sum(axis=1) / (dx * dx).sum(axis=1)
+    start = mean_y - slope * mean_x
+    residual = (np.abs(start[:, None] + slope[:, None] * index - matched) * w).sum(axis=1) / hits
+    end = start + (count - 1) * slope
+    shift = np.zeros(len(lines)) if prior is None else np.round(np.abs(start - prior[0] + end - prior[1]) / 2 / slope)
+    # Best first: fewest misses, then least shift, most hits, least residual.
+    order = np.lexsort((residual, -hits, shift, misses))
+    best = order[0]
     if phase is None:
-        return None if best is None else best[1]
+        return float(start[best]), float(end[best])
+    at = (phase[0] - start) / slope
+    on_box = np.abs(at - phase[1] * np.round(at / phase[1])) <= 0.3
+    aligned = order[on_box[order]]
     # Unless pinned, alignment only breaks ties: an aligned lattice matching
     # fewer lines than the best one means the quad is no box of this grid.
     # Matched lines, not misses: lines past a cropped edge do not count as
     # missing, so a lattice pushed off the image misses fewer.
-    if aligned is None or (not phase[2] and aligned[0][2] < best[0][2]):
+    if not len(aligned) or (not phase[2] and hits[aligned[0]] < hits[best]):
         return None
-    return aligned[1]
+    return float(start[aligned[0]]), float(end[aligned[0]])
 
 
 def find_grid_with_debug(
