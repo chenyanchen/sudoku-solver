@@ -80,7 +80,7 @@ deploy/deploy.sh <host>          # ships the committed HEAD (git archive), keeps
 
 The pages are on GitHub Pages behind Cloudflare; `.github/workflows/pages.yml` runs `scripts/build_static_site.py` on every push to `main` that touches `frontend/`, `backend/i18n.py` or the build script. The server (one 2-core/2 GB VPS: uvicorn with 1 worker behind Caddy, systemd `sudoku-solver`) is only the API. First-time setup is `deploy/setup-server.sh [domain]`.
 
-After each deploy, `python -m backend.rescore --version <rev>` reads every kept upload again into the `rescores` table, so the public solve rate is what the deployed release solves. Whether a release generalizes is judged on the test set, not on this rate: most uploads end up in training. No access log is kept: the privacy note promises no IPs are stored.
+After each deploy, `python -m backend.rescore --version <rev>` reads every kept upload again into the `rescores` table, so the public solve rate is what the deployed release solves. Whether a release generalizes is judged on the test set, not on this rate: most uploads end up in training. No access log is kept: the privacy note promises no IPs are stored. Memory: the ONNX sessions run without ORT's CPU arena and `backend/heap.py` fixes glibc's mmap threshold; both kept peaks resident (~420 MB after a run of photo uploads, ~150 MB without).
 
 ## Architecture
 
@@ -92,6 +92,8 @@ The unique solution is the acceptance test throughout: a reading is trusted only
 2. **Corner CNN** (`backend/cv/corner_cnn_detector.py`), when OpenCV's grid is not a unique reading. Each solves images the other cannot. It skips the regularity check (which rejects good corners on photos with moiré); a quad that does not solve is snapped to the lattice. `refine` predicts again on a crop around the first quad; the refined reading is always tried and wins with the same solution and more givens.
 3. **16×16** (`_read_16x16`), only when no 9×9 reading is unique, on the quads the 9×9 detectors found. It replaces the 9×9 reading only if it solves uniquely or no 9×9 grid was found, so a solved 9×9 grid never changes. Without the 16×16 model only 9×9 grids are read.
 4. **Rotation**: a reading that cannot be the puzzle as printed is retried on the image turned 90° either way; a turned reading is kept only if unique.
+
+Images over `MAX_READ_SIDE` (2560px) are scaled down first: every labeled and uploaded image reads the same at that size (one does not at 2048), and full-resolution 12MP copies were most of a reading's memory.
 
 When nothing is unique, `_rank` picks what to show: an ambiguous reading with ≥17 givens (some published puzzles are ambiguous) beats a warp with regular lines, which beats one without (more givens win there). OCR always re-warps from the full-resolution frame.
 

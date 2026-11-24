@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import i18n
 from .api.routes import _get_cnn_reader, router
+from .heap import return_large_frees
 
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
@@ -25,6 +26,7 @@ _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 @asynccontextmanager
 async def _app_lifespan(_: FastAPI):
     """Eagerly validate CNN OCR model so misconfiguration fails at startup."""
+    return_large_frees()
     _get_cnn_reader()
     yield
 

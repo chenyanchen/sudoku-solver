@@ -42,6 +42,9 @@ class CnnDigitReader:
             raise FileNotFoundError(f"CNN model not found: {self.model_path}")
         sess_options = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        # The arena keeps its peak (batches of 81 cells, 256 of them for
+        # 16x16) for good; without it the web app idles ~150 MB smaller.
+        sess_options.enable_cpu_mem_arena = False
         self._session = ort.InferenceSession(
             str(self.model_path), sess_options=sess_options, providers=["CPUExecutionProvider"],
         )
