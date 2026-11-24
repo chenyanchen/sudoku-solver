@@ -1,16 +1,20 @@
 # CLAUDE.md
 
-Sudoku solver with four front ends sharing one recognition pipeline: a FastAPI web app (image upload), a macOS screen overlay, a camera monitor prototype, and a Label Studio ML Backend. Python 3.13, `uv`.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+Sudoku solver that reads a puzzle from an image. Four front ends share one recognition pipeline: a FastAPI web app (the public site, sudokusolver.siliconseries.com), a macOS screen overlay, a camera monitor prototype, and a Label Studio ML Backend. Python 3.13, `uv`. No linter or formatter is configured.
 
 **detect grid → warp 450×450 → `backend/ocr/pipeline.recognize()` (OCR → decode → unique solution) → display**
+
+`GLOSSARY.md` defines the domain terms (givens, reading, unique reading, misread, ambiguous vs unsolvable, release gate, test set); use them as defined there. `README.md` is partly out of date (old endpoint names, model paths and training commands); trust the code and this file over it.
 
 ## Commands
 
 ```bash
-uv sync --extra dev        # + pytest (ML tests are skipped without --extra ml); other extras: ml (training), labeling (ML Backend), screen (overlay), viz (notebooks)
-export CNN_MODEL_PATH=models/releases/sudoku_digit_cnn.onnx   # required by app, monitors and tests
+uv sync --extra dev        # pytest + ML Backend deps; other extras: ml (training), labeling, screen (overlay), viz (notebooks)
+export CNN_MODEL_PATH=models/releases/sudoku_digit_cnn.onnx   # required by the app, the monitors and the tests
 
-uv run uvicorn backend.main:app --reload
+uv run uvicorn backend.main:app --reload        # http://localhost:8000
 uv run --extra screen python -m screen_monitor --debug
 CORNER_CNN_MODEL=models/releases/sudoku_corner_cnn.onnx uv run --extra labeling python -m ml_backend --port 9090
 
@@ -18,87 +22,123 @@ uv run pytest                                   # all tests
 uv run pytest tests/test_pipeline.py -k name    # one test
 ```
 
+Training/export tests (`tests/conftest.py` lists them) are skipped unless the `ml` extra is installed.
+
+Training, export and release scripts must run from the repo root (`scripts/_tracking.py` keeps `mlruns/` paths relative to it) and refuse uncommitted changes (`--allow-dirty` records the diff instead).
+
+### OCR model: train → gate → release
+
+```bash
+uv run --extra ml python scripts/train_cnn_ocr.py --version <MAJOR.MINOR.PATCH> --epochs 60 --patience 20 --corner-jitter-copies 3 --seed <n>
+uv run --extra ml python scripts/export_cnn_onnx.py --checkpoint <run .pt> --output <scratch>.onnx
+CNN_MODEL_PATH=<candidate.onnx> uv run python scripts/eval_cnn_ocr.py --cnn-model <candidate.onnx> --strict                              # release gate: every labeled image
+CNN_MODEL_PATH=<candidate.onnx> uv run python scripts/eval_cnn_ocr.py --cnn-model <candidate.onnx> --labels data/testset/labels.json   # report only
+uv run --extra ml python scripts/release_model.py cnn --run-id <id> --version <YYYYMMDD.N>
+```
+
+- **Release gate**: every labeled image read exactly after decode. `release_model.py` runs it and refuses a candidate that fails or whose labeled image is missing. Release only if the candidate also has raw (pre-decode) errors no worse than the current release and `pytest` passes. The validation score saturates at 1.0 and is not a release signal.
+- **The test set is reported, never gated on or tuned to.**
+- Seeds alone swing results (often only one of three seeds passes the gate), so compare architectures or data over 3 seeds each, drawn at random per comparison (`python -c 'import random; print(random.sample(range(10**6), 3))'`), not 0/1/2.
+- `--corner-jitter-copies` adds warps from corners moved ≤1.5% of the grid side, because detected corners are a few pixels off. To measure robustness, warp from reviewed corners moved ±1.5% and ±3% and count decode-exact grids.
+- Training uses MPS when available (separable convs are ~50× slower on CPU); the device changes results, so compare runs on one device. Output prints only at exit when redirected; MLflow's `metrics/score` shows progress.
+- Versions: training `MAJOR.MINOR.PATCH` (MAJOR = architecture, MINOR = data/hyperparameters); release `YYYYMMDD.N`. `models/releases/<model>.onnx` is a symlink to the current release; each release has a `.meta.json` sidecar (version, class order, commit, seed, data hashes, val split, gate results) that stands alone without `mlruns/`.
+
+### 16×16 OCR model
+
+A separate 17-class model (blank, 1–9, A–G as 10–16), so the 9×9 model is untouched. Same flow with these differences:
+
+```bash
+uv run --extra ml python scripts/synth_16x16_grids.py --count 800 --fonts data/fonts --out data/synth_16x16   # gitignored; data/fonts holds Roboto
+uv run --extra ml python scripts/train_cnn_ocr.py --version <v> --num-classes 17 --extra data/synth_16x16/labels.json data/synth_16x16/corners.csv --epochs 30 --patience 10 --corner-jitter-copies 1
+CNN16_MODEL_PATH=<candidate.onnx> uv run python scripts/eval_cnn_ocr.py --labels data/labels/sudoku16_labels.json --cnn-model <candidate.onnx> --strict
+uv run --extra ml python scripts/release_model.py cnn16 --run-id <id> --version <YYYYMMDD.N>
+```
+
+Letters are learned from synthetic grids rendered in system fonts (macOS paths) plus Roboto, through the same warp → binarize → cut path. Judge candidates on held-out *fonts*: ten families (Georgia, Courier New, Impact, Skia, Comic Sans…) stay out of `SYSTEM_FONTS` for that. Synthetic held-out puzzles must have unique solutions, or the 16×16 reading never wins over the 9×9 one.
+
 ### Corner CNN: train → eval → release
 
 ```bash
-uv run --extra ml python scripts/synth_corner_data.py --count 6000 --seed 0          # → gitignored data/synth_corner/
+uv run --extra ml python scripts/synth_corner_data.py --count 6000 --seed 0          # → gitignored data/synth_corner*/
 uv run --extra ml python scripts/train_corner_cnn.py --synth data/synth_corner --version <MAJOR.MINOR.PATCH>
 uv run --extra ml python scripts/export_corner_cnn_onnx.py --checkpoint <run .pt> --output <scratch>.onnx
 uv run python scripts/eval_corner_cnn.py --model <candidate.onnx>      # held-out test set; compare with the release
 uv run --extra ml python scripts/release_model.py corner-cnn --run-id <id> --version <YYYYMMDD.N>
 ```
 
-The val split is a hash of each puzzle, so adding images keeps existing ones on their side; to judge new data, train a control on the old corners CSV (`--corners`) and compare on the shared val images. Pick between candidates on training/val error (`eval_corner_cnn.py --labels data/labels/sudoku_labels.json --corners data/labels/sudoku_corners.csv`), not the test set. Synthetic images are training-only; selection uses real val images. Regressing corners from globally pooled features (1.x) underfit: 4–9% median error even on training images; heatmaps (2.x) fixed that. Small nets trained from scratch (`tiny_*`, 3.x/4.x; 3 seeds each, 2026-10-17): at 256px they underfit; `tiny_32-64-128-256` at 384px (166K params) beat MobileNetV3 on median error but now and then put a corner on a keypad beside the grid (10–55% off); `_ctx` (context at stride 32), 80 epochs and keypad synth (`data/synth_corner_v2`) together (4.1.0, 213K params, 4.8 ms on the VPS vs 9.4) read 35/45 val images exactly from the raw corners vs MobileNetV3's 27, with one corner >5% off in 90 val+test predictions. Through `read_image` all of them read the same images: OpenCV reads ~90%, so only ~7 hard images depend on Corner CNN, too few to rank models. 4.2.0 (same recipe, plus 48 uploads from the public site; released as 20261103.1) halved MobileNetV3's error on val images neither trained on (median 0.5–0.75% vs 1.15–1.65% over 3 seeds; test set 0.67% vs 1.53%, 56/56 within 3% vs 47). Seeds are picked by `eval_cnn_ocr.py --strict` with `CORNER_CNN_MODEL_PATH=<candidate>` too: seed 42's warps, though closer, made the OCR read a 2 in a highlighted corner cell as 5, and decode turned an ambiguous puzzle into a wrong unique one.
+- The val split is a hash of each puzzle, so adding images keeps existing ones on their side. To judge new data, train a control on the old corners CSV (`--corners`) and compare on the shared val images.
+- Pick between candidates on training/val error (`eval_corner_cnn.py --labels data/labels/sudoku_labels.json --corners data/labels/sudoku_corners.csv`), not the test set. Synthetic images are training-only.
+- Also run `eval_cnn_ocr.py --strict` with `CORNER_CNN_MODEL_PATH=<candidate>`: closer corners have still produced warps the OCR misread into a wrong unique solution.
+- Through `read_image` most models read the same images (OpenCV reads ~90%), so end-to-end counts are too few to rank Corner CNN candidates; use corner error.
+- The current architecture is `tiny_32-64-128-256_ctx` at 384px (heatmap + soft-argmax). Regressing corners from pooled features underfit; small nets without the stride-32 context branch or keypad synth data occasionally put a corner on a keypad beside the grid.
 
-### OCR model: train → gate → release
-
-```bash
-uv run --extra ml python scripts/train_cnn_ocr.py --version <MAJOR.MINOR.PATCH> --epochs 60 --patience 20 --corner-jitter-copies 3
-uv run --extra ml python scripts/export_cnn_onnx.py --checkpoint <run .pt> --output <scratch>.onnx
-CNN_MODEL_PATH=<candidate.onnx> uv run python scripts/eval_cnn_ocr.py --cnn-model <candidate.onnx> --strict   # release gate: every labeled image
-CNN_MODEL_PATH=<candidate.onnx> uv run python scripts/eval_cnn_ocr.py --cnn-model <candidate.onnx> --labels data/testset/labels.json   # report only
-uv run --extra ml python scripts/release_model.py cnn --run-id <id> --version <YYYYMMDD.N>
-```
-
-The release gate is every labeled image read exactly after decode (`release_model.py` runs it and refuses a candidate that fails, or whose labeled image is missing), so an image added to the labels is protected from then on. The test set is reported, never gated on: deciding releases on it would tune the model to it. Release only if the candidate passes the gate, its raw (pre-decode) errors are no worse than the current release's, and `pytest` passes; the validation score saturates at 1.0 and is not a release signal. Seeds alone swing results (the same architecture scored 59–61/61), so compare architectures over 3 seeds each, drawn at random for each comparison (`python -c 'import random; print(random.sample(range(10**6), 3))'`; the sidecar records the seed) rather than 0, 1, 2 every time. `--corner-jitter-copies` adds warps from corners moved ≤1.5% of the grid side: detected corners are a few pixels off, and without it a dark-theme 5 read as 6 at 1% off. Robustness to corner error is worth measuring too: warp from reviewed corners moved by ±1.5% and ±3% (fixed draws) and count decode-exact grids. 5.5.0 (48 more uploads; released 20261103.1; 1 of 3 seeds beat the release, one failed the gate) took the test set at ±3% from 256/280 to 259 and read every gate image exactly with Corner CNN warps that made 5.4.0 misread two. 5.6.0 (137 uploads of 2026-11-14..22, 95 to training; released 20261123.1, seed 1, the only seed through the gate) learned ice-block obstacles as blank (`upload-a42c8abb`, three blocks read as digits before) and took the test set at ±3% from 461/490 to 466; it misses one given 1 on `upload-712f9056`, whose solution stays the same. Orange digits in a light-teal highlighted row (`upload-9fc1eb53`) binarize into ragged outlines; whether its 7 reads depends on the seed (5.4.0 and 5.5.0 seed 0 miss it even from reviewed corners, after training on it), so it is a preprocessing problem more than a data one. Training uses MPS when available (separable convs train ~50× slower on CPU); the device changes results, so compare runs on one device. Training and release refuse uncommitted changes (`--allow-dirty` records the diff), so the sidecar's commit reproduces the model; the sidecar also records data hashes, params, the val split and gate results, so it stands alone without `mlruns/`. Training and release track runs in `mlruns/` with artifact paths relative to the repo root (`scripts/_tracking.py`; MLflow itself records absolute ones, which broke when the repo moved), so they refuse to run from anywhere else. Training version: MAJOR = architecture, MINOR = data/hyperparameters. Release version: `YYYYMMDD.N`; `models/releases/sudoku_digit_cnn.onnx` is a symlink to the current release, with a `.meta.json` sidecar (version, class order).
-
-### 16×16 OCR model: synthesize → train → gate → release
+### Deploy
 
 ```bash
-uv run --extra ml python scripts/synth_16x16_grids.py --count 800 --fonts data/fonts --out data/synth_16x16   # gitignored; data/fonts holds Roboto
-uv run --extra ml python scripts/train_cnn_ocr.py --version <MAJOR.MINOR.PATCH> --num-classes 17 --extra data/synth_16x16/labels.json data/synth_16x16/corners.csv --epochs 30 --patience 10 --corner-jitter-copies 1
-uv run --extra ml python scripts/export_cnn_onnx.py --checkpoint <run .pt> --output <scratch>.onnx
-CNN16_MODEL_PATH=<candidate.onnx> uv run python scripts/eval_cnn_ocr.py --labels data/labels/sudoku16_labels.json --cnn-model <candidate.onnx> --strict
-uv run --extra ml python scripts/release_model.py cnn16 --run-id <id> --version <YYYYMMDD.N>
+deploy/deploy.sh <host>          # ships the committed HEAD (git archive), keeps 3 releases, restarts, rescores uploads
 ```
 
-A separate 17-class model (blank, 1–9, A–G as 10–16), so the 9×9 model is untouched. One real 16×16 upload exists (the gate), so letters are learned from synthetic grids rendered in system fonts (macOS paths) plus Roboto, run through the same warp → binarize → cut path, alongside the real 9×9 cells. Judge candidates on held-out *fonts*: with 22 sans faces (1.0.0), grids in ten unseen families (Georgia, Courier New, Impact, Skia, Comic Sans…) read uniquely 34/60, and Comic Sans G read as C into a wrong unique solution; with 59 faces (1.1.0), 58/60, every solution right (the misses are a G read as blank). Those ten families stay out of `SYSTEM_FONTS` for that reason. Synthetic held-out puzzles must have unique solutions: the generator's random givens of a patterned solution are almost always ambiguous, and an ambiguous 16×16 reading never wins over the 9×9 one. Training prints only at exit when its output is redirected; MLflow's `metrics/score` shows progress.
+The pages are on GitHub Pages behind Cloudflare; `.github/workflows/pages.yml` runs `scripts/build_static_site.py` on every push to `main` that touches `frontend/`, `backend/i18n.py` or the build script. The server (one 2-core/2 GB VPS: uvicorn with 1 worker behind Caddy, systemd `sudoku-solver`) is only the API. First-time setup is `deploy/setup-server.sh [domain]`.
 
-### Deploy (public site)
-
-```bash
-scp -r deploy <host>:/root/sudoku-deploy && ssh <host> bash /root/sudoku-deploy/setup-server.sh [domain]   # once; the domain enables Caddy/TLS
-deploy/deploy.sh <host>                                  # ships the committed HEAD; keeps 3 releases; rescores uploads
-```
-
-The API runs on one 2-core/2 GB VPS (the pages are on GitHub Pages): uvicorn (1 worker, 127.0.0.1:8000, systemd `sudoku-solver`) behind Caddy (TLS). `SUDOKU_DATA_DIR=/var/lib/sudoku-solver` holds `records.sqlite3` (every upload's result, corrections) and `images/` (every upload, once per SHA-256, 5 GB budget). No access log: the privacy note promises no IPs are stored. The public solve rate is what the deployed release solves: after each deploy, `python -m backend.rescore --version <rev>` (a `systemd-run` unit at nice 19, `journalctl -u 'sudoku-rescore-*'`; ~1 min locally for 255 images) reads every kept upload again into the `rescores` table, and stats take each image's latest outcome (a rescore, or an upload after it). Rescores count by status alone: variants count as solved when read as a 9×9 or 16×16 Sudoku that solves; corrections attach to an upload's reading only. Whether a release generalizes is judged on the test set, not on this rate: most uploads end up in training.
+After each deploy, `python -m backend.rescore --version <rev>` reads every kept upload again into the `rescores` table, so the public solve rate is what the deployed release solves. Whether a release generalizes is judged on the test set, not on this rate: most uploads end up in training. No access log is kept: the privacy note promises no IPs are stored.
 
 ## Architecture
 
-- **Detection**: web (`routes.read_image`) reads the grid from OpenCV contours (`backend/cv/grid_detector.py`) and, when that grid is not a unique reading, from Corner CNN's corners (`backend/cv/corner_cnn_detector.py`; heatmap + soft-argmax; `tiny_32-64-128-256_ctx` since 20261103.1, median corner error 0.7% on the test set). Each solves images the other cannot (glare over the lines, a plastic sleeve / grids Corner CNN mislocates). Corner CNN sees the image at 256px, so on a photo where the grid is small its corners can land a cell off; when its quad does not solve, it predicts again on a crop around that quad (`CornerCnnDetector.refine`). The refined corners are only a second try: on some training images they move several percent away. They are read even when the first quad solves, and win with the same solution and more givens: a quad a few percent off cuts the digits along one edge, and the givens left can still solve uniquely. When nothing reads uniquely, an ambiguous reading with ≥17 givens beats an unsolvable one (some published puzzles are ambiguous; fewer givens is usually a partial grid); between warps without regular lines, more givens win (OpenCV's fallback is often one blank cell). The unique solution is the acceptance test, so the Corner CNN retry skips the regularity check, which rejects good corners on photos with moiré. Corner CNN also pre-annotates corners in the ML Backend; the screen monitor uses OpenCV only. OpenCV's fixed-pixel thresholds suit no single scale (12MP photos of screens pick up moiré; some paper photos lose lines when downscaled; in images narrower than ~1000px the opening erases 1px lines), so web tries full res then a 1280px-wide copy (down- or upscaled) and takes the first warp with regular grid lines (`has_regular_grid_lines`: lines at the warp's 10 equally spaced positions per axis, so a frame around the grid fails); the screen monitor detects at ≤1280px only. A quad without regular lines is usually a decorative frame or a single 3×3 box (when the grid outline merges with its surroundings); `snap_to_lattice` fits the 9×9 line lattice around it. Some app grids have no outer lines at all (a white card on a light page, `upload-a7402daf`): lattices a line apart then fit a box equally well, so the one with the box on box lines wins, provided it matches as many lines as the best (a 3×3 block off the box lines must still fail); the lattice extrapolated from a box is then refitted across the whole grid, pinned in place, since its tilt measured across one box is 3× magnified. Faint lines are looked for at low contrast last; a strip with more than 3 peaks per line is texture and skipped (noisy photos otherwise proposed thousands of fits). A Corner CNN quad that does not solve is snapped too: a screenshot may crop the grid, and Corner CNN cannot put a corner past the image, while the lattice extends there (lines past the image do not count as missing; among equally good fits, the one fewest lines from the quad wins, since a panel edge one cell beside the grid otherwise passes for its outer line). The fit finds dark lines and light gaps between dark tiles. OCR always re-warps 450×450 from the full-res frame.
-- **Pipeline** (`backend/ocr/pipeline.py`), the only OCR → solve path, used by every front end:
-  - `prepare_grid_for_ocr`: adaptive-threshold binarization, the same as training. Per-source gray/CLAHE variants measured far worse.
-  - `ocr_cells`: 1px-margin crops; zooms in when the grid's median digit height is below the training range (small-font screenshots) and lowers the digit threshold for that grid. Training and eval use the same function.
-  - `decode`: a result is trusted only when the givens have exactly one solution. Otherwise it searches ≤2 edits over CNN candidates (fill missed givens if ambiguous, replace misreads if unsolvable). Cells read as blank with blank probability < 0.05 (an unfamiliar font) start as givens with their top candidate, outside that budget.
-- **OCR** (`backend/ocr/cnn_digit_reader.py`): CNN on 48×48 cells via ONNX Runtime (`tiny_dsc_16-p-32-32-p-64-64-p-128-128` in `model_arch.py`: 38K params, 8 ms per 81 cells on the VPS; `custom_cnn_v3` took 67 ms at the same accuracy). Raises at construction if the model can't load.
-- **Web pages** (`backend/i18n.py`): `/` and `/zh/` render `frontend/index.html` (upload, or type a puzzle in; the solution can be shared as a PNG drawn in the browser); articles such as `/how-it-works` are `frontend/article.html` around `frontend/articles/<slug>.<lang>.html` and are listed in the sitemap. The manifest's share target posts to `<lang>/share-target`, where `frontend/sw.js` (served at `/sw.js`) hands the image to the page through the Cache API. **The public site is sudokusolver.siliconseries.com** (`i18n.BASE_URL`; canonical URLs, sitemap, promotion), GitHub Pages behind Cloudflare's proxy (GitHub Pages alone often times out from China; the old chenyanchen.github.io/sudoku-solver URLs 301 there): `scripts/build_static_site.py` renders the same pages with API calls sent to the server (`i18n.API_URL`, sudokusolver-api.siliconseries.com; `window.SITE`), plus the sitemap, robots.txt and the IndexNow key; `.github/workflows/pages.yml` publishes them on every push to `main` that touches them. Hostnames are one level under siliconseries.com: Cloudflare's free certificate covers only `*.siliconseries.com`. The server is only the API: with `SUDOKU_REDIRECT_PAGES` (set in `deploy/sudoku-solver.service`) its page URLs 301 to the public site; locally it serves the pages itself. `i18n.CF_BEACON_TOKEN` adds Cloudflare Web Analytics to the static pages.
-- **16×16** (`routes._read_16x16`): tried only when no 9×9 reading solves uniquely, on the quads the 9×9 detectors found: each is snapped to a 16×16 lattice as the whole grid or a 4×4 box (thin lines are often faint in photos, so the fit also looks at low contrast), and also read as it stands, since faint 1px lines and the bars of E and F defeat the fit on some grids whose quad is right; an unsnapped reading counts only if it solves uniquely. The 16×16 reading replaces the 9×9 one only if it solves uniquely or no 9×9 grid was found, so a solved 9×9 grid never changes; when a 16×16 grid reads unsolvable (unseen fonts, 2/60 synthetic), the uploader sees the 9×9 reading and can switch to 16×16 by hand. Without the 16×16 model only 9×9 grids are read.
-- **Solver** (`backend/solver/backtracking.py`): bitmask backtracking with MRV, 100K-node budget; `solve_unique` returns a solution only if it is unique. `/sudoku:solve` answers an ambiguous grid with status `ambiguous` and the `undetermined` cells (values that differ between solutions; `undetermined_cells`, ms even for an empty grid); the page shows one solution with those cells hatched. Some apps' hardest puzzles are ambiguous (Sudoku Bamboo "Extreme"), and the app counts any other solution's value as a mistake.
-- **Screen monitor** (`screen_monitor/agent.py`): capture loop in a daemon thread, Qt overlay on the main thread. Detect/OCR only when the frame changed or a rescan is due; changed regions + last grid bbox as ROIs; OCR results cached by the warped grid's visual hash. Requires N stable frames before showing hints. OpenTelemetry → Prometheus, dashboards in `grafana/`.
-- **Camera monitor** (`camera_monitor/`): prototype for live camera frames. Its YOLO detector's model (`yolo_grid_detect.onnx`) was removed in 90dcddd, so it does not run as shipped.
-- **ML Backend** (`ml_backend/`): Label Studio protocol (`/health`, `/setup`, `/predict`, `/fit`) for corner keypoint and OCR projects. Requires `CNN_MODEL_PATH` and `CORNER_CNN_MODEL` with `.meta.json` sidecars; reports model version `<cnn>+<corner>`. Label Studio bug [#7151](https://github.com/HumanSignal/label-studio/issues/7151): the "Prediction score" column needs `project.model_version` patched to that exact value:
-  ```bash
-  curl -X PATCH "http://localhost:9111/api/projects/<PROJECT_ID>" -H "Authorization: Token <TOKEN>" \
-    -H "Content-Type: application/json" -d '{"model_version": "<VERSION_FROM_/setup>"}'
-  ```
+### Reading an image (`backend/api/routes.py: read_image`)
+
+The unique solution is the acceptance test throughout: a reading is trusted only when its givens have exactly one solution, and candidates are tried in order until one does.
+
+1. **OpenCV contours** (`backend/cv/grid_detector.py`, wrapped by `opencv_detector.py`). Fixed-pixel thresholds suit no single scale, so it tries full resolution, then a 1280px-wide copy, and takes the first warp with regular grid lines (`has_regular_grid_lines`). A quad without regular lines is usually a decorative frame or a single 3×3 box; `snap_to_lattice` fits the 9×9 line lattice around it (also for borderless grids and grids cropped by the image edge).
+2. **Corner CNN** (`backend/cv/corner_cnn_detector.py`), when OpenCV's grid is not a unique reading. Each solves images the other cannot. It skips the regularity check (which rejects good corners on photos with moiré); a quad that does not solve is snapped to the lattice. `refine` predicts again on a crop around the first quad; the refined reading is always tried and wins with the same solution and more givens.
+3. **16×16** (`_read_16x16`), only when no 9×9 reading is unique, on the quads the 9×9 detectors found. It replaces the 9×9 reading only if it solves uniquely or no 9×9 grid was found, so a solved 9×9 grid never changes. Without the 16×16 model only 9×9 grids are read.
+4. **Rotation**: a reading that cannot be the puzzle as printed is retried on the image turned 90° either way; a turned reading is kept only if unique.
+
+When nothing is unique, `_rank` picks what to show: an ambiguous reading with ≥17 givens (some published puzzles are ambiguous) beats a warp with regular lines, which beats one without (more givens win there). OCR always re-warps from the full-resolution frame.
+
+### Pipeline (`backend/ocr/pipeline.py`)
+
+The only OCR → solve path, used by every front end and by training and eval:
+
+- `prepare_grid_for_ocr`: adaptive-threshold binarization. Training uses the same function; per-source gray/CLAHE variants measured far worse.
+- `ocr_cells`: cuts cells with a 1px margin; zooms in when the grid's median digit height is below the training range (small-font screenshots) and lowers the digit threshold for that grid.
+- `decode`: if the givens are not a unique reading, searches ≤2 edits over the CNN's candidates among the 10 most doubtful cells (fill missed givens if ambiguous, replace misreads if unsolvable); a correction is trusted only if no other with as few edits gives a different solution. Cells read as blank with blank probability < 0.05 start as givens with their top candidate, outside that budget.
+
+`backend/ocr/cnn_digit_reader.py` runs the CNN on 48×48 cells with ONNX Runtime and raises at construction if the model can't load (the web app fails fast at startup). Architectures are in `backend/ocr/model_arch.py` and `backend/cv/corner_cnn_arch.py`, shared by training and export.
+
+### Solver (`backend/solver/backtracking.py`)
+
+Bitmask backtracking with MRV and a 100K-node budget, for 9×9 and 16×16. `solve_unique` returns a solution only if it is unique (an exhausted budget counts as a second solution). `/api/v1/sudoku:solve` answers an ambiguous grid with status `ambiguous`, one full solution and the `undetermined` cells (those that differ between solutions); the page hatches those cells and never blanks them.
+
+### Web
+
+- API (`routes.py`): `sudoku:recognize` (image → reading; rate-limited per IP, bounded concurrency), `sudoku:solve`, `sudoku:feedback` (the uploader's correction), `stats`. Recognition and solving are separate calls; the page edits the reading in between.
+- `backend/records.py`: with `SUDOKU_DATA_DIR` set, every upload's reading, corrections and rescores go to `records.sqlite3`, and each image is kept once per SHA-256. Stats count distinct images by their latest outcome. Unset locally: nothing is written.
+- Pages (`backend/i18n.py`): `/` and `/zh/` render `frontend/index.html`; articles are `frontend/article.html` around `frontend/articles/<slug>.<lang>.html`. The same renderer serves the pages locally and builds the static site, where API calls go to `i18n.API_URL` (`window.SITE`). With `SUDOKU_REDIRECT_PAGES` (set on the server) page URLs 301 to the public site. `frontend/sw.js` receives the PWA share target and hands the image to the page through the Cache API.
+- Hostnames are one level under siliconseries.com: Cloudflare's free certificate covers only `*.siliconseries.com`.
+
+### Other front ends
+
+- **Screen monitor** (`screen_monitor/agent.py`): capture loop in a daemon thread, Qt overlay on the main thread. OpenCV detection only, at ≤1280px. Detects/OCRs only when the frame changed or a rescan is due; OCR results are cached by the warped grid's visual hash; hints appear after N stable frames. OpenTelemetry → Prometheus, dashboards in `grafana/`.
+- **ML Backend** (`ml_backend/`): Label Studio protocol (`/health`, `/setup`, `/predict`, `/fit`) for corner keypoint and OCR projects. Requires `CNN_MODEL_PATH` and `CORNER_CNN_MODEL` with `.meta.json` sidecars; reports model version `<cnn>+<corner>`. `/fit` writes reviewed corners to `data/labels/sudoku_corners.csv`. Label Studio bug [#7151](https://github.com/HumanSignal/label-studio/issues/7151): the "Prediction score" column needs `project.model_version` patched to that exact value (`PATCH /api/projects/<id>` with `{"model_version": "<version from /setup>"}`).
+- **Camera monitor** (`camera_monitor/`): prototype. Its YOLO model was removed in 90dcddd, so it does not run as shipped; the YOLO scripts and `backend/cv/yolo_detector.py` are legacy.
 
 ## Data
 
-- `data/labels/sudoku_labels.json`: ground-truth grids, the digits as printed. Every label must have at least one solution: zero means a transcription error (the solver caught two). Several solutions are allowed when the puzzle itself is ambiguous; check such a label against the image, since a missed digit causes them too.
-- `data/labels/sudoku_corners.csv`: reviewed grid corners. Required for every training image; never train on predicted crops.
-- `data/testset/`: independent test set (never train or tune on it; see its README), with reviewed `corners.csv`. `local/` holds non-redistributable images and is gitignored. Evaluate with `scripts/eval_cnn_ocr.py --labels data/testset/labels.json` and `scripts/eval_corner_cnn.py --model <onnx>`.
-- `data/production/` (gitignored): a local copy of the server's `SUDOKU_DATA_DIR` (`records.sqlite3`, `images/` named by SHA-256) for looking at real uploads. Refresh with a consistent snapshot of the live database:
+- `data/labels/sudoku_labels.json`: the givens as printed, for every training image (also the release gate). Every label must have at least one solution: zero means a transcription error. Several solutions are allowed when the puzzle itself is ambiguous; check such a label against the image, since a missed digit causes them too.
+- `data/labels/sudoku_corners.csv`: reviewed grid corners (TL, TR, BR, BL, normalized; may lie past the image edge). Required for every training image; never train on predicted corners.
+- `data/raw/images/`: training images; non-redistributable ones are in gitignored `local/` (labels keyed `local/<name>`).
+- `data/testset/`: independent test set with its own `labels.json` and reviewed `corners.csv`. Never train or tune on it, never add its images to the training labels (`tests/test_testset.py` enforces this), and report the score before and after any change made because of a test-set failure. Its README logs how uploads are split by puzzle between it and training.
+- `data/labels/sudoku16_labels.json` / `sudoku16_corners.csv`: real 16×16 uploads, the 16×16 model's gate.
+- `data/production/` (gitignored): a local copy of the server's `SUDOKU_DATA_DIR` for looking at real uploads. Refresh from a consistent snapshot:
   ```bash
   ssh <host> 'sqlite3 /var/lib/sudoku-solver/records.sqlite3 ".backup /tmp/records-snapshot.sqlite3"' && rsync -a <host>:/tmp/records-snapshot.sqlite3 data/production/records.sqlite3 && rsync -a <host>:/var/lib/sudoku-solver/images/ data/production/images/ && ssh <host> 'rm /tmp/records-snapshot.sqlite3'
   ```
-- `data/labels/sudoku16_labels.json` / `sudoku16_corners.csv`: real 16×16 uploads (values 10–16 are A–G), the 16×16 model's gate. `data/synth_16x16/` (gitignored): synthetic 16×16 grids for training only.
-- `data/raw/images/`: training screenshots and photos; non-redistributable ones are in gitignored `local/` (labels keyed `local/<name>`). OCR and Corner CNN training both read these with `sudoku_corners.csv`; the ML Backend's `/fit` writes corners there. `data/yolo_grid/`: legacy YOLO keypoint data.
+- Gitignored and regenerated by scripts: `data/synth_corner*/`, `data/synth_16x16/`, `data/fonts/`, `mlruns/`, `models/checkpoints/`.
 
-## Environment Variables
+## Environment variables
 
-- `CNN_MODEL_PATH`: **required** for the web app (startup fails fast) and tests; the monitors' `--model` defaults to it.
-- `CNN16_MODEL_PATH`: the 16×16 OCR model (defaults to the `sudoku_16x16_cnn.onnx` release symlink; without it only 9×9 grids are read).
+- `CNN_MODEL_PATH`: **required** for the web app and tests; the monitors' `--model` defaults to it.
+- `CNN16_MODEL_PATH`, `CORNER_CNN_MODEL_PATH`: web 16×16 OCR and Corner CNN models; both default to the release symlinks. `CORNER_CNN_MODEL`: ML Backend (required there).
 - `CNN_BLANK_THRESHOLD` (0.65), `CNN_DIGIT_THRESHOLD` (0.55), `CNN_TOPK_CANDIDATES` (4): optional web overrides.
-- `CORNER_CNN_MODEL_PATH`: web Corner CNN (defaults to the release symlink). `CORNER_CNN_MODEL`: ML Backend (required).
+- `SUDOKU_DATA_DIR`: enables upload records, stats and image storage. `SUDOKU_RECOGNIZE_SLOTS` (2) concurrent recognitions, `SUDOKU_RECOGNIZE_PER_MINUTE` (20) uploads per IP.
 - `SUDOKU_BASE_URL` (public site), `SUDOKU_API_URL` (server), `SUDOKU_REDIRECT_PAGES` (server pages redirect to the public site).
-- `SUDOKU_DATA_DIR`: enables upload records, `/api/v1/stats` and image storage (unset locally: nothing is written). `SUDOKU_RECOGNIZE_SLOTS` (2) concurrent recognitions, `SUDOKU_RECOGNIZE_PER_MINUTE` (20) uploads per IP.
